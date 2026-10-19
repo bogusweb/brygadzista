@@ -85,6 +85,8 @@ const uploadDocument = (token: string, projectId: string, file: File, onProgress
 };
 
 export const createApi = (token: string) => ({
+  // The chat runtime sends its own requests and needs the raw token for its headers.
+  token,
   whoami: () => request<{ role: Role }>(token, "/api/auth/me"),
   listProjects: () => request<Project[]>(token, "/api/projects"),
   createProject: (name: string) =>

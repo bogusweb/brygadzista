@@ -137,6 +137,9 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
       </nav>
       <div className="section-head">
         <h1>{project?.name ?? "Projekt"}</h1>
+        <a className="button" href={routeHref({ screen: "chat", projectId })}>
+          Zapytaj agenta
+        </a>
       </div>
 
       <div

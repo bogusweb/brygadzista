@@ -513,3 +513,178 @@ progress {
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
   }
 }
+
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.section-head > a.button {
+  align-self: flex-start;
+}
+
+/* Chat. CopilotKit redefines --muted, --accent, --border and --radius inside its own
+   [data-copilotkit] scope, so the chat renderers read copies resolved outside it. */
+
+.chat-screen {
+  --chat-muted: var(--muted);
+  --chat-accent: var(--accent);
+  --chat-border: var(--border);
+  --chat-radius: var(--radius);
+  --chat-surface: var(--surface);
+  --chat-focus: var(--focus);
+}
+
+.chat-panel {
+  padding: 0;
+  overflow: hidden;
+  height: calc(100dvh - 200px);
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-panel .chat {
+  flex: 1;
+  min-height: 0;
+}
+
+.tool-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  color: var(--chat-muted);
+}
+
+.tool-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chat-accent);
+  animation: tool-pulse 1s ease-in-out infinite alternate;
+}
+
+.tool-status.done .tool-dot {
+  background: var(--chat-border);
+  animation: none;
+}
+
+@keyframes tool-pulse {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.page-card {
+  margin: 8px 0;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.page-card.skeleton {
+  height: auto;
+  width: 100%;
+  aspect-ratio: 1.414;
+  background: var(--chat-border);
+  border-radius: var(--chat-radius);
+}
+
+.page-card-image {
+  padding: 0;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius);
+  background: var(--chat-surface);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.page-card-image:focus-visible,
+.source-link:focus-visible {
+  outline: 2px solid var(--chat-focus);
+  outline-offset: 2px;
+}
+
+.page-preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1.414;
+  object-fit: contain;
+  background: #fff;
+}
+
+.page-preview.placeholder {
+  display: grid;
+  place-items: center;
+}
+
+.source-link {
+  color: var(--chat-accent);
+  font-weight: 500;
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  background: rgb(0 0 0 / 0.92);
+}
+
+.lightbox-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+}
+
+.lightbox-bar .button.ghost {
+  color: #fff;
+  border-color: rgb(255 255 255 / 0.3);
+}
+
+.lightbox-bar .close {
+  margin-left: auto;
+}
+
+.lightbox-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.lightbox-image {
+  max-width: 100%;
+  height: auto;
+  background: #fff;
+  border-radius: 4px;
+}
+
+.lightbox-image.placeholder {
+  padding: 48px;
+}
+
+@media (max-width: 640px) {
+  .chat-panel {
+    height: calc(100dvh - 170px);
+  }
+}
+
+.page-card-note {
+  color: var(--chat-muted);
+}
