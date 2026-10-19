@@ -54,6 +54,12 @@ app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-t
 
 app.get("/api/health", (c) => c.json({ ok: true }));
 
+// Lets a client check a token (and which role it carries) before storing it.
+app.get("/api/auth/me", (c) => {
+  const role = roleForToken(requestToken(c.req.header("authorization"), c.req.query("token")));
+  return role ? c.json({ role }) : c.json({ error: "Brak dostępu" }, 401);
+});
+
 app.use("/api/copilotkit/*", requireRole("app", "admin"));
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));
 app.use("/api/admin/copilotkit/*", requireRole("admin"));
