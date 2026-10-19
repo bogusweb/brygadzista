@@ -1,6 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { app } from "../src/app.js";
+import { hashPassword, type UserRole } from "../src/auth.js";
 import { config } from "../src/config.js";
 import { migrate, sql } from "../src/db.js";
+import { limiters } from "../src/rate-limit.js";
 import { documentDir, documentPdf } from "../src/storage.js";
 
 export const ADMIN = { authorization: "Bearer test-admin" };
@@ -8,7 +11,30 @@ export const APP = { authorization: "Bearer test-app" };
 
 export const resetDatabase = async () => {
   await migrate();
-  await sql`truncate projects cascade`;
+  await sql`truncate projects, users cascade`;
+  Object.values(limiters).forEach((limiter) => limiter.reset());
+};
+
+export const PASSWORD = "tajne-haslo-123";
+
+export const createUser = async (email: string, role: UserRole, password = PASSWORD) => {
+  const [user] = await sql<{ id: string }[]>`
+    insert into users (email, name, password_hash, role) values (${email}, ${email.split("@")[0]!}, ${await hashPassword(password)}, ${role})
+    returning id`;
+  return user!.id;
+};
+
+export const addMember = (projectId: string, userId: string) =>
+  sql`insert into project_members (project_id, user_id) values (${projectId}, ${userId})`;
+
+export const login = async (email: string, password = PASSWORD) => {
+  const response = await app.request("/api/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const body = (await response.json()) as { token: string };
+  return { authorization: `Bearer ${body.token}` };
 };
 
 export const createProject = async (name = "Hala sportowa") => {

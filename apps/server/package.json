@@ -13,6 +13,7 @@
   "dependencies": {
     "@copilotkit/runtime": "1.79.1",
     "@hono/node-server": "^2.1.5",
+    "@node-rs/argon2": "^2.2.2",
     "@openrouter/ai-sdk-provider": "2.10.0",
     "ai": "6.0.311",
     "hono": "^4.13.13",

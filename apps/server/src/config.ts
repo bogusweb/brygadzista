@@ -11,8 +11,16 @@ export const config = {
   databaseUrl: requireEnv("DATABASE_URL", "postgres://brygadzista:brygadzista@localhost:5432/brygadzista"),
   dataDir: path.resolve(process.env.DATA_DIR ?? "./data"),
   dashboardDir: path.resolve(process.env.DASHBOARD_DIR ?? "../dashboard/dist"),
+  // Shared tokens from before user accounts (#10). ADMIN_TOKEN stays as emergency admin access (e.g. to create
+  // the first owner account); APP_TOKEN is the old app token with access to every project. It is off when set
+  // to "", and in production unless set explicitly.
   adminToken: requireEnv("ADMIN_TOKEN", "dev-admin"),
-  appToken: requireEnv("APP_TOKEN", "dev-app"),
+  appToken: process.env.APP_TOKEN ?? (process.env.NODE_ENV === "production" ? "" : "dev-app"),
+  sessionTtlDays: Number(process.env.SESSION_TTL_DAYS ?? 30),
+  // Rate limits per user (or per shared token); login attempts per e-mail and per IP.
+  chatRequestsPerMinute: Number(process.env.RATE_LIMIT_CHAT_PER_MINUTE ?? 10),
+  uploadsPerHour: Number(process.env.RATE_LIMIT_UPLOADS_PER_HOUR ?? 30),
+  loginAttemptsPer15Min: Number(process.env.RATE_LIMIT_LOGIN_PER_15_MIN ?? 10),
   openrouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
   // Chat about the project: strongest model, served from an EU region.
   agentModel: process.env.AGENT_MODEL ?? "anthropic/claude-opus-5.5",

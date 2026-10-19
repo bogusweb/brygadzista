@@ -55,6 +55,35 @@ export const migrate = async () => {
   // A page that keeps failing is recorded and skipped instead of stopping the whole document.
   await sql`alter table pages add column if not exists error text`;
   await sql`alter table pages add column if not exists attempts int not null default 0`;
+  // User accounts (#10): owners see every project, contractors only the ones they are members of.
+  await sql`
+    create table if not exists users (
+      id uuid primary key default gen_random_uuid(),
+      email text not null unique,
+      name text not null default '',
+      password_hash text not null,
+      role text not null check (role in ('owner', 'contractor')),
+      disabled_at timestamptz,
+      created_at timestamptz not null default now()
+    )`;
+  // Only a hash of the session token is stored, so a database leak does not hand out working sessions.
+  await sql`
+    create table if not exists sessions (
+      token_hash text primary key,
+      user_id uuid not null references users(id) on delete cascade,
+      created_at timestamptz not null default now(),
+      last_used_at timestamptz not null default now(),
+      expires_at timestamptz not null
+    )`;
+  await sql`
+    create table if not exists project_members (
+      project_id uuid not null references projects(id) on delete cascade,
+      user_id uuid not null references users(id) on delete cascade,
+      created_at timestamptz not null default now(),
+      primary key (project_id, user_id)
+    )`;
+  await sql`create index if not exists sessions_user on sessions (user_id)`;
+  await sql`create index if not exists project_members_user on project_members (user_id)`;
   await sql`create index if not exists chunks_embedding on chunks using hnsw (embedding vector_cosine_ops)`;
   await sql`create index if not exists chunks_project on chunks (project_id)`;
   await sql`create index if not exists pages_fts on pages using gin (to_tsvector('simple', search_text))`;

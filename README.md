@@ -35,7 +35,12 @@ deploy/         (epik) docker compose dla Openship na serwerze ruth154
 | Metoda | Ścieżka | Rola |
 | --- | --- | --- |
 | GET | `/api/health` | publiczne |
-| GET/POST | `/api/projects` | app/admin, admin |
+| POST | `/api/auth/login` (`{email, password}` → `{token, expiresAt, role, user}`) | publiczne, limit prób |
+| GET | `/api/auth/me` (`{role, user}`, `user` = null dla tokenów z env) | app/admin |
+| POST | `/api/auth/logout`, `/api/auth/password` (`{currentPassword, newPassword}`) | app/admin |
+| GET/POST | `/api/users`, PATCH/DELETE `/api/users/:id` | admin |
+| GET | `/api/projects/:id/members`, PUT/DELETE `/api/projects/:id/members/:userId` | admin |
+| GET/POST | `/api/projects` (wykonawca widzi tylko swoje) | app/admin, admin |
 | PUT | `/api/projects/:id/documents?filename=&autostart=0` (body = PDF) | admin |
 | GET | `/api/projects/:id/documents` | app/admin |
 | GET | `/api/documents/:id` (postęp, ETA, szacunek) | app/admin |
@@ -46,7 +51,12 @@ deploy/         (epik) docker compose dla Openship na serwerze ruth154
 | * | `/api/copilotkit/*` (nagłówek `x-project-id`) | app/admin |
 | * | `/api/admin/copilotkit/*` (z A2UI) | admin |
 
-Autoryzacja: `Authorization: Bearer <ADMIN_TOKEN|APP_TOKEN>`.
+Autoryzacja: `Authorization: Bearer <token>`.
+
+**Konta** (#10): właściciel (`owner`, rola API `admin`) widzi wszystkie projekty i zarządza kontami; wykonawca (`contractor`, rola API `app`) widzi tylko projekty, do których go dodano (lista projektów, dokumenty, strony, obrazy stron i fabryka agenta; cudzy projekt odpowiada 404). Hasła to argon2id, sesja to losowy token `bs_…` (w bazie tylko jego SHA-256), ważny `SESSION_TTL_DAYS` dni i przedłużany przy użyciu. Wyłączenie konta lub nowe hasło kończy jego sesje.
+- `ADMIN_TOKEN` z env działa dalej jako awaryjny dostęp administratora; nim zakłada się pierwsze konto właściciela (`POST /api/users` z `role: "owner"`).
+- `APP_TOKEN` to stary wspólny token aplikacji (wszystkie projekty). Jest wyłączony, gdy pusty, a w produkcji (`NODE_ENV=production`) także gdy nieustawiony.
+- Limity (w pamięci procesu): uruchomienia agenta `RATE_LIMIT_CHAT_PER_MINUTE` na użytkownika, upload `RATE_LIMIT_UPLOADS_PER_HOUR`, logowanie `RATE_LIMIT_LOGIN_PER_15_MIN` na e-mail (i 5× tyle na IP). Po przekroczeniu 429 z `Retry-After`.
 
 ## Lokalnie
 
