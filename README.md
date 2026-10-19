@@ -7,7 +7,7 @@ Asystent AI dla wykonawcy: agent, który zna projekt techniczny budynku (PDF) i 
 ```
 apps/server     Node 22 + Hono: API, upload i indeksowanie PDF, agent CopilotKit (AG-UI), serwuje dashboard
 apps/dashboard  (epik) panel operatora: React + CopilotKit + A2UI
-apps/mobile     (epik) aplikacja Expo: @copilotkit/react-native
+apps/mobile     aplikacja Expo (expo-router, @copilotkit/react-native), zob. apps/mobile/README.md
 deploy/         (epik) docker compose dla Openship na serwerze ruth154
 ```
 
