@@ -48,6 +48,13 @@ export const migrate = async () => {
       content text not null,
       embedding vector(${sql.unsafe(String(config.embeddingDimensions))}) not null
     )`;
+  // Progress of the current indexing run (#9): pages queued for it, pages finished, and when it started.
+  await sql`alter table documents add column if not exists started_at timestamptz`;
+  await sql`alter table documents add column if not exists run_total int not null default 0`;
+  await sql`alter table documents add column if not exists run_done int not null default 0`;
+  // A page that keeps failing is recorded and skipped instead of stopping the whole document.
+  await sql`alter table pages add column if not exists error text`;
+  await sql`alter table pages add column if not exists attempts int not null default 0`;
   await sql`create index if not exists chunks_embedding on chunks using hnsw (embedding vector_cosine_ops)`;
   await sql`create index if not exists chunks_project on chunks (project_id)`;
   await sql`create index if not exists pages_fts on pages using gin (to_tsvector('simple', search_text))`;

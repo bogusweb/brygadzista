@@ -18,6 +18,8 @@ export default defineConfig({
       // Models are mocked in tests; an empty key also keeps any unmocked call from reaching OpenRouter.
       OPENROUTER_API_KEY: "",
       INDEX_CONCURRENCY: "2",
+      // Retries in tests wait milliseconds, not seconds.
+      LLM_RETRY_BASE_MS: "1",
     },
   },
 });

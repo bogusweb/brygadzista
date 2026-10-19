@@ -46,16 +46,17 @@ export const axisVector = (axis: number) =>
   Array.from({ length: config.embeddingDimensions }, (_, i) => (i === axis ? 1 : 0));
 
 // Smallest valid PDF with one line of Helvetica text per page, with a correct xref so poppler reads it.
-export const makePdf = (pageTexts: string[]): Uint8Array<ArrayBuffer> => {
+// The page size is in points; the default is US Letter, A1 is 1684 x 2384.
+export const makePdf = (pageTexts: string[], size = { width: 612, height: 792 }): Uint8Array<ArrayBuffer> => {
   const objects: string[] = [];
   const pageIds = pageTexts.map((_, i) => 4 + i * 2);
   objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
   objects[2] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageTexts.length} >>`;
   objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
   pageTexts.forEach((text, i) => {
-    const stream = `BT /F1 18 Tf 72 720 Td (${text.replace(/[()\\]/g, "\\$&")}) Tj ET`;
+    const stream = `BT /F1 18 Tf 72 ${size.height - 72} Td (${text.replace(/[()\\]/g, "\\$&")}) Tj ET`;
     objects[pageIds[i]!] =
-      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> " +
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${size.width} ${size.height}] /Resources << /Font << /F1 3 0 R >> >> ` +
       `/Contents ${pageIds[i]! + 1} 0 R >>`;
     objects[pageIds[i]! + 1] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
   });

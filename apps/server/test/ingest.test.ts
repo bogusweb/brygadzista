@@ -32,6 +32,7 @@ beforeEach(async () => {
     keywords: ["ocieplenie"],
   }));
   embed.mockImplementation(async (texts) => texts.map((_, i) => axisVector(i)));
+  config.maxConsecutivePageFailures = 5;
   projectId = await createProject();
 });
 
@@ -89,30 +90,81 @@ describe("ingest", () => {
     expect(doc).toEqual({ status: "ready", indexed_pages: 4 });
   });
 
-  it("marks the document as failed when the model errors, and a later run picks up where it stopped", async () => {
+  it("skips a page that keeps failing, finishes the rest, and a later run retries only that page", async () => {
     config.openrouterApiKey = "test-key";
     const documentId = await createDocument(projectId);
     await writeDocumentPdf(documentId, makePdf(PAGES));
-    indexPage.mockRejectedValueOnce(new Error("OpenRouter 503"));
+    indexPage.mockImplementation(async (_image, rawText, pageNo) => {
+      if (pageNo === 2) throw new Error("OpenRouter 503");
+      return { title: `Strona ${pageNo}`, kind: "opis", summary: rawText, facts: [], keywords: [] };
+    });
 
     await processNextDocument();
 
-    const [failed] = await sql`select status, error from documents where id = ${documentId}`;
-    expect(failed).toEqual({ status: "error", error: "Error: OpenRouter 503" });
-    const doneBeforeRetry = (await pageRows(documentId)).filter((page) => page.indexed).length;
-    expect(doneBeforeRetry).toBeLessThan(PAGES.length);
+    const [doc] = await sql`select status, error, run_total, run_done from documents where id = ${documentId}`;
+    expect(doc).toEqual({
+      status: "ready",
+      error: "Nie udało się zindeksować 1 strony: 2. Ponowne indeksowanie spróbuje jeszcze raz.",
+      run_total: 4,
+      run_done: 4,
+    });
+    const [page2] = await sql`select indexed, error, attempts from pages where document_id = ${documentId} and page_no = 2`;
+    expect(page2).toEqual({ indexed: false, error: "Error: OpenRouter 503", attempts: 1 });
+    expect((await pageRows(documentId)).filter((page) => page.indexed).map((page) => page.page_no)).toEqual([1, 3, 4]);
 
-    await sql`update documents set status = 'queued' where id = ${documentId}`;
     indexPage.mockClear();
+    indexPage.mockImplementation(async (_image, rawText, pageNo) => ({ title: `Strona ${pageNo}`, kind: "opis", summary: rawText, facts: [], keywords: [] }));
+    await sql`update documents set status = 'queued' where id = ${documentId}`;
     await processNextDocument();
 
-    const [doc] = await sql`select status from documents where id = ${documentId}`;
-    expect(doc).toEqual({ status: "ready" });
-    expect((await pageRows(documentId)).every((page) => page.indexed)).toBe(true);
-    expect(indexPage).toHaveBeenCalledTimes(PAGES.length - doneBeforeRetry);
+    expect(indexPage.mock.calls.map(([, , pageNo]) => pageNo)).toEqual([2]);
+    const [retried] = await sql`select status, error from documents where id = ${documentId}`;
+    expect(retried).toEqual({ status: "ready", error: null });
+    const [fixed] = await sql`select indexed, error from pages where document_id = ${documentId} and page_no = 2`;
+    expect(fixed).toEqual({ indexed: true, error: null });
+  });
+
+  it("stops the document after several failures in a row, because then the problem is not one page", async () => {
+    config.openrouterApiKey = "test-key";
+    const documentId = await createDocument(projectId);
+    await writeDocumentPdf(documentId, makePdf(Array.from({ length: 20 }, (_, i) => `Strona ${i + 1}`)));
+    indexPage.mockRejectedValue(new Error("OpenRouter 401: zly klucz"));
+
+    await processNextDocument();
+
+    const [doc] = await sql`select status, error from documents where id = ${documentId}`;
+    expect(doc).toEqual({ status: "error", error: "Error: OpenRouter 401: zly klucz" });
+    // Workers already busy finish their page, nothing else is started.
+    expect(indexPage.mock.calls.length).toBeLessThan(config.maxConsecutivePageFailures + config.indexConcurrency);
   });
 
   it("does nothing when the queue is empty", async () => {
     expect(await processNextDocument()).toBe(false);
+  });
+});
+
+describe("ingest of a very large PDF", () => {
+  it("indexes 300 pages with progress tracking and does not stop on a few bad pages", { timeout: 180_000 }, async () => {
+    config.openrouterApiKey = "test-key";
+    const pageCount = 300;
+    const failing = new Set([77, 210]);
+    const documentId = await createDocument(projectId);
+    await writeDocumentPdf(documentId, makePdf(Array.from({ length: pageCount }, (_, i) => `Arkusz ${i + 1} sciana fundamentowa`)));
+    indexPage.mockImplementation(async (_image, rawText, pageNo) => {
+      if (failing.has(pageNo)) throw new Error("OpenRouter 429");
+      return { title: `Arkusz ${pageNo}`, kind: "rysunek", summary: rawText, facts: [], keywords: [] };
+    });
+
+    const started = Date.now();
+    await processNextDocument();
+    console.log(`300 pages: ${((Date.now() - started) / 1000).toFixed(1)} s`);
+
+    const [doc] = await sql`select status, page_count, indexed_pages, run_total, run_done, error from documents where id = ${documentId}`;
+    expect(doc).toMatchObject({ status: "ready", page_count: pageCount, indexed_pages: pageCount - failing.size, run_total: pageCount, run_done: pageCount });
+    expect(doc!.error).toContain("2 stron: 77, 210");
+    const [{ indexed }] = await sql<{ indexed: number }[]>`
+      select count(*)::int as indexed from pages where document_id = ${documentId} and indexed`;
+    expect(indexed).toBe(pageCount - failing.size);
+    expect(indexPage).toHaveBeenCalledTimes(pageCount);
   });
 });

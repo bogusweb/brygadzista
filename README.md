@@ -13,6 +13,14 @@ deploy/         (epik) docker compose dla Openship na serwerze ruth154
 
 **Indeksowanie PDF** (`apps/server/src/ingest.ts`): PDF jest strumieniowany na dysk, potem w tle strona po stronie: `pdftotext` (tekst), `pdftoppm` (JPEG strony), model z wizją robi ustrukturyzowany indeks strony (tytuł, rodzaj, opis, parametry, słowa kluczowe), a Gemini Embedding 2 liczy wektory (pgvector). Przetwarzanie jest wznawialne po restarcie.
 
+**Duże PDF-y** (setki stron, arkusze A0/A1):
+- Upload jest strumieniowany i przerywany po przekroczeniu `MAX_UPLOAD_MB` (413); PDF z więcej niż `MAX_PAGES` stron jest odrzucany.
+- Odpowiedź uploadu zawiera `pageCount` i `estimate` (`costUsd`, `seconds`), liczone z `INDEX_COST_PER_PAGE_USD`, `INDEX_SECONDS_PER_PAGE` i `INDEX_CONCURRENCY`. Z `?autostart=0` dokument ma status `awaiting_start` i czeka na `POST /api/documents/:id/start` z dashboardu.
+- W trakcie indeksowania `GET /api/documents/:id` (i lista dokumentów) zwraca `progress` (`total`, `done`, `etaSeconds` liczone z dotychczasowego tempa) oraz `failedPages`.
+- Każde wywołanie modelu ma timeout (`LLM_TIMEOUT_MS`) i ponowienia z wykładniczym backoffem i jitterem przy 408/429/5xx, timeoutach i zerwanych połączeniach (z respektowaniem `Retry-After`). Wywołania poppler też mają timeout.
+- Strona, która mimo ponowień się nie udała, jest zapisywana z błędem i pomijana, a reszta dokumentu idzie dalej (status `ready`, w `error` lista stron do ponowienia). Dopiero `MAX_CONSECUTIVE_PAGE_FAILURES` błędów pod rząd (np. zły klucz, awaria) zatrzymuje dokument.
+- `inspect_drawing` na arkuszu większym niż A3 dostaje podgląd całej strony i do 9 nachodzących na siebie kafelków w rozdzielczości do 150 DPI (`drawing.ts`), żeby drobne wymiary były czytelne. Każdy JPEG ma najwyżej 2,5 MB (w razie potrzeby niższa jakość). Kafelki renderują się przy pierwszym użyciu i są cache'owane na dysku.
+
 **Wyszukiwanie** (`search.ts`): hybryda wektorowa (pgvector) + pełnotekstowa z prefiksami i trigramami (polska odmiana), łączona przez reciprocal rank fusion.
 
 **Agent** (`agent.ts`): `BuiltInAgent` CopilotKit z narzędziami `search_project`, `list_pages`, `read_page`, `inspect_drawing`, `show_page`. Odpowiada po polsku i zawsze podaje źródło.
@@ -28,8 +36,10 @@ deploy/         (epik) docker compose dla Openship na serwerze ruth154
 | --- | --- | --- |
 | GET | `/api/health` | publiczne |
 | GET/POST | `/api/projects` | app/admin, admin |
-| PUT | `/api/projects/:id/documents?filename=` (body = PDF) | admin |
+| PUT | `/api/projects/:id/documents?filename=&autostart=0` (body = PDF) | admin |
 | GET | `/api/projects/:id/documents` | app/admin |
+| GET | `/api/documents/:id` (postęp, ETA, szacunek) | app/admin |
+| POST | `/api/documents/:id/start` | admin |
 | GET | `/api/documents/:id/pages` | app/admin |
 | GET | `/api/documents/:id/pages/:n/image` (jedyna ścieżka, która przyjmuje też `?token=`) | app/admin |
 | POST | `/api/documents/:id/reindex` | admin |

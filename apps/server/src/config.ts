@@ -24,4 +24,19 @@ export const config = {
   embeddingProvider: process.env.EMBEDDING_PROVIDER ?? "google-vertex/eu",
   embeddingDimensions: 1536,
   indexConcurrency: Number(process.env.INDEX_CONCURRENCY ?? 2),
+  // Upload limits: the PDF is streamed to disk and cut off as soon as it passes the size limit.
+  maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 1024) * 1024 * 1024,
+  maxPages: Number(process.env.MAX_PAGES ?? 3000),
+  // Estimate shown before indexing starts. A page is one vision call (image + up to 12k chars of text)
+  // plus a few embeddings; tune both from real runs.
+  indexCostPerPageUsd: Number(process.env.INDEX_COST_PER_PAGE_USD ?? 0.03),
+  indexSecondsPerPage: Number(process.env.INDEX_SECONDS_PER_PAGE ?? 20),
+  // Model calls: per-request timeout and retries with exponential backoff on 429/5xx and timeouts.
+  llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 180_000),
+  llmMaxRetries: Number(process.env.LLM_MAX_RETRIES ?? 5),
+  llmRetryBaseMs: Number(process.env.LLM_RETRY_BASE_MS ?? 2000),
+  // poppler calls on huge sheets can hang on broken files.
+  pdfToolTimeoutMs: Number(process.env.PDF_TOOL_TIMEOUT_MS ?? 120_000),
+  // After this many failed pages in a row the problem is not the page (key, outage), so the document stops.
+  maxConsecutivePageFailures: Number(process.env.MAX_CONSECUTIVE_PAGE_FAILURES ?? 5),
 };

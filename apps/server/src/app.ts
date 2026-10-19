@@ -5,12 +5,14 @@ import { cors } from "hono/cors";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, open, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { createProjectAgent } from "./agent.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
+import { estimateIndexing, etaSeconds } from "./estimate.js";
+import { pdfPageCount } from "./pdf.js";
 import { documentDir, documentPdf, pageImage } from "./storage.js";
 
 type Role = "admin" | "app";
@@ -85,32 +87,102 @@ app.delete("/api/projects/:id", requireRole("admin"), async (c) => {
   return c.body(null, 204);
 });
 
+type DocumentRow = {
+  id: string;
+  filename: string;
+  pageCount: number;
+  indexedPages: number;
+  status: string;
+  error: string | null;
+  createdAt: Date;
+  startedAt: Date | null;
+  runTotal: number;
+  runDone: number;
+  failedPages: number;
+};
+
+// What the dashboard needs to show before and during indexing: the estimate, progress and time left.
+const withProgress = ({ startedAt, runTotal, runDone, ...doc }: DocumentRow) => ({
+  ...doc,
+  estimate: estimateIndexing(doc.pageCount),
+  progress:
+    doc.status === "processing"
+      ? { total: runTotal, done: runDone, startedAt, etaSeconds: etaSeconds({ total: runTotal, done: runDone, startedAt }) }
+      : null,
+});
+
+const documentRows = (where: ReturnType<typeof sql>) => sql<DocumentRow[]>`
+  select d.id, d.filename, d.page_count as "pageCount", d.indexed_pages as "indexedPages", d.status, d.error,
+    d.created_at as "createdAt", d.started_at as "startedAt", d.run_total as "runTotal", d.run_done as "runDone",
+    (select count(*)::int from pages p where p.document_id = d.id and p.error is not null) as "failedPages"
+  from documents d where ${where} order by d.created_at`;
+
 app.get("/api/projects/:id/documents", requireRole("app", "admin"), async (c) =>
-  c.json(await sql`
-    select id, filename, page_count as "pageCount", indexed_pages as "indexedPages", status, error, created_at as "createdAt"
-    from documents where project_id = ${c.req.param("id")} order by created_at`),
+  c.json((await documentRows(sql`d.project_id = ${c.req.param("id")}`)).map(withProgress)),
 );
 
-// The PDF is streamed straight to disk so large projects never sit in memory.
+app.get("/api/documents/:id", requireRole("app", "admin"), async (c) => {
+  const [doc] = await documentRows(sql`d.id = ${c.req.param("id")}`);
+  return doc ? c.json(withProgress(doc)) : c.json({ error: "Nie ma takiego dokumentu" }, 404);
+});
+
+class UploadTooLarge extends Error {}
+
+// Counts bytes on the way to disk and stops the upload as soon as it passes the limit.
+const limitSize = (maxBytes: number) => {
+  let received = 0;
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      received += chunk.length;
+      callback(received > maxBytes ? new UploadTooLarge() : null, chunk);
+    },
+  });
+};
+
+const tooLargeMessage = () => `Plik jest za duży (limit ${Math.round(config.maxUploadBytes / 1024 / 1024)} MB)`;
+
+// The PDF is streamed straight to disk so large projects never sit in memory. The response carries the page
+// count and a cost and time estimate; with ?autostart=0 indexing waits for POST /api/documents/:id/start.
 app.put("/api/projects/:id/documents", requireRole("admin"), async (c) => {
   const filename = c.req.query("filename") ?? "projekt.pdf";
+  const autostart = c.req.query("autostart") !== "0";
   const body = c.req.raw.body;
   if (!body) return c.json({ error: "Brak pliku" }, 400);
+  if (Number(c.req.header("content-length") ?? 0) > config.maxUploadBytes) return c.json({ error: tooLargeMessage() }, 413);
   const [doc] = await sql<{ id: string }[]>`
     insert into documents (project_id, filename, status) values (${c.req.param("id")}, ${filename}, 'uploading') returning id`;
-  await mkdir(documentDir(doc!.id), { recursive: true });
-  await pipeline(Readable.fromWeb(body as WebReadableStream), createWriteStream(documentPdf(doc!.id)));
-  const handle = await open(documentPdf(doc!.id));
+  const id = doc!.id;
+  const reject = async (status: 400 | 413, error: string) => {
+    await sql`delete from documents where id = ${id}`;
+    await rm(documentDir(id), { recursive: true, force: true });
+    return c.json({ error }, status);
+  };
+
+  await mkdir(documentDir(id), { recursive: true });
+  try {
+    await pipeline(Readable.fromWeb(body as WebReadableStream), limitSize(config.maxUploadBytes), createWriteStream(documentPdf(id)));
+  } catch (error) {
+    if (error instanceof UploadTooLarge) return reject(413, tooLargeMessage());
+    await reject(400, "Przerwane wysyłanie pliku");
+    throw error;
+  }
+  const handle = await open(documentPdf(id));
   const { buffer } = await handle.read(Buffer.alloc(5), 0, 5, 0);
   await handle.close();
-  const header = buffer.toString();
-  if (header !== "%PDF-") {
-    await sql`delete from documents where id = ${doc!.id}`;
-    await rm(documentDir(doc!.id), { recursive: true, force: true });
-    return c.json({ error: "To nie jest plik PDF" }, 400);
-  }
-  await sql`update documents set status = 'queued' where id = ${doc!.id}`;
-  return c.json({ id: doc!.id }, 201);
+  if (buffer.toString() !== "%PDF-") return reject(400, "To nie jest plik PDF");
+  const pageCount = await pdfPageCount(documentPdf(id)).catch(() => null);
+  if (!pageCount) return reject(400, "Nie udało się odczytać PDF");
+  if (pageCount > config.maxPages) return reject(413, `PDF ma ${pageCount} stron, limit to ${config.maxPages}`);
+
+  const status = autostart ? "queued" : "awaiting_start";
+  await sql`update documents set status = ${status}, page_count = ${pageCount} where id = ${id}`;
+  return c.json({ id, status, pageCount, estimate: estimateIndexing(pageCount) }, 201);
+});
+
+app.post("/api/documents/:id/start", requireRole("admin"), async (c) => {
+  const [doc] = await sql`
+    update documents set status = 'queued' where id = ${c.req.param("id")} and status = 'awaiting_start' returning id`;
+  return doc ? c.json({ ok: true }) : c.json({ error: "Dokument nie czeka na start" }, 409);
 });
 
 app.post("/api/documents/:id/reindex", requireRole("admin"), async (c) => {
