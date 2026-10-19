@@ -1,6 +1,9 @@
+import { Platform } from "react-native";
+import type { ImageSourcePropType } from "react-native";
 import type { Connection } from "./settings";
 
 export type Project = { id: string; name: string; createdAt: string; documentCount: number };
+export type ProjectDocument = { id: string; filename: string; pageCount: number | null; status: string };
 
 export class ApiError extends Error {
   constructor(
@@ -50,3 +53,17 @@ const getJson = async <T>(connection: Connection, path: string): Promise<T> => {
 export const fetchProjects = (connection: Connection) => getJson<Project[]>(connection, "/api/projects");
 
 export const copilotRuntimeUrl = ({ serverUrl }: Connection) => `${serverUrl}/api/copilotkit`;
+
+export const fetchDocuments = (connection: Connection, projectId: string) =>
+  getJson<ProjectDocument[]>(connection, `/api/projects/${encodeURIComponent(projectId)}/documents`);
+
+export const pageImagePath = (documentId: string, pageNo: number) =>
+  `/api/documents/${encodeURIComponent(documentId)}/pages/${pageNo}/image`;
+
+// Native images send the token as a header; the browser's <img> cannot, so the web preview uses the query fallback.
+export const pageImageSource = (connection: Connection, documentId: string, pageNo: number): ImageSourcePropType => {
+  const uri = `${connection.serverUrl}${pageImagePath(documentId, pageNo)}`;
+  return Platform.OS === "web"
+    ? { uri: `${uri}?token=${encodeURIComponent(connection.token)}` }
+    : { uri, headers: authHeaders(connection) };
+};

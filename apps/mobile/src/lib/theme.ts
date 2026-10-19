@@ -5,6 +5,7 @@ export const colors = {
   text: "#1C1C1A",
   muted: "#6B6A65",
   accent: "#E07A1F",
+  link: "#9A4A08",
   accentText: "#FFFFFF",
   danger: "#B42318",
 } as const;
