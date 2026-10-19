@@ -81,12 +81,20 @@ const processDocument = async (doc: { id: string; project_id: string }) => {
   const pending = await sql<{ page_no: number }[]>`
     select page_no from pages where document_id = ${doc.id} and (search_text = '' or not indexed) order by page_no`;
   const queue = pending.map((row) => row.page_no);
+  // On the first failure the other workers stop taking pages, and the error is raised only after they finish,
+  // so nothing keeps indexing this document once it is marked as failed.
   const workers = Array.from({ length: Math.max(1, config.indexConcurrency) }, async () => {
     for (let pageNo = queue.shift(); pageNo !== undefined; pageNo = queue.shift()) {
-      await indexOnePage(doc, pageNo);
+      try {
+        await indexOnePage(doc, pageNo);
+      } catch (error) {
+        queue.length = 0;
+        throw error;
+      }
     }
   });
-  await Promise.all(workers);
+  const failure = (await Promise.allSettled(workers)).find((result) => result.status === "rejected");
+  if (failure) throw failure.reason;
   await sql`update documents set status = 'ready' where id = ${doc.id}`;
 };
 
@@ -98,24 +106,31 @@ const claimNextDocument = async () => {
   return doc;
 };
 
+// Documents interrupted by a restart go back to the queue; finished pages are skipped.
+export const requeueInterrupted = () => sql`update documents set status = 'queued' where status = 'processing'`;
+
+// Claims and processes one queued document. Returns whether there was one.
+export const processNextDocument = async () => {
+  const doc = await claimNextDocument().catch((error) => {
+    console.error("ingest: claim failed", error);
+    return undefined;
+  });
+  if (!doc) return false;
+  try {
+    await processDocument(doc);
+    console.log(`ingest: document ${doc.id} ready`);
+  } catch (error) {
+    console.error(`ingest: document ${doc.id} failed`, error);
+    await sql`update documents set status = 'error', error = ${String(error)} where id = ${doc.id}`;
+  }
+  return true;
+};
+
 export const startIngestWorker = async () => {
-  // Documents interrupted by a restart go back to the queue; finished pages are skipped.
-  await sql`update documents set status = 'queued' where status = 'processing'`;
+  await requeueInterrupted();
   const tick = async () => {
-    const doc = await claimNextDocument().catch((error) => {
-      console.error("ingest: claim failed", error);
-      return undefined;
-    });
-    if (doc) {
-      try {
-        await processDocument(doc);
-        console.log(`ingest: document ${doc.id} ready`);
-      } catch (error) {
-        console.error(`ingest: document ${doc.id} failed`, error);
-        await sql`update documents set status = 'error', error = ${String(error)} where id = ${doc.id}`;
-      }
-    }
-    setTimeout(tick, doc ? 0 : POLL_MS);
+    const found = await processNextDocument();
+    setTimeout(tick, found ? 0 : POLL_MS);
   };
   void tick();
 };

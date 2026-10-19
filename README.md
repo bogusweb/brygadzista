@@ -31,7 +31,7 @@ deploy/         (epik) docker compose dla Openship na serwerze ruth154
 | PUT | `/api/projects/:id/documents?filename=` (body = PDF) | admin |
 | GET | `/api/projects/:id/documents` | app/admin |
 | GET | `/api/documents/:id/pages` | app/admin |
-| GET | `/api/documents/:id/pages/:n/image` (`?token=` dozwolony) | app/admin |
+| GET | `/api/documents/:id/pages/:n/image` (jedyna ścieżka, która przyjmuje też `?token=`) | app/admin |
 | POST | `/api/documents/:id/reindex` | admin |
 | * | `/api/copilotkit/*` (nagłówek `x-project-id`) | app/admin |
 | * | `/api/admin/copilotkit/*` (z A2UI) | admin |
@@ -48,3 +48,15 @@ cd apps/server && node --env-file=.env --import tsx src/index.ts
 ```
 
 Wymaga `poppler-utils` (`pdfinfo`, `pdftotext`, `pdftoppm`).
+
+## Testy
+
+Testy (`apps/server/test`, vitest) działają na prawdziwym Postgresie z pgvector, a modele (indeksowanie stron, embeddingi) są zamockowane, więc nie potrzebują klucza OpenRouter. Nie ma CI w GitHub Actions: testy uruchamiamy lokalnie i wklejamy wynik do PR.
+
+```bash
+pnpm --filter @brygadzista/server test:db   # Postgres + pgvector w dockerze na porcie 5433
+pnpm test
+pnpm typecheck
+```
+
+Inną bazę wskazujesz przez `TEST_DATABASE_URL` (testy czyszczą jej tabele).
