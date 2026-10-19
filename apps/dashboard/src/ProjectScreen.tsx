@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { ApiError, type Api, type Project, type ProjectDocument } from "./api";
-import { dateFormat, errorMessage, formatBytes, pluralize } from "./format";
+import { dateFormat, errorMessage, formatBytes, formatDuration, formatUsd, pluralize } from "./format";
 import { routeHref } from "./route";
 
 type Props = { api: Api; projectId: string; onUnauthorized: () => void };
@@ -13,16 +13,34 @@ const busyStatuses = new Set<ProjectDocument["status"]>(["uploading", "queued", 
 
 const pagesLabel = (count: number) => pluralize(count, "strona", "strony", "stron");
 
+const estimateText = (doc: ProjectDocument) => {
+  if (!doc.estimate) return pagesLabel(doc.pageCount);
+  const { costUsd, seconds, vision } = doc.estimate;
+  const cost = vision ? `koszt ok. ${formatUsd(costUsd)}` : "bez opisu AI, tylko tekst z PDF";
+  return `${pagesLabel(doc.pageCount)} · ${cost} · potrwa ok. ${formatDuration(seconds)}`;
+};
+
+const runProgress = (doc: ProjectDocument) =>
+  doc.progress ? { done: doc.progress.done, total: doc.progress.total } : { done: doc.indexedPages, total: doc.pageCount };
+
 const statusText = (doc: ProjectDocument) => {
   switch (doc.status) {
     case "uploading":
       return "Wysyłanie pliku…";
+    case "awaiting_start":
+      return `Czeka na start: ${estimateText(doc)}`;
     case "queued":
       return "W kolejce do indeksowania";
-    case "processing":
-      return doc.pageCount > 0 ? `Indeksowanie: ${doc.indexedPages} z ${doc.pageCount}` : "Odczytuję strony…";
+    case "processing": {
+      const { done, total } = runProgress(doc);
+      if (total === 0) return "Odczytuję strony…";
+      const eta = doc.progress ? ` · zostało ok. ${formatDuration(doc.progress.etaSeconds)}` : "";
+      return `Indeksowanie: ${done} z ${total}${eta}`;
+    }
     case "ready":
-      return `Gotowy · ${pagesLabel(doc.pageCount)}`;
+      return doc.failedPages
+        ? `Gotowy · ${pagesLabel(doc.pageCount)}, ${pluralize(doc.failedPages, "strona", "strony", "stron")} z błędem`
+        : `Gotowy · ${pagesLabel(doc.pageCount)}`;
     case "error":
       return "Indeksowanie przerwane";
   }
@@ -102,10 +120,10 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
     if (file && !upload) void send(file);
   };
 
-  const reindex = async (doc: ProjectDocument) => {
+  const runAction = async (doc: ProjectDocument, action: (id: string) => Promise<unknown>) => {
     setPendingAction(doc.id);
     try {
-      await api.reindexDocument(doc.id);
+      await action(doc.id);
       await reload();
     } catch (cause) {
       handleError(cause);
@@ -213,13 +231,28 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
                     ) : (
                       <span className="row-title">{doc.filename}</span>
                     )}
-                    <span className={`small ${doc.status === "error" ? "danger-text" : "muted"}`}>
+                    <span className={`small ${doc.status === "error" || doc.failedPages ? "danger-text" : "muted"}`}>
                       {statusText(doc)} · dodano {dateFormat.format(new Date(doc.createdAt))}
                     </span>
                   </div>
                   <div className="actions">
-                    {!busy && (
-                      <button type="button" className="button ghost" disabled={pending} onClick={() => void reindex(doc)}>
+                    {doc.status === "awaiting_start" && (
+                      <button
+                        type="button"
+                        className="button primary"
+                        disabled={pending}
+                        onClick={() => void runAction(doc, api.startDocument)}
+                      >
+                        Rozpocznij indeksowanie
+                      </button>
+                    )}
+                    {!busy && doc.status !== "awaiting_start" && (
+                      <button
+                        type="button"
+                        className="button ghost"
+                        disabled={pending}
+                        onClick={() => void runAction(doc, api.reindexDocument)}
+                      >
                         Indeksuj ponownie
                       </button>
                     )}
@@ -228,14 +261,16 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
                     </button>
                   </div>
                 </div>
-                {doc.status === "processing" && doc.pageCount > 0 && (
+                {doc.status === "processing" && runProgress(doc).total > 0 && (
                   <progress
-                    max={doc.pageCount}
-                    value={doc.indexedPages}
+                    max={runProgress(doc).total}
+                    value={runProgress(doc).done}
                     aria-label={`Indeksowanie ${doc.filename}`}
                   />
                 )}
-                {doc.status === "error" && doc.error && <p className="error small">{doc.error}</p>}
+                {(doc.status === "error" || doc.status === "ready") && doc.error && (
+                  <p className="error small">{doc.error}</p>
+                )}
               </li>
             );
           })}
