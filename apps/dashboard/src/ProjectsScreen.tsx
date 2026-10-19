@@ -1,17 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ApiError, type Api, type Project } from "./api";
+import { dateFormat, pluralize } from "./format";
+import { routeHref } from "./route";
 
 type Props = { api: Api; onUnauthorized: () => void };
 
-const dateFormat = new Intl.DateTimeFormat("pl-PL", { dateStyle: "medium" });
-
-const documentLabel = (count: number) => {
-  if (count === 1) return "1 dokument";
-  const lastDigit = count % 10;
-  const lastTwo = count % 100;
-  const few = lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14);
-  return `${count} ${few ? "dokumenty" : "dokumentów"}`;
-};
+const documentLabel = (count: number) => pluralize(count, "dokument", "dokumenty", "dokumentów");
 
 export const ProjectsScreen = ({ api, onUnauthorized }: Props) => {
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -117,7 +111,9 @@ export const ProjectsScreen = ({ api, onUnauthorized }: Props) => {
           {projects.map((project) => (
             <li key={project.id} className="card row">
               <div className="row-main">
-                <span className="row-title">{project.name}</span>
+                <a className="row-title" href={routeHref({ screen: "project", projectId: project.id })}>
+                  {project.name}
+                </a>
                 <span className="muted small">
                   {documentLabel(project.documentCount)} · utworzono {dateFormat.format(new Date(project.createdAt))}
                 </span>
