@@ -10,6 +10,8 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { createProjectAgent } from "./agent.js";
+import { A2UI_CATALOG_ID } from "./a2ui-catalog.js";
+import { a2uiCatalogSchema } from "./a2ui-schema.js";
 import { config } from "./config.js";
 import { migrate, sql } from "./db.js";
 import { FakeProjectAgent } from "./fake-agent.js";
@@ -41,14 +43,20 @@ const projectIdFrom = async (request: Request) => {
   return projectId;
 };
 
-const projectAgents = async ({ request }: { request: Request }) => {
-  const projectId = await projectIdFrom(request);
-  return { default: config.fakeAgent ? new FakeProjectAgent(projectId) : createProjectAgent(projectId) };
-};
+const projectAgents =
+  ({ a2ui }: { a2ui: boolean }) =>
+  async ({ request }: { request: Request }) => {
+    const projectId = await projectIdFrom(request);
+    return { default: config.fakeAgent ? new FakeProjectAgent(projectId) : createProjectAgent(projectId, { a2ui }) };
+  };
 
-// The mobile app gets plain tool-call UI; the dashboard additionally gets A2UI surfaces.
-const appRuntime = new CopilotRuntime({ agents: projectAgents });
-const adminRuntime = new CopilotRuntime({ agents: projectAgents, a2ui: { injectA2UITool: true } });
+// The mobile app gets plain tool-call UI; the dashboard additionally gets A2UI surfaces built
+// from the construction catalog (src/a2ui-catalog.ts), which the dashboard renders.
+const appRuntime = new CopilotRuntime({ agents: projectAgents({ a2ui: false }) });
+const adminRuntime = new CopilotRuntime({
+  agents: projectAgents({ a2ui: true }),
+  a2ui: { injectA2UITool: true, schema: a2uiCatalogSchema, defaultCatalogId: A2UI_CATALOG_ID },
+});
 
 const app = new Hono();
 app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-type", "x-project-id"] }));

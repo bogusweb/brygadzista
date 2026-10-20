@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@brygadzista/server": "workspace:*",
     "@copilotkit/a2ui-renderer": "1.79.1",
     "@copilotkit/react-core": "1.79.1",
     "react": "^19.3.1",

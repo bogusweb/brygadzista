@@ -29,31 +29,81 @@ const samplePage = async (projectId: string): Promise<SamplePage | null> => {
   return page ?? null;
 };
 
-const a2uiSurface = (page: SamplePage | null) => ({
-  surfaceId: `parametry-${randomUUID().slice(0, 8)}`,
-  components: [
-    { id: "root", component: "Card", child: "col" },
-    { id: "col", component: "Column", children: ["title", "list", "hint"] },
-    { id: "title", component: "Text", text: "Zestawienie warstw (dane testowe)", variant: "h3" },
-    { id: "list", component: "Column", children: { componentId: "row", path: "/items" } },
-    { id: "row", component: "Row", justify: "spaceBetween", children: ["label", "value"] },
-    { id: "label", component: "Text", text: { path: "label" } },
-    { id: "value", component: "Text", text: { path: "value" }, variant: "h5" },
-    {
-      id: "hint",
-      component: "Text",
-      variant: "caption",
-      text: page ? `Źródło: str. ${page.pageNo}` : "Brak stron w projekcie",
-    },
-  ],
-  data: {
-    items: [
-      { label: "Styropian EPS 031", value: "15 cm" },
-      { label: "Klej i siatka", value: "2 warstwy" },
-      { label: "Tynk silikonowy", value: "1,5 mm" },
+// Shows every component of the construction catalog (src/a2ui-catalog.ts) with test values. The
+// materials come through the data model ({ path }) and the rest inline, to exercise both.
+const a2uiSurface = (page: SamplePage) => {
+  const source = { page: page.pageNo, documentId: page.documentId };
+  return {
+    surfaceId: `budowa-${randomUUID().slice(0, 8)}`,
+    components: [
+      { id: "root", component: "Card", child: "col" },
+      { id: "col", component: "Column", children: ["title", "params", "materials", "steps", "layers"] },
+      { id: "title", component: "Text", text: "Ocieplenie ścian zewnętrznych (dane testowe)", variant: "h3" },
+      { id: "params", component: "Row", children: ["thickness", "lambda"] },
+      {
+        id: "thickness",
+        component: "ParameterCard",
+        label: "Grubość ocieplenia",
+        value: "15",
+        unit: "cm",
+        note: "styropian grafitowy",
+        source,
+        weight: 1,
+      },
+      { id: "lambda", component: "ParameterCard", label: "Lambda", value: "0,031", unit: "W/(m·K)", source, weight: 1 },
+      { id: "materials", component: "MaterialList", title: "Materiały na 100 m² ściany", items: { path: "/materials" } },
+      {
+        id: "steps",
+        component: "WorkSteps",
+        title: "Kolejność prac",
+        steps: [
+          { title: "Przygotuj podłoże", detail: "Oczyść i zagruntuj ścianę.", source },
+          { title: "Przyklej płyty", detail: "Metodą obwodowo-punktową, z przesunięciem spoin.", source },
+          { title: "Zakołkuj i zatop siatkę", detail: "4–6 łączników na m², siatka na zakład 10 cm." },
+          { title: "Wykonaj tynk", detail: "Tynk silikonowy 1,5 mm po zagruntowaniu." },
+        ],
+      },
+      {
+        id: "layers",
+        component: "LayerComparison",
+        title: "Przegrody zewnętrzne",
+        highlight: 0,
+        partitions: [
+          {
+            name: "Ściana zewnętrzna SZ1",
+            total: "42 cm",
+            uValue: "0,18 W/(m²·K)",
+            source,
+            layers: [
+              { material: "Tynk silikonowy", thickness: "1,5 mm" },
+              { material: "Styropian EPS 031", thickness: "15 cm" },
+              { material: "Pustak ceramiczny", thickness: "25 cm" },
+              { material: "Tynk gipsowy", thickness: "1,5 cm" },
+            ],
+          },
+          {
+            name: "Ściana fundamentowa SF1",
+            total: "39 cm",
+            layers: [
+              { material: "Polistyren XPS", thickness: "10 cm", note: "do głębokości przemarzania" },
+              { material: "Izolacja przeciwwilgociowa", thickness: "2 mm" },
+              { material: "Bloczek betonowy", thickness: "24 cm" },
+            ],
+          },
+        ],
+      },
     ],
-  },
-});
+    data: {
+      materials: [
+        { name: "Styropian EPS 031, 15 cm", quantity: 105, unit: "m²", note: "z zapasem 5%", source },
+        { name: "Klej do styropianu", quantity: 500, unit: "kg" },
+        { name: "Siatka z włókna szklanego", quantity: 115, unit: "m²" },
+        { name: "Łączniki mechaniczne", quantity: 600, unit: "szt." },
+        { name: "Tynk silikonowy 1,5 mm", quantity: 250, unit: "kg" },
+      ],
+    },
+  };
+};
 
 export class FakeProjectAgent extends AbstractAgent {
   private projectId: string;
