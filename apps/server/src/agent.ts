@@ -25,7 +25,9 @@ zamiast długiego tekstu, a w tekście napisz tylko jedno-dwa zdania podsumowani
 - LayerComparison: warstwy przegród (ściana, strop, dach, podłoga), także porównanie kilku przegród.
 Kilka elementów ułóż w Column, a całość możesz zamknąć w Card. W każdym elemencie podawaj source.page (i source.documentId
 z wyników narzędzi), żeby wykonawca mógł otworzyć stronę. Wartości bierz wyłącznie z projektu, niczego nie dopisuj.
-Na proste pytanie z jedną liczbą wystarczy zwykły tekst albo jedna ParameterCard. Nie używaj A2UI do rozmowy ani do wyjaśnień.`;
+Na proste pytanie z jedną liczbą wystarczy zwykły tekst albo jedna ParameterCard. Nie używaj A2UI do rozmowy ani do wyjaśnień.
+Powierzchnię pokazujesz wyłącznie wywołaniem narzędzia render_a2ui. Nigdy nie wpisuj JSON-a komponentów do tekstu odpowiedzi,
+bo wykonawca zobaczy wtedy surowy kod. Nawet gdy pokazujesz powierzchnię, zawsze napisz też krótką odpowiedź tekstem ze źródłem.`;
 
 const pageRef = z.object({
   documentId: z.string().describe("Id dokumentu z wyników wyszukiwania lub spisu stron"),
