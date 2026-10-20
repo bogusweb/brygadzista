@@ -49,6 +49,8 @@ cp apps/server/.env.example apps/server/.env   # uzupełnij OPENROUTER_API_KEY
 cd apps/server && node --env-file=.env --import tsx src/index.ts
 ```
 
+Bez klucza OpenRouter czat można testować na skryptowanym agencie: `FAKE_AGENT=1` w `.env`. Odpowiada tymi samymi zdarzeniami AG-UI co prawdziwy agent (tekst, statusy narzędzi, `show_page` z pierwszą stroną projektu, a na pytanie ze słowem „zestawienie” lub „A2UI” także powierzchnię A2UI). Przy `NODE_ENV=production` flaga jest ignorowana.
+
 Dashboard (dev, proxy `/api` na `localhost:3000`, inny adres przez `API_URL`):
 
 ```bash

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { createApi } from "./api";
 import { useAdminToken } from "./auth";
 import { LoginScreen } from "./LoginScreen";
@@ -6,6 +6,9 @@ import { DocumentScreen } from "./DocumentScreen";
 import { ProjectScreen } from "./ProjectScreen";
 import { ProjectsScreen } from "./ProjectsScreen";
 import { useRoute } from "./route";
+
+// CopilotKit is most of the bundle, so it loads only when the chat opens.
+const ChatScreen = lazy(() => import("./ChatScreen").then((module) => ({ default: module.ChatScreen })));
 
 export const App = () => {
   const { token, signIn, signOut } = useAdminToken();
@@ -28,6 +31,11 @@ export const App = () => {
         {route.screen === "projects" && <ProjectsScreen api={api} onUnauthorized={signOut} />}
         {route.screen === "project" && (
           <ProjectScreen key={route.projectId} api={api} projectId={route.projectId} onUnauthorized={signOut} />
+        )}
+        {route.screen === "chat" && (
+          <Suspense fallback={<div className="card skeleton" aria-busy="true" />}>
+            <ChatScreen key={route.projectId} api={api} projectId={route.projectId} onUnauthorized={signOut} />
+          </Suspense>
         )}
         {route.screen === "document" && (
           <DocumentScreen
