@@ -5,7 +5,7 @@ import { embed } from "./llm.js";
 export type PageHit = { documentId: string; filename: string; pageNo: number; title: string | null; snippet: string };
 
 // Polish is heavily inflected and Postgres has no Polish stemmer, so each word becomes a prefix query on its stem-ish head.
-const prefixQuery = (query: string) =>
+export const prefixQuery = (query: string) =>
   query
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
