@@ -10,8 +10,11 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { createProjectAgent } from "./agent.js";
+import { A2UI_CATALOG_ID } from "./a2ui-catalog.js";
+import { a2uiCatalogSchema } from "./a2ui-schema.js";
 import { config } from "./config.js";
 import { migrate, sql } from "./db.js";
+import { FakeProjectAgent } from "./fake-agent.js";
 import { startIngestWorker } from "./ingest.js";
 import { documentDir, documentPdf, pageImage } from "./storage.js";
 
@@ -40,19 +43,31 @@ const projectIdFrom = async (request: Request) => {
   return projectId;
 };
 
-// The mobile app gets plain tool-call UI; the dashboard additionally gets A2UI surfaces.
-const appRuntime = new CopilotRuntime({
-  agents: async ({ request }) => ({ default: createProjectAgent(await projectIdFrom(request)) }),
-});
+const projectAgents =
+  ({ a2ui }: { a2ui: boolean }) =>
+  async ({ request }: { request: Request }) => {
+    const projectId = await projectIdFrom(request);
+    return { default: config.fakeAgent ? new FakeProjectAgent(projectId) : createProjectAgent(projectId, { a2ui }) };
+  };
+
+// The mobile app gets plain tool-call UI; the dashboard additionally gets A2UI surfaces built
+// from the construction catalog (src/a2ui-catalog.ts), which the dashboard renders.
+const appRuntime = new CopilotRuntime({ agents: projectAgents({ a2ui: false }) });
 const adminRuntime = new CopilotRuntime({
-  agents: async ({ request }) => ({ default: createProjectAgent(await projectIdFrom(request)) }),
-  a2ui: { injectA2UITool: true },
+  agents: projectAgents({ a2ui: true }),
+  a2ui: { injectA2UITool: true, schema: a2uiCatalogSchema, defaultCatalogId: A2UI_CATALOG_ID },
 });
 
 const app = new Hono();
 app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-type", "x-project-id"] }));
 
 app.get("/api/health", (c) => c.json({ ok: true }));
+
+// Lets a client check a token (and which role it carries) before storing it.
+app.get("/api/auth/me", (c) => {
+  const role = roleForToken(requestToken(c.req.header("authorization"), c.req.query("token")));
+  return role ? c.json({ role }) : c.json({ error: "Brak dostępu" }, 401);
+});
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"));
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));
@@ -141,4 +156,5 @@ app.get("/*", serveStatic({ root: dashboardRoot, path: "index.html" }));
 
 await migrate();
 await startIngestWorker();
+if (config.fakeAgent) console.warn("brygadzista: FAKE_AGENT=1, chat answers come from the scripted test agent");
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, ({ port }) => console.log(`brygadzista: listening on ${port}`));

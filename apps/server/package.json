@@ -2,6 +2,9 @@
   "name": "@brygadzista/server",
   "private": true,
   "type": "module",
+  "exports": {
+    "./a2ui-catalog": "./src/a2ui-catalog.ts"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -10,13 +13,18 @@
     "mock": "tsx scripts/mock-app-server.ts"
   },
   "dependencies": {
+    "@a2ui/web_core": "0.10.4",
+    "@ag-ui/client": "1.0.2",
     "@copilotkit/runtime": "1.79.1",
     "@hono/node-server": "^2.1.5",
     "@openrouter/ai-sdk-provider": "2.10.0",
     "ai": "6.0.311",
     "hono": "^4.13.13",
     "postgres": "^3.4.9",
-    "zod": "^4.6.7"
+    "rxjs": "7.8.1",
+    "zod": "^4.6.7",
+    "zod-to-json-schema": "3.25.2",
+    "zod3": "npm:zod@3.25.76"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.19",

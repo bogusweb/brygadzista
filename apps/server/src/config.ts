@@ -24,4 +24,6 @@ export const config = {
   embeddingProvider: process.env.EMBEDDING_PROVIDER ?? "google-vertex/eu",
   embeddingDimensions: 1536,
   indexConcurrency: Number(process.env.INDEX_CONCURRENCY ?? 2),
+  // Scripted agent for building the chat UIs without an OpenRouter key. Never in production.
+  fakeAgent: process.env.FAKE_AGENT === "1" && process.env.NODE_ENV !== "production",
 };
