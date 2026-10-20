@@ -3,6 +3,7 @@ import { generateText, Output } from "ai";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { config } from "./config.js";
+import { HttpError, parseRetryAfter, withRetry } from "./retry.js";
 
 // Every request is pinned to one EU endpoint, with no fallback and only to providers
 // that neither train on nor retain prompts (OpenRouter zero data retention).
@@ -21,6 +22,15 @@ export const agentLanguageModel = () =>
   openrouter().chat(config.agentModel, { provider: euOnlyRouting(config.agentProvider) });
 
 const indexLanguageModel = () => openrouter().chat(config.indexModel, { provider: euOnlyRouting(config.indexProvider) });
+
+// Each attempt gets its own timeout, so one hung request cannot hold an indexing worker forever.
+const callModel = <T>(label: string, request: (abortSignal: AbortSignal) => Promise<T>) =>
+  withRetry(() => request(AbortSignal.timeout(config.llmTimeoutMs)), {
+    retries: config.llmMaxRetries,
+    baseMs: config.llmRetryBaseMs,
+    onRetry: (error, attempt, delayMs) =>
+      console.warn(`llm: ${label} attempt ${attempt} failed, retrying in ${Math.round(delayMs)} ms: ${String(error)}`),
+  });
 
 const pageImagePart = async (imagePath: string) => ({
   type: "image" as const,
@@ -43,14 +53,17 @@ const pageIndexSchema = z.object({
 export type PageIndex = z.infer<typeof pageIndexSchema>;
 
 export const indexPage = async (imagePath: string, rawText: string, pageNo: number): Promise<PageIndex> => {
-  const { output } = await generateText({
+  const image = await pageImagePart(imagePath);
+  const { output } = await callModel(`index page ${pageNo}`, (abortSignal) => generateText({
     model: indexLanguageModel(),
+    abortSignal,
+    maxRetries: 0,
     output: Output.object({ schema: pageIndexSchema }),
     messages: [
       {
         role: "user",
         content: [
-          await pageImagePart(imagePath),
+          image,
           {
             type: "text",
             text:
@@ -62,28 +75,37 @@ export const indexPage = async (imagePath: string, rawText: string, pageNo: numb
         ],
       },
     ],
-  });
+  }));
   return output;
 };
 
-export const askAboutPage = async (imagePath: string, question: string): Promise<string> => {
-  const { text } = await generateText({
+// Large sheets come as an overview plus zoomed tiles, so small dimensions stay legible.
+export const askAboutPage = async (imagePaths: string[], question: string): Promise<string> => {
+  const images = await Promise.all(imagePaths.map(pageImagePart));
+  const layout =
+    images.length > 1
+      ? `Pierwszy obraz to cały arkusz, kolejne ${images.length - 1} to jego powiększone fragmenty (kafelki od lewej do prawej, ` +
+        "od góry do dołu, z niewielkim zakładem). Drobne wymiary odczytuj z kafelków. "
+      : "";
+  const { text } = await callModel("inspect drawing", (abortSignal) => generateText({
     model: indexLanguageModel(),
+    abortSignal,
+    maxRetries: 0,
     messages: [
       {
         role: "user",
         content: [
-          await pageImagePart(imagePath),
+          ...images,
           {
             type: "text",
             text:
-              "To strona projektu technicznego. Odpowiedz po polsku na pytanie wykonawcy, opierając się wyłącznie na tym, " +
+              "To strona projektu technicznego. " + layout + "Odpowiedz po polsku na pytanie wykonawcy, opierając się wyłącznie na tym, " +
               `co widać na stronie. Jeśli czegoś nie da się odczytać, powiedz to wprost.\n\nPytanie: ${question}`,
           },
         ],
       },
     ],
-  });
+  }));
   return text;
 };
 
@@ -95,17 +117,26 @@ const fitDimensions = (vector: number[]) => {
 };
 
 export const embed = async (texts: string[]): Promise<number[][]> => {
-  const response = await fetch("https://openrouter.ai/api/v1/embeddings", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.openrouterApiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: config.embeddingModel,
-      input: texts,
-      dimensions: config.embeddingDimensions,
-      provider: euOnlyRouting(config.embeddingProvider),
-    }),
+  const body = await callModel("embed", async (signal) => {
+    const response = await fetch("https://openrouter.ai/api/v1/embeddings", {
+      method: "POST",
+      signal,
+      headers: { Authorization: `Bearer ${config.openrouterApiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: config.embeddingModel,
+        input: texts,
+        dimensions: config.embeddingDimensions,
+        provider: euOnlyRouting(config.embeddingProvider),
+      }),
+    });
+    if (!response.ok) {
+      throw new HttpError(
+        `Embedding ${response.status}: ${await response.text()}`,
+        response.status,
+        parseRetryAfter(response.headers.get("retry-after")),
+      );
+    }
+    return (await response.json()) as { data: { index: number; embedding: number[] }[] };
   });
-  if (!response.ok) throw new Error(`Embedding ${response.status}: ${await response.text()}`);
-  const body = (await response.json()) as { data: { index: number; embedding: number[] }[] };
   return body.data.sort((a, b) => a.index - b.index).map((item) => fitDimensions(item.embedding));
 };

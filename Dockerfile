@@ -1,4 +1,4 @@
-# Brygadzista: server (+ dashboard once apps/dashboard exists) in one image.
+# Brygadzista: server + built dashboard in one image.
 FROM node:22-bookworm-slim AS build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
 RUN corepack enable
@@ -7,17 +7,16 @@ WORKDIR /repo
 # Manifests first so the dependency layer is cached between code changes.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps ./apps
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+# Only the server and dashboard; the Expo app is not part of the image.
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter @brygadzista/server... --filter @brygadzista/dashboard...
 
 RUN pnpm --filter @brygadzista/server build \
  && pnpm --filter @brygadzista/server deploy --legacy --prod /out/server \
  && cp -r apps/server/dist /out/server/dist
 
-# The dashboard is optional until its epic lands; the server serves whatever is in /out/dashboard.
-RUN mkdir -p /out/dashboard \
- && if [ -f apps/dashboard/package.json ]; then \
-      pnpm --filter ./apps/dashboard build && cp -r apps/dashboard/dist/. /out/dashboard/; \
-    fi
+RUN pnpm --filter @brygadzista/dashboard build \
+ && mkdir -p /out/dashboard && cp -r apps/dashboard/dist/. /out/dashboard/
 
 FROM node:22-bookworm-slim AS runtime
 RUN apt-get update \

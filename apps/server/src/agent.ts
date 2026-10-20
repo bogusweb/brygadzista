@@ -1,9 +1,9 @@
 import { BuiltInAgent, defineTool } from "@copilotkit/runtime/v2";
 import { z } from "zod";
 import { sql } from "./db.js";
+import { inspectionImages } from "./drawing.js";
 import { agentLanguageModel, askAboutPage } from "./llm.js";
 import { searchPages } from "./search.js";
-import { pageImage } from "./storage.js";
 
 const SYSTEM_PROMPT = `Jesteś Brygadzistą: asystentem wykonawcy na budowie. Odpowiadasz wyłącznie na podstawie projektu technicznego,
 do którego masz dostęp przez narzędzia. Zasady:
@@ -14,6 +14,18 @@ do którego masz dostęp przez narzędzia. Zasady:
 - Gdy wykonawcy przyda się zobaczyć rysunek, wywołaj show_page, żeby wyświetlić mu stronę.
 - Jeśli projekt czegoś nie określa, powiedz to wprost i zaproponuj, kogo zapytać (projektant, kierownik budowy).
 - Pisz krótko, konkretnie, po polsku, jak do fachowca.`;
+
+// Only the dashboard runtime renders A2UI, so only its agent hears about render_a2ui.
+const A2UI_PROMPT = `
+Interfejs (render_a2ui): gdy odpowiedź to dane, które wykonawca będzie czytał na budowie, pokaż je jako powierzchnię A2UI
+zamiast długiego tekstu, a w tekście napisz tylko jedno-dwa zdania podsumowania i źródło. Używaj komponentów z katalogu budowy:
+- ParameterCard: konkretny parametr (grubość, wymiar, klasa betonu, spadek) z jednostką i stroną źródła.
+- MaterialList: lista materiałów z ilościami, np. zestawienie na ocieplenie albo zamówienie.
+- WorkSteps: kolejne kroki prac, gdy pytanie brzmi „jak wykonać”, „w jakiej kolejności”.
+- LayerComparison: warstwy przegród (ściana, strop, dach, podłoga), także porównanie kilku przegród.
+Kilka elementów ułóż w Column, a całość możesz zamknąć w Card. W każdym elemencie podawaj source.page (i source.documentId
+z wyników narzędzi), żeby wykonawca mógł otworzyć stronę. Wartości bierz wyłącznie z projektu, niczego nie dopisuj.
+Na proste pytanie z jedną liczbą wystarczy zwykły tekst albo jedna ParameterCard. Nie używaj A2UI do rozmowy ani do wyjaśnień.`;
 
 const pageRef = z.object({
   documentId: z.string().describe("Id dokumentu z wyników wyszukiwania lub spisu stron"),
@@ -30,10 +42,10 @@ const assertPageInProject = async (projectId: string, documentId: string, pageNo
 
 export const pageImagePath = (documentId: string, pageNo: number) => `/api/documents/${documentId}/pages/${pageNo}/image`;
 
-export const createProjectAgent = (projectId: string) =>
+export const createProjectAgent = (projectId: string, { a2ui = false }: { a2ui?: boolean } = {}) =>
   new BuiltInAgent({
     model: agentLanguageModel(),
-    prompt: SYSTEM_PROMPT,
+    prompt: a2ui ? SYSTEM_PROMPT + A2UI_PROMPT : SYSTEM_PROMPT,
     maxSteps: 12,
     tools: [
       defineTool({
@@ -68,7 +80,7 @@ export const createProjectAgent = (projectId: string) =>
         parameters: pageRef.extend({ question: z.string() }),
         execute: async ({ documentId, pageNo, question }) => {
           await assertPageInProject(projectId, documentId, pageNo);
-          return { answer: await askAboutPage(pageImage(documentId, pageNo), question) };
+          return { answer: await askAboutPage(await inspectionImages(documentId, pageNo), question) };
         },
       }),
       defineTool({
