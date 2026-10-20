@@ -11,7 +11,7 @@ apps/mobile     aplikacja Expo (expo-router, @copilotkit/react-native), zob. app
 openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowania to katalog główny repo)
 ```
 
-**Indeksowanie PDF** (`apps/server/src/ingest.ts`): PDF jest strumieniowany na dysk, potem w tle strona po stronie: `pdftotext` (tekst), `pdftoppm` (JPEG strony), a Gemini Embedding 2 liczy wektory fragmentów tekstu i obrazu całej strony w jednej przestrzeni (pgvector), więc rysunek bez warstwy tekstowej też da się znaleźć. Indeksowanie nie używa modelu językowego; tytuł strony to pierwsza linia jej tekstu. Przetwarzanie jest wznawialne po restarcie.
+**Indeksowanie PDF** (`apps/server/src/ingest.ts`): PDF jest strumieniowany na dysk, potem w tle strona po stronie: `pdftotext` (tekst), `pdftoppm` (JPEG strony), a Gemini Embedding 2 liczy wektory fragmentów tekstu i obrazu całej strony w jednej przestrzeni (pgvector), więc rysunek bez warstwy tekstowej też da się znaleźć. Indeksowanie nie używa modelu językowego; tytuł strony to pierwsza linia jej tekstu. Przetwarzanie jest wznawialne: każda strona ma swój stan (`indexed`, `error`, `attempts`), po restarcie dokument wraca do kolejki i pomija gotowe strony. Brak środków lub limit budżetu klucza OpenRouter (402) albo limit zapytań po wszystkich ponowieniach (429) wstrzymuje dokument (status `paused` z komunikatem) zamiast oznaczać go jako błędny; przycisk „Wznów indeksowanie” w dashboardzie (`POST /api/documents/:id/resume`) bierze tylko strony niegotowe, a „Indeksuj ponownie” (`reindex`) liczy wszystko od nowa.
 
 **Duże PDF-y** (setki stron, arkusze A0/A1):
 - Upload jest strumieniowany i przerywany po przekroczeniu `MAX_UPLOAD_MB` (413); PDF z więcej niż `MAX_PAGES` stron jest odrzucany.
@@ -51,6 +51,7 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | GET | `/api/documents/:id/pages` | app/admin |
 | GET | `/api/projects/:id/search-index` (tekst wszystkich stron projektu do wyszukiwania offline w aplikacji) | app/admin |
 | GET | `/api/documents/:id/pages/:n/image` (jedyna ścieżka, która przyjmuje też `?token=`) | app/admin |
+| POST | `/api/documents/:id/resume` (tylko niegotowe strony; dokument `paused`, `error` lub `ready`) | admin |
 | POST | `/api/documents/:id/reindex` | admin |
 | * | `/api/copilotkit/*` (nagłówek `x-project-id`) | app/admin |
 | * | `/api/admin/copilotkit/*` (z A2UI) | admin |

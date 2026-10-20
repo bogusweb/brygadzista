@@ -11,7 +11,7 @@ export class HttpError extends Error {
   }
 }
 
-const statusOf = (error: unknown): number | undefined => {
+export const statusOf = (error: unknown): number | undefined => {
   if (typeof error !== "object" || error === null) return undefined;
   const { status, statusCode } = error as { status?: unknown; statusCode?: unknown };
   if (typeof statusCode === "number") return statusCode;

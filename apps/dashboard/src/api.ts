@@ -7,7 +7,7 @@ export type Project = {
   documentCount: number;
 };
 
-export type DocumentStatus = "uploading" | "awaiting_start" | "queued" | "processing" | "ready" | "error";
+export type DocumentStatus = "uploading" | "awaiting_start" | "queued" | "processing" | "paused" | "ready" | "error";
 
 export type IndexingEstimate = { pages: number; costUsd: number; seconds: number; vision: boolean };
 
@@ -107,6 +107,7 @@ export const createApi = (token: string) => ({
   uploadDocument: (projectId: string, file: File, onProgress: (fraction: number) => void) =>
     uploadDocument(token, projectId, file, onProgress),
   startDocument: (id: string) => request<{ ok: true }>(token, `/api/documents/${id}/start`, { method: "POST" }),
+  resumeDocument: (id: string) => request<{ ok: true }>(token, `/api/documents/${id}/resume`, { method: "POST" }),
   reindexDocument: (id: string) => request<{ ok: true }>(token, `/api/documents/${id}/reindex`, { method: "POST" }),
   deleteDocument: (id: string) => request<void>(token, `/api/documents/${id}`, { method: "DELETE" }),
   listPages: (documentId: string) => request<DocumentPage[]>(token, `/api/documents/${documentId}/pages`),

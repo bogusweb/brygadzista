@@ -37,6 +37,10 @@ const statusText = (doc: ProjectDocument) => {
       const eta = doc.progress ? ` · zostało ok. ${formatDuration(doc.progress.etaSeconds)}` : "";
       return `Indeksowanie: ${done} z ${total}${eta}`;
     }
+    case "paused": {
+      const { done, total } = runProgress(doc);
+      return total > 0 ? `Wstrzymano po ${done} z ${total} stron` : "Wstrzymano";
+    }
     case "ready":
       return doc.failedPages
         ? `Gotowy · ${pagesLabel(doc.pageCount)}, ${pluralize(doc.failedPages, "strona", "strony", "stron")} z błędem`
@@ -45,6 +49,11 @@ const statusText = (doc: ProjectDocument) => {
       return "Indeksowanie przerwane";
   }
 };
+
+// Resume takes only the pages that are not done, so it is offered whenever some are left: after a pause, an error,
+// or failed pages.
+const canResume = (doc: ProjectDocument) =>
+  doc.status === "paused" || doc.status === "error" || (doc.status === "ready" && (doc.failedPages ?? 0) > 0);
 
 const isPdf = (file: File) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 
@@ -234,7 +243,7 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
                     ) : (
                       <span className="row-title">{doc.filename}</span>
                     )}
-                    <span className={`small ${doc.status === "error" || doc.failedPages ? "danger-text" : "muted"}`}>
+                    <span className={`small ${doc.status === "error" || doc.status === "paused" || doc.failedPages ? "danger-text" : "muted"}`}>
                       {statusText(doc)} · dodano {dateFormat.format(new Date(doc.createdAt))}
                     </span>
                   </div>
@@ -247,6 +256,16 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
                         onClick={() => void runAction(doc, api.startDocument)}
                       >
                         Rozpocznij indeksowanie
+                      </button>
+                    )}
+                    {canResume(doc) && (
+                      <button
+                        type="button"
+                        className="button primary"
+                        disabled={pending}
+                        onClick={() => void runAction(doc, api.resumeDocument)}
+                      >
+                        Wznów indeksowanie
                       </button>
                     )}
                     {!busy && doc.status !== "awaiting_start" && (
@@ -271,7 +290,7 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
                     aria-label={`Indeksowanie ${doc.filename}`}
                   />
                 )}
-                {(doc.status === "error" || doc.status === "ready") && doc.error && (
+                {(doc.status === "error" || doc.status === "paused" || doc.status === "ready") && doc.error && (
                   <p className="error small">{doc.error}</p>
                 )}
               </li>

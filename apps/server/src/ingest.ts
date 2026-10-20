@@ -5,6 +5,7 @@ import { sql } from "./db.js";
 import { pdfPageCount, pdfPageText, pdfRenderPage } from "./pdf.js";
 import { documentPdf, pageImage, pageImagePrefix } from "./storage.js";
 import { embed, embedImage } from "./llm.js";
+import { statusOf } from "./retry.js";
 
 const POLL_MS = 3000;
 
@@ -103,6 +104,22 @@ const describeFailedPages = (pageNos: number[]) =>
 const NO_API_KEY_MESSAGE =
   "Brak klucza OPENROUTER_API_KEY na serwerze: strony mają tylko tekst z PDF, bez wyszukiwania semantycznego i obrazów. Ustaw klucz i zindeksuj ponownie.";
 
+// Out of credit on OpenRouter (402) or still rate limited after the call's own retries (429): no other page would get
+// through either, so the document pauses with a readable message instead of failing, and resuming picks up only
+// the pages that are not done.
+const pauseReason = (error: unknown) => {
+  const status = statusOf(error);
+  if (status === 402) {
+    return "Wstrzymano: na koncie OpenRouter skończyły się środki albo klucz przekroczył swój limit (402). " +
+      "Zwiększ limit i kliknij „Wznów indeksowanie”; gotowe strony nie będą liczone ponownie.";
+  }
+  if (status === 429) {
+    return "Wstrzymano: OpenRouter odrzuca zapytania z powodu limitu (429). " +
+      "Odczekaj chwilę i kliknij „Wznów indeksowanie”; gotowe strony nie będą liczone ponownie.";
+  }
+  return undefined;
+};
+
 const processDocument = async (doc: { id: string; project_id: string }) => {
   const pageCount = await pdfPageCount(documentPdf(doc.id));
   await sql`update documents set page_count = ${pageCount}, status = 'processing', error = null where id = ${doc.id}`;
@@ -122,6 +139,7 @@ const processDocument = async (doc: { id: string; project_id: string }) => {
   // a document that is already marked as failed.
   let consecutiveFailures = 0;
   let fatal: unknown;
+  let paused: string | undefined;
   const workers = Array.from({ length: Math.max(1, config.indexConcurrency) }, async () => {
     for (let pageNo = queue.shift(); pageNo !== undefined; pageNo = queue.shift()) {
       try {
@@ -129,6 +147,12 @@ const processDocument = async (doc: { id: string; project_id: string }) => {
         consecutiveFailures = 0;
         await sql`update pages set error = null where document_id = ${doc.id} and page_no = ${pageNo} and error is not null`;
       } catch (error) {
+        const reason = pauseReason(error);
+        if (reason) {
+          paused ??= reason;
+          queue.length = 0;
+          continue;
+        }
         await recordPageFailure(doc.id, pageNo, error);
         if (++consecutiveFailures >= config.maxConsecutivePageFailures) {
           queue.length = 0;
@@ -139,6 +163,11 @@ const processDocument = async (doc: { id: string; project_id: string }) => {
     }
   });
   await Promise.all(workers);
+  if (paused) {
+    console.warn(`ingest: document ${doc.id} paused: ${paused}`);
+    await sql`update documents set status = 'paused', error = ${paused} where id = ${doc.id}`;
+    return;
+  }
   if (fatal) throw fatal;
 
   const failed = await sql<{ page_no: number }[]>`
@@ -171,7 +200,7 @@ export const processNextDocument = async () => {
   if (!doc) return false;
   try {
     await processDocument(doc);
-    console.log(`ingest: document ${doc.id} ready`);
+    console.log(`ingest: document ${doc.id} done`);
   } catch (error) {
     console.error(`ingest: document ${doc.id} failed`, error);
     await sql`update documents set status = 'error', error = ${String(error)} where id = ${doc.id}`;

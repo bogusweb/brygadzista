@@ -1,8 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
+import { app } from "../src/app.js";
 import { processNextDocument, requeueInterrupted, titleFromText } from "../src/ingest.js";
-import { axisVector, createDocument, createProject, insertPage, makePdf, resetDatabase, writeDocumentPdf } from "./helpers.js";
+import { HttpError } from "../src/retry.js";
+import { ADMIN, axisVector, createDocument, createProject, insertPage, makePdf, resetDatabase, writeDocumentPdf } from "./helpers.js";
 
 const { embedImage, embed } = vi.hoisted(() => ({
   embedImage: vi.fn<(imagePath: string) => Promise<number[]>>(),
@@ -176,5 +178,66 @@ describe("ingest of a very large PDF", () => {
       select count(*)::int as indexed from pages where document_id = ${documentId} and indexed`;
     expect(indexed).toBe(pageCount - failing.size);
     expect(embedImage).toHaveBeenCalledTimes(pageCount);
+  });
+});
+
+describe("pausing and resuming", () => {
+  const documentStatus = async (documentId: string) =>
+    (await sql<{ status: string; error: string | null }[]>`select status, error from documents where id = ${documentId}`)[0]!;
+
+  const resume = (documentId: string) => app.request(`/api/documents/${documentId}/resume`, { method: "POST", headers: ADMIN });
+
+  it("pauses on an exhausted OpenRouter budget and resumes without embedding finished pages again", async () => {
+    config.openrouterApiKey = "test-key";
+    const documentId = await createDocument(projectId);
+    await writeDocumentPdf(documentId, makePdf(PAGES));
+    embedImage.mockImplementation(async (imagePath) => {
+      if (pageOf(imagePath) === 3) throw new HttpError("Insufficient credits", 402);
+      return axisVector(0);
+    });
+
+    await processNextDocument();
+
+    const paused = await documentStatus(documentId);
+    expect(paused.status).toBe("paused");
+    expect(paused.error).toContain("402");
+    const [page3] = await sql`select indexed, error, attempts from pages where document_id = ${documentId} and page_no = 3`;
+    expect(page3).toMatchObject({ indexed: false, error: null, attempts: 0 });
+    const done = (await pageRows(documentId)).filter((page) => page.indexed).map((page) => page.page_no);
+    expect(done).toEqual(expect.arrayContaining([1, 2]));
+
+    embedImage.mockReset();
+    embedImage.mockResolvedValue(axisVector(0));
+    expect((await resume(documentId)).status).toBe(200);
+    await processNextDocument();
+
+    expect(await documentStatus(documentId)).toMatchObject({ status: "ready", error: null });
+    expect((await pageRows(documentId)).every((page) => page.indexed)).toBe(true);
+    const resumedPages = embedImage.mock.calls.map(([imagePath]) => pageOf(imagePath)).sort();
+    expect(resumedPages).toEqual([1, 2, 3, 4].filter((pageNo) => !done.includes(pageNo)));
+  });
+
+  it("pauses when OpenRouter still rate-limits after the retries", async () => {
+    config.openrouterApiKey = "test-key";
+    const documentId = await createDocument(projectId);
+    await writeDocumentPdf(documentId, makePdf(PAGES));
+    embedImage.mockRejectedValue(new HttpError("Too many requests", 429));
+
+    await processNextDocument();
+
+    const status = await documentStatus(documentId);
+    expect(status.status).toBe("paused");
+    expect(status.error).toContain("429");
+    expect(await sql`select 1 from pages where document_id = ${documentId} and error is not null`).toHaveLength(0);
+  });
+
+  it("stays paused across a restart and refuses to resume a document that is still indexing", async () => {
+    const pausedId = await createDocument(projectId, "paused");
+    const processingId = await createDocument(projectId, "processing");
+
+    await requeueInterrupted();
+
+    expect((await documentStatus(pausedId)).status).toBe("paused");
+    expect((await resume(processingId)).status).toBe(409);
   });
 });

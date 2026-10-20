@@ -185,6 +185,15 @@ app.post("/api/documents/:id/reindex", requireRole("admin"), async (c) => {
   return c.json({ ok: true });
 });
 
+// Unlike reindex, resume keeps finished pages and only takes those not done yet (missing, failed, or interrupted
+// by a pause), so nothing already paid for is embedded again.
+app.post("/api/documents/:id/resume", requireRole("admin"), async (c) => {
+  const [doc] = await sql`
+    update documents set status = 'queued', error = null
+    where id = ${c.req.param("id")} and status in ('paused', 'error', 'ready') returning id`;
+  return doc ? c.json({ ok: true }) : c.json({ error: "Tego dokumentu nie da się teraz wznowić" }, 409);
+});
+
 app.delete("/api/documents/:id", requireRole("admin"), async (c) => {
   await sql`delete from documents where id = ${c.req.param("id")}`;
   await rm(documentDir(c.req.param("id")), { recursive: true, force: true });
