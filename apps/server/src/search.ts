@@ -13,7 +13,8 @@ export const prefixQuery = (query: string) =>
     .map((word) => `${word.slice(0, Math.max(4, Math.ceil(word.length * 0.7)))}:*`)
     .join(" | ");
 
-const lexicalSearch = async (projectId: string, query: string, limit: number) => {
+// Exported for the retrieval eval (scripts/eval-search.ts), which scores each ranking on its own.
+export const lexicalSearch = async (projectId: string, query: string, limit: number) => {
   const tsquery = prefixQuery(query);
   return sql<{ page_id: string }[]>`
     select id as page_id from pages
@@ -24,7 +25,7 @@ const lexicalSearch = async (projectId: string, query: string, limit: number) =>
     limit ${limit}`;
 };
 
-const semanticSearch = async (projectId: string, query: string, limit: number) => {
+export const semanticSearch = async (projectId: string, query: string, limit: number) => {
   if (!config.openrouterApiKey) return [];
   const [vector] = await embed([query]);
   return sql<{ page_id: string }[]>`
