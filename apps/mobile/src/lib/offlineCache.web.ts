@@ -1,6 +1,6 @@
 import type { Connection } from "./settings";
 
-// expo-file-system has no web implementation. The web build is only a dev preview, so it always reads from the server.
+// expo-file-system has no web implementation, so the browser version always reads pages from the server.
 export const offlineSupported = false;
 
 export const cachedPageUri = (_connection: Connection, _documentId: string, _pageNo: number): string | null => null;

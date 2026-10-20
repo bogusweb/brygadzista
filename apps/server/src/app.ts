@@ -206,6 +206,13 @@ app.get("/api/documents/:id/pages/:pageNo/image", requireRoleOrQueryToken("app",
   return c.body(Readable.toWeb(createReadStream(file)) as ReadableStream);
 });
 
+// The contractor app in the browser: /app/* from the Expo web export, unknown paths fall back to its index.html.
+const mobileWebRoot = path.relative(process.cwd(), config.mobileWebDir);
+const stripAppPrefix = (requestPath: string) => requestPath.replace(/^\/app/, "") || "/";
+app.get("/app", (c) => c.redirect("/app/"));
+app.use("/app/*", serveStatic({ root: mobileWebRoot, rewriteRequestPath: stripAppPrefix }));
+app.get("/app/*", serveStatic({ root: mobileWebRoot, path: "index.html" }));
+
 const dashboardRoot = path.relative(process.cwd(), config.dashboardDir);
 app.use("/*", serveStatic({ root: dashboardRoot }));
 app.get("/*", serveStatic({ root: dashboardRoot, path: "index.html" }));

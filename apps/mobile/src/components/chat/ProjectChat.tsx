@@ -1,8 +1,8 @@
 import { CopilotKitCoreRuntimeConnectionStatus, useAgent, useCopilotKit, useRenderToolCall } from "@copilotkit/react-native/headless";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import type { ListRenderItemInfo } from "react-native";
+import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import type { ListRenderItemInfo, TextInputKeyPressEvent } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchDocuments } from "../../lib/api";
 import type { ProjectDocument } from "../../lib/api";
@@ -92,6 +92,17 @@ export const ProjectChat = ({ projectId }: { projectId: string }) => {
       void run();
     },
     [agent, isReady, isRunning, run],
+  );
+
+  // In the browser Enter sends, as in other web chats; Shift+Enter starts a new line.
+  const sendOnEnter = useCallback(
+    (event: TextInputKeyPressEvent) => {
+      const { key, shiftKey } = event.nativeEvent as { key: string; shiftKey?: boolean };
+      if (key !== "Enter" || shiftKey) return;
+      event.preventDefault();
+      send(input);
+    },
+    [input, send],
   );
 
   const retry = useCallback(() => {
@@ -188,6 +199,7 @@ export const ProjectChat = ({ projectId }: { projectId: string }) => {
           placeholder={isReady ? "Napisz pytanie…" : "Łączę z asystentem…"}
           placeholderTextColor={colors.muted}
           multiline
+          onKeyPress={Platform.OS === "web" ? sendOnEnter : undefined}
           editable={!connectionLost}
           accessibilityLabel="Pytanie do asystenta"
         />

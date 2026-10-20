@@ -2,6 +2,7 @@
 // The CopilotKit runtime and the tool-calling loop are real; only the language model and the tool data are scripted.
 //   pnpm --filter @brygadzista/server mock    → http://localhost:3100, access code "demo"
 import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { BuiltInAgent, CopilotRuntime, createCopilotEndpoint, defineTool } from "@copilotkit/runtime/v2";
 import type { LanguageModelV3CallOptions, LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { simulateReadableStream } from "ai";
@@ -9,6 +10,8 @@ import { MockLanguageModelV3 } from "ai/test";
 import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { A2UI_CATALOG_ID } from "../src/a2ui-catalog.js";
 import { a2uiCatalogSchema } from "../src/a2ui-schema.js";
@@ -236,6 +239,12 @@ app.get("/api/documents/:id/pages/:pageNo/image", async (c) => {
   c.header("Content-Type", "image/jpeg");
   return c.body(await readFile(PAGE_IMAGE));
 });
+
+// The browser version of the app, when exported (pnpm --filter @brygadzista/mobile export:web): http://localhost:3100/app/
+const mobileWebRoot = path.relative(process.cwd(), fileURLToPath(new URL("../../mobile/dist-web", import.meta.url)));
+app.get("/app", (c) => c.redirect("/app/"));
+app.use("/app/*", serveStatic({ root: mobileWebRoot, rewriteRequestPath: (requestPath) => requestPath.replace(/^\/app/, "") || "/" }));
+app.get("/app/*", serveStatic({ root: mobileWebRoot, path: "index.html" }));
 
 serve({ fetch: app.fetch, port: PORT }, () =>
   console.log(`Mock Brygadzisty: http://localhost:${PORT} (kod dostępu "${TOKEN}"). Słowo "awaria" w pytaniu symuluje błąd przy pierwszej próbie, "zestawienie" pokazuje powierzchnię A2UI.`),

@@ -82,7 +82,7 @@ const OfflinePanel = ({ document, pages }: { document: ProjectDocument; pages: D
   }, [connection, document.id, pages, version]);
 
   if (!offlineSupported) {
-    return <Text style={styles.panelNote}>Zapis stron na telefonie działa w aplikacji (Expo Go), nie w podglądzie w przeglądarce.</Text>;
+    return <Text style={styles.panelNote}>W przeglądarce strony są zawsze pobierane z serwera. Zapis na telefonie, do pracy bez zasięgu, działa w aplikacji (Expo Go).</Text>;
   }
 
   const complete = pages.length > 0 && savedCount === pages.length;

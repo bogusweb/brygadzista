@@ -5,5 +5,5 @@
 **/data
 **/.expo
 .git
-apps/mobile
 openship.yaml
+**/dist-web

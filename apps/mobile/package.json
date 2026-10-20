@@ -38,7 +38,8 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "export:web": "EXPO_BASE_URL=/app expo export --platform web --output-dir dist-web"
   },
   "private": true
 }

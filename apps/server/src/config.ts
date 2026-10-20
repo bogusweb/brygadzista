@@ -11,6 +11,8 @@ export const config = {
   databaseUrl: requireEnv("DATABASE_URL", "postgres://brygadzista:brygadzista@localhost:5432/brygadzista"),
   dataDir: path.resolve(process.env.DATA_DIR ?? "./data"),
   dashboardDir: path.resolve(process.env.DASHBOARD_DIR ?? "../dashboard/dist"),
+  // Web export of the Expo app (pnpm --filter @brygadzista/mobile export:web), served under /app.
+  mobileWebDir: path.resolve(process.env.MOBILE_WEB_DIR ?? "../mobile/dist-web"),
   // Shared tokens from before user accounts (#10). ADMIN_TOKEN stays as emergency admin access (e.g. to create
   // the first owner account); APP_TOKEN is the old app token with access to every project. It is off when set
   // to "", and in production unless set explicitly.
