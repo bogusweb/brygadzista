@@ -1,9 +1,12 @@
 import type { Message, ToolCall, ToolMessage } from "@copilotkit/react-native/headless";
+import { A2UI_ACTIVITY_TYPE, A2UI_TOOL_NAMES, parseSurfaceActivity } from "./a2ui";
+import type { SurfaceActivity } from "./a2ui";
 
 export type ChatItem =
   | { kind: "user"; id: string; text: string }
   | { kind: "assistant"; id: string; text: string }
   | { kind: "tool"; id: string; toolCall: ToolCall; result?: ToolMessage }
+  | { kind: "surface"; id: string; activity: SurfaceActivity }
   | { kind: "thinking"; id: string };
 
 const textOf = (content: unknown) =>
@@ -13,7 +16,8 @@ const textOf = (content: unknown) =>
       ? content.map((part) => (part && typeof part === "object" && "text" in part ? String(part.text) : "")).join("")
       : "";
 
-// Flattens the AG-UI message list into rows: text bubbles and one row per tool call, paired with its result.
+// Flattens the AG-UI message list into rows: text bubbles, one row per tool call paired with its result, and A2UI
+// surfaces. The render_a2ui call itself gets no row, its surface (or build status) stands in for it.
 export const toChatItems = (messages: readonly Message[], isRunning: boolean): ChatItem[] => {
   const results = new Map<string, ToolMessage>();
   for (const message of messages) if (message.role === "tool") results.set(message.toolCallId, message);
@@ -21,13 +25,18 @@ export const toChatItems = (messages: readonly Message[], isRunning: boolean): C
   const items: ChatItem[] = [];
   for (const message of messages) {
     if (message.role === "user") items.push({ kind: "user", id: message.id, text: textOf(message.content) });
+    if (message.role === "activity" && message.activityType === A2UI_ACTIVITY_TYPE) {
+      const activity = parseSurfaceActivity(message.content);
+      if (activity) items.push({ kind: "surface", id: message.id, activity });
+    }
     if (message.role !== "assistant") continue;
     const text = textOf(message.content);
     if (text.trim()) items.push({ kind: "assistant", id: message.id, text });
     for (const toolCall of message.toolCalls ?? [])
-      items.push({ kind: "tool", id: `${message.id}:${toolCall.id}`, toolCall, result: results.get(toolCall.id) });
+      if (!A2UI_TOOL_NAMES.has(toolCall.function.name))
+        items.push({ kind: "tool", id: `${message.id}:${toolCall.id}`, toolCall, result: results.get(toolCall.id) });
   }
-  if (isRunning && items.at(-1)?.kind !== "assistant") items.push({ kind: "thinking", id: "thinking" });
+  if (isRunning && items.at(-1)?.kind !== "assistant" && items.at(-1)?.kind !== "surface") items.push({ kind: "thinking", id: "thinking" });
   return items;
 };
 

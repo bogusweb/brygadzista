@@ -11,6 +11,8 @@ import type { ChatItem } from "../../lib/chat";
 import { colors, radius, spacing } from "../../lib/theme";
 import { useCachedResource } from "../../lib/useCachedResource";
 import { useReconnectCopilot } from "../ProjectCopilot";
+import { A2UIActivity } from "../a2ui/A2UISurface";
+import { A2UIPageProvider } from "../a2ui/sourcePage";
 import { MessageText } from "./MessageText";
 import { usePageViewer } from "./PageViewer";
 import { useChatToolRenderers } from "./useChatToolRenderers";
@@ -55,8 +57,8 @@ export const ProjectChat = ({ projectId }: { projectId: string }) => {
   const items = toChatItems(messages, isRunning);
 
   const openCitedPage = useCallback(
-    (pageNo: number) => {
-      const documentId = pageDocuments(agent.messages).get(pageNo) ?? documents[0]?.id;
+    (pageNo: number, sourceDocumentId?: string) => {
+      const documentId = sourceDocumentId ?? pageDocuments(agent.messages).get(pageNo) ?? documents[0]?.id;
       if (documentId) openPage({ documentId, pageNo });
     },
     [agent, documents, openPage],
@@ -115,6 +117,14 @@ export const ProjectChat = ({ projectId }: { projectId: string }) => {
         );
       case "tool":
         return <View style={styles.toolBlock}>{renderToolCall({ toolCall: item.toolCall, toolMessage: item.result })}</View>;
+      case "surface":
+        return (
+          <View style={styles.toolBlock}>
+            <A2UIPageProvider value={openCitedPage}>
+              <A2UIActivity activity={item.activity} />
+            </A2UIPageProvider>
+          </View>
+        );
       case "thinking":
         return <Text style={styles.thinking}>Asystent pracuje…</Text>;
     }

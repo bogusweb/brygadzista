@@ -15,7 +15,7 @@ do którego masz dostęp przez narzędzia. Zasady:
 - Jeśli projekt czegoś nie określa, powiedz to wprost i zaproponuj, kogo zapytać (projektant, kierownik budowy).
 - Pisz krótko, konkretnie, po polsku, jak do fachowca.`;
 
-// Only the dashboard runtime renders A2UI, so only its agent hears about render_a2ui.
+// Both runtimes inject render_a2ui (A2UI middleware), and both clients render the catalog.
 const A2UI_PROMPT = `
 Interfejs (render_a2ui): gdy odpowiedź to dane, które wykonawca będzie czytał na budowie, pokaż je jako powierzchnię A2UI
 zamiast długiego tekstu, a w tekście napisz tylko jedno-dwa zdania podsumowania i źródło. Używaj komponentów z katalogu budowy:
@@ -42,10 +42,10 @@ const assertPageInProject = async (projectId: string, documentId: string, pageNo
 
 export const pageImagePath = (documentId: string, pageNo: number) => `/api/documents/${documentId}/pages/${pageNo}/image`;
 
-export const createProjectAgent = (projectId: string, { a2ui = false }: { a2ui?: boolean } = {}) =>
+export const createProjectAgent = (projectId: string) =>
   new BuiltInAgent({
     model: agentLanguageModel(),
-    prompt: a2ui ? SYSTEM_PROMPT + A2UI_PROMPT : SYSTEM_PROMPT,
+    prompt: SYSTEM_PROMPT + A2UI_PROMPT,
     maxSteps: 12,
     tools: [
       defineTool({
