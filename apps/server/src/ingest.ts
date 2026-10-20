@@ -3,7 +3,7 @@ import { config } from "./config.js";
 import { sql } from "./db.js";
 import { pdfPageCount, pdfPageText, pdfRenderPage } from "./pdf.js";
 import { documentPdf, pageImage, pageImagePrefix } from "./storage.js";
-import { embed, indexPage, type PageIndex } from "./llm.js";
+import { embed, embedImage } from "./llm.js";
 
 const POLL_MS = 3000;
 
@@ -13,10 +13,13 @@ const exists = (file: string) =>
     () => false,
   );
 
-const buildSearchText = (parts: { title?: string; summary?: string; raw: string; facts: { label: string; value: string }[]; keywords: string[] }) =>
-  [parts.title, parts.summary, parts.facts.map((f) => `${f.label}: ${f.value}`).join("\n"), parts.keywords.join(" "), parts.raw]
-    .filter(Boolean)
-    .join("\n");
+const TITLE_CHARS = 120;
+
+// Without a reading model the title is the first line of the PDF text, which on a sheet is usually its heading.
+const titleFromText = (raw: string) => {
+  const line = raw.split("\n").map((text) => text.replace(/\s+/g, " ").trim()).find(Boolean);
+  return line ? line.slice(0, TITLE_CHARS) : null;
+};
 
 const CHUNK_CHARS = 2000;
 
@@ -26,20 +29,17 @@ const chunkText = (text: string) => {
   return chunks;
 };
 
-const storeChunks = async (pageId: string, projectId: string, pageNo: number, index: PageIndex, raw: string) => {
-  const header = `Strona ${pageNo}: ${index.title}`;
-  const contents = [
-    `${header}\n${index.summary}\n${index.facts.map((f) => `${f.label}: ${f.value}`).join("\n")}`,
-    ...chunkText(raw.replace(/[ \t]+/g, " ")).map((part) => `${header}\n${part}`),
-  ];
-  const vectors = await embed(contents);
-  await sql.begin(async (tx) => {
-    await tx`delete from chunks where page_id = ${pageId}`;
-    for (const [i, content] of contents.entries()) {
-      await tx`insert into chunks (page_id, project_id, content, embedding)
-        values (${pageId}, ${projectId}, ${content}, ${`[${vectors[i]!.join(",")}]`}::vector)`;
-    }
-  });
+const IMAGE_CHUNK_TEXT_CHARS = 500;
+
+type Chunk = { content: string; vector: number[] };
+
+// One chunk per text fragment plus one for the page image, so a drawing without a text layer is still found.
+const embedPage = async (pageNo: number, title: string | null, raw: string, image: string): Promise<Chunk[]> => {
+  const header = title ? `Strona ${pageNo}: ${title}` : `Strona ${pageNo}`;
+  const textChunks = chunkText(raw.replace(/[ \t]+/g, " ")).map((part) => `${header}\n${part}`);
+  const imageChunk = `${header}\n[obraz strony]\n${raw.slice(0, IMAGE_CHUNK_TEXT_CHARS)}`;
+  const [textVectors, imageVector] = await Promise.all([embed(textChunks), embedImage(image)]);
+  return [...textChunks.map((content, i) => ({ content, vector: textVectors[i]! })), { content: imageChunk, vector: imageVector }];
 };
 
 const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: number) => {
@@ -48,25 +48,34 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
     ? pageImage(doc.id, pageNo)
     : await pdfRenderPage(pdf, pageNo, pageImagePrefix(doc.id, pageNo));
   const raw = await pdfPageText(pdf, pageNo);
+  const title = titleFromText(raw);
+  // A page with no text layer still needs a non-empty search text, or it would count as never indexed.
+  const searchText = raw.trim() ? raw : `Strona ${pageNo}`;
 
-  // Without an API key the page is still searchable by its PDF text; vision indexing runs on the next reindex.
-  const index = config.openrouterApiKey ? await indexPage(image, raw, pageNo) : null;
-  const facts = index?.facts ?? [];
-  const keywords = index?.keywords ?? [];
+  // Without an API key the page is searchable by its PDF text only; embeddings run on the next reindex.
+  // Embeddings come first, so a page whose call fails is left untouched and counts as not done.
+  const chunks = config.openrouterApiKey ? await embedPage(pageNo, title, raw, image) : null;
 
-  const [page] = await sql<{ id: string }[]>`
-    update pages set
-      kind = ${index?.kind ?? null},
-      title = ${index?.title ?? null},
-      raw_text = ${raw},
-      summary = ${index?.summary ?? null},
-      facts = ${sql.json(facts)},
-      keywords = ${keywords},
-      search_text = ${buildSearchText({ title: index?.title, summary: index?.summary, raw, facts, keywords })},
-      indexed = ${index !== null}
-    where document_id = ${doc.id} and page_no = ${pageNo}
-    returning id`;
-  if (index && page) await storeChunks(page.id, doc.project_id, pageNo, index, raw);
+  await sql.begin(async (tx) => {
+    const [page] = await tx<{ id: string }[]>`
+      update pages set
+        kind = null,
+        title = ${title},
+        raw_text = ${raw},
+        summary = null,
+        facts = ${tx.json([])},
+        keywords = ${[]},
+        search_text = ${searchText},
+        indexed = ${chunks !== null}
+      where document_id = ${doc.id} and page_no = ${pageNo}
+      returning id`;
+    if (!page || !chunks) return;
+    await tx`delete from chunks where page_id = ${page.id}`;
+    for (const chunk of chunks) {
+      await tx`insert into chunks (page_id, project_id, content, embedding)
+        values (${page.id}, ${doc.project_id}, ${chunk.content}, ${`[${chunk.vector.join(",")}]`}::vector)`;
+    }
+  });
   await sql`update documents set indexed_pages = (select count(*) from pages where document_id = ${doc.id} and search_text <> '') where id = ${doc.id}`;
 };
 
@@ -81,7 +90,7 @@ const describeFailedPages = (pageNos: number[]) =>
 
 // Without a key the document still becomes searchable by its text, but the dashboard must not present that as done.
 const NO_API_KEY_MESSAGE =
-  "Brak klucza OPENROUTER_API_KEY na serwerze: strony mają tylko tekst z PDF, bez odczytu rysunków. Ustaw klucz i zindeksuj ponownie.";
+  "Brak klucza OPENROUTER_API_KEY na serwerze: strony mają tylko tekst z PDF, bez wyszukiwania semantycznego i obrazów. Ustaw klucz i zindeksuj ponownie.";
 
 const processDocument = async (doc: { id: string; project_id: string }) => {
   const pageCount = await pdfPageCount(documentPdf(doc.id));

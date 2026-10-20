@@ -2,14 +2,16 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { processNextDocument, requeueInterrupted } from "../src/ingest.js";
-import type { PageIndex } from "../src/llm.js";
 import { axisVector, createDocument, createProject, insertPage, makePdf, resetDatabase, writeDocumentPdf } from "./helpers.js";
 
-const { indexPage, embed } = vi.hoisted(() => ({
-  indexPage: vi.fn<(imagePath: string, rawText: string, pageNo: number) => Promise<PageIndex>>(),
+const { embedImage, embed } = vi.hoisted(() => ({
+  embedImage: vi.fn<(imagePath: string) => Promise<number[]>>(),
   embed: vi.fn<(texts: string[]) => Promise<number[][]>>(),
 }));
-vi.mock("../src/llm.js", () => ({ indexPage, embed }));
+vi.mock("../src/llm.js", () => ({ embedImage, embed }));
+
+// Page images are stored as page-0001.jpg and so on.
+const pageOf = (imagePath: string) => Number(/(\d+)\.jpg$/.exec(imagePath)![1]);
 
 const PAGES = ["Opis techniczny hali", "Rzut przyziemia", "Detal ocieplenia sciany", "Zestawienie stolarki"];
 
@@ -22,15 +24,9 @@ let projectId: string;
 beforeEach(async () => {
   await resetDatabase();
   config.openrouterApiKey = "";
-  indexPage.mockReset();
+  embedImage.mockReset();
   embed.mockReset();
-  indexPage.mockImplementation(async (_image, rawText, pageNo) => ({
-    title: `Strona ${pageNo}`,
-    kind: "opis",
-    summary: rawText,
-    facts: [{ label: "Grubość", value: "15 cm" }],
-    keywords: ["ocieplenie"],
-  }));
+  embedImage.mockResolvedValue(axisVector(0));
   embed.mockImplementation(async (texts) => texts.map((_, i) => axisVector(i)));
   config.maxConsecutivePageFailures = 5;
   projectId = await createProject();
@@ -42,7 +38,7 @@ afterAll(async () => {
 });
 
 describe("ingest", () => {
-  it("extracts text from every page without an API key and leaves vision indexing for later", async () => {
+  it("extracts text from every page without an API key and leaves embeddings for later", async () => {
     const documentId = await createDocument(projectId);
     await writeDocumentPdf(documentId, makePdf(PAGES));
 
@@ -54,11 +50,11 @@ describe("ingest", () => {
     const pages = await pageRows(documentId);
     expect(pages.map((page) => page.raw_text)).toEqual(PAGES);
     expect(pages.every((page) => !page.indexed)).toBe(true);
-    expect(indexPage).not.toHaveBeenCalled();
+    expect(embedImage).not.toHaveBeenCalled();
     expect(embed).not.toHaveBeenCalled();
   });
 
-  it("indexes pages with the model and stores their chunks", async () => {
+  it("embeds the text and the image of every page and titles the page with its first line", async () => {
     config.openrouterApiKey = "test-key";
     const documentId = await createDocument(projectId);
     await writeDocumentPdf(documentId, makePdf(PAGES));
@@ -67,10 +63,11 @@ describe("ingest", () => {
 
     const pages = await pageRows(documentId);
     expect(pages.every((page) => page.indexed)).toBe(true);
-    expect(pages[2]!.title).toBe("Strona 3");
-    expect(indexPage).toHaveBeenCalledTimes(4);
-    const [{ count }] = await sql<{ count: number }[]>`select count(*)::int as count from chunks where project_id = ${projectId}`;
-    expect(count).toBe(8);
+    expect(pages[2]!.title).toBe("Detal ocieplenia sciany");
+    expect(embedImage).toHaveBeenCalledTimes(4);
+    const chunks = await sql<{ content: string }[]>`select content from chunks where project_id = ${projectId} order by content`;
+    expect(chunks).toHaveLength(8);
+    expect(chunks.filter((chunk) => chunk.content.includes("[obraz strony]"))).toHaveLength(4);
   });
 
   it("resumes a document interrupted by a restart without redoing finished pages", async () => {
@@ -84,9 +81,9 @@ describe("ingest", () => {
     await requeueInterrupted();
     expect(await processNextDocument()).toBe(true);
 
-    expect(indexPage.mock.calls.map(([, , pageNo]) => pageNo).sort()).toEqual([3, 4]);
+    expect(embedImage.mock.calls.map(([image]) => pageOf(image)).sort()).toEqual([3, 4]);
     const pages = await pageRows(documentId);
-    expect(pages.map((page) => page.title)).toEqual(["Gotowa 1", "Gotowa 2", "Strona 3", "Strona 4"]);
+    expect(pages.map((page) => page.title)).toEqual(["Gotowa 1", "Gotowa 2", "Detal ocieplenia sciany", "Zestawienie stolarki"]);
     const [doc] = await sql`select status, indexed_pages from documents where id = ${documentId}`;
     expect(doc).toEqual({ status: "ready", indexed_pages: 4 });
   });
@@ -95,9 +92,9 @@ describe("ingest", () => {
     config.openrouterApiKey = "test-key";
     const documentId = await createDocument(projectId);
     await writeDocumentPdf(documentId, makePdf(PAGES));
-    indexPage.mockImplementation(async (_image, rawText, pageNo) => {
-      if (pageNo === 2) throw new Error("OpenRouter 503");
-      return { title: `Strona ${pageNo}`, kind: "opis", summary: rawText, facts: [], keywords: [] };
+    embedImage.mockImplementation(async (image) => {
+      if (pageOf(image) === 2) throw new Error("OpenRouter 503");
+      return axisVector(0);
     });
 
     await processNextDocument();
@@ -113,12 +110,12 @@ describe("ingest", () => {
     expect(page2).toEqual({ indexed: false, error: "Error: OpenRouter 503", attempts: 1 });
     expect((await pageRows(documentId)).filter((page) => page.indexed).map((page) => page.page_no)).toEqual([1, 3, 4]);
 
-    indexPage.mockClear();
-    indexPage.mockImplementation(async (_image, rawText, pageNo) => ({ title: `Strona ${pageNo}`, kind: "opis", summary: rawText, facts: [], keywords: [] }));
+    embedImage.mockClear();
+    embedImage.mockResolvedValue(axisVector(0));
     await sql`update documents set status = 'queued' where id = ${documentId}`;
     await processNextDocument();
 
-    expect(indexPage.mock.calls.map(([, , pageNo]) => pageNo)).toEqual([2]);
+    expect(embedImage.mock.calls.map(([image]) => pageOf(image))).toEqual([2]);
     const [retried] = await sql`select status, error from documents where id = ${documentId}`;
     expect(retried).toEqual({ status: "ready", error: null });
     const [fixed] = await sql`select indexed, error from pages where document_id = ${documentId} and page_no = 2`;
@@ -129,14 +126,14 @@ describe("ingest", () => {
     config.openrouterApiKey = "test-key";
     const documentId = await createDocument(projectId);
     await writeDocumentPdf(documentId, makePdf(Array.from({ length: 20 }, (_, i) => `Strona ${i + 1}`)));
-    indexPage.mockRejectedValue(new Error("OpenRouter 401: zly klucz"));
+    embedImage.mockRejectedValue(new Error("OpenRouter 401: zly klucz"));
 
     await processNextDocument();
 
     const [doc] = await sql`select status, error from documents where id = ${documentId}`;
     expect(doc).toEqual({ status: "error", error: "Error: OpenRouter 401: zly klucz" });
     // Workers already busy finish their page, nothing else is started.
-    expect(indexPage.mock.calls.length).toBeLessThan(config.maxConsecutivePageFailures + config.indexConcurrency);
+    expect(embedImage.mock.calls.length).toBeLessThan(config.maxConsecutivePageFailures + config.indexConcurrency);
   });
 
   it("does nothing when the queue is empty", async () => {
@@ -151,9 +148,9 @@ describe("ingest of a very large PDF", () => {
     const failing = new Set([77, 210]);
     const documentId = await createDocument(projectId);
     await writeDocumentPdf(documentId, makePdf(Array.from({ length: pageCount }, (_, i) => `Arkusz ${i + 1} sciana fundamentowa`)));
-    indexPage.mockImplementation(async (_image, rawText, pageNo) => {
-      if (failing.has(pageNo)) throw new Error("OpenRouter 429");
-      return { title: `Arkusz ${pageNo}`, kind: "rysunek", summary: rawText, facts: [], keywords: [] };
+    embedImage.mockImplementation(async (image) => {
+      if (failing.has(pageOf(image))) throw new Error("OpenRouter 429");
+      return axisVector(0);
     });
 
     const started = Date.now();
@@ -166,6 +163,6 @@ describe("ingest of a very large PDF", () => {
     const [{ indexed }] = await sql<{ indexed: number }[]>`
       select count(*)::int as indexed from pages where document_id = ${documentId} and indexed`;
     expect(indexed).toBe(pageCount - failing.size);
-    expect(indexPage).toHaveBeenCalledTimes(pageCount);
+    expect(embedImage).toHaveBeenCalledTimes(pageCount);
   });
 });

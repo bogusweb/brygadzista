@@ -1,7 +1,6 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateText, Output } from "ai";
+import { generateText } from "ai";
 import { readFile } from "node:fs/promises";
-import { z } from "zod";
 import { config } from "./config.js";
 import { HttpError, parseRetryAfter, withRetry } from "./retry.js";
 
@@ -25,7 +24,7 @@ const openrouter = () =>
 export const agentLanguageModel = () =>
   openrouter().chat(config.agentModel, { provider: euOnlyRouting(config.agentProvider) });
 
-const indexLanguageModel = () => openrouter().chat(config.indexModel, { provider: euOnlyRouting(config.indexProvider) });
+const visionLanguageModel = () => openrouter().chat(config.visionModel, { provider: euOnlyRouting(config.visionProvider) });
 
 // Each attempt gets its own timeout, so one hung request cannot hold an indexing worker forever.
 const callModel = <T>(label: string, request: (abortSignal: AbortSignal) => Promise<T>) =>
@@ -42,47 +41,6 @@ const pageImagePart = async (imagePath: string) => ({
   mediaType: "image/jpeg",
 });
 
-const pageIndexSchema = z.object({
-  title: z.string().describe("Tytuł strony lub rysunku, np. 'Rzut przyziemia – rys. nr 4'"),
-  kind: z.enum(["opis", "rysunek", "detal", "zestawienie", "formalne", "inne"]),
-  summary: z
-    .string()
-    .describe("Zwięzły, ale kompletny opis zawartości strony dla wykonawcy: co przedstawia, materiały, technologia, kolejność prac."),
-  facts: z
-    .array(z.object({ label: z.string(), value: z.string() }))
-    .describe("Wszystkie konkretne parametry odczytane ze strony: wymiary, grubości, rzędne, spadki, materiały, oznaczenia, ilości."),
-  keywords: z.array(z.string()).describe("Słowa kluczowe, także w różnych formach odmiany."),
-});
-
-export type PageIndex = z.infer<typeof pageIndexSchema>;
-
-export const indexPage = async (imagePath: string, rawText: string, pageNo: number): Promise<PageIndex> => {
-  const image = await pageImagePart(imagePath);
-  const { output } = await callModel(`index page ${pageNo}`, (abortSignal) => generateText({
-    model: indexLanguageModel(),
-    abortSignal,
-    maxRetries: 0,
-    output: Output.object({ schema: pageIndexSchema }),
-    messages: [
-      {
-        role: "user",
-        content: [
-          image,
-          {
-            type: "text",
-            text:
-              `To strona ${pageNo} polskiego projektu technicznego budynku. ` +
-              "Zindeksuj ją dla asystenta wykonawcy na budowie. Odczytaj z rysunku wszystkie wymiary, opisy warstw, " +
-              "materiały i oznaczenia. Nie zgaduj wartości, których nie widać.\n\n" +
-              `Tekst wyciągnięty z PDF (może być niepełny dla rysunków):\n${rawText.slice(0, 12000)}`,
-          },
-        ],
-      },
-    ],
-  }));
-  return output;
-};
-
 // Large sheets come as an overview plus zoomed tiles, so small dimensions stay legible.
 export const askAboutPage = async (imagePaths: string[], question: string): Promise<string> => {
   const images = await Promise.all(imagePaths.map(pageImagePart));
@@ -92,7 +50,7 @@ export const askAboutPage = async (imagePaths: string[], question: string): Prom
         "od góry do dołu, z niewielkim zakładem). Drobne wymiary odczytuj z kafelków. "
       : "";
   const { text } = await callModel("inspect drawing", (abortSignal) => generateText({
-    model: indexLanguageModel(),
+    model: visionLanguageModel(),
     abortSignal,
     maxRetries: 0,
     messages: [
@@ -113,7 +71,7 @@ export const askAboutPage = async (imagePaths: string[], question: string): Prom
   return text;
 };
 
-// Qwen3 Embedding is Matryoshka-trained, so a longer vector can be truncated and renormalised.
+// Gemini Embedding is Matryoshka-trained, so a longer vector can be truncated and renormalised.
 const fitDimensions = (vector: number[]) => {
   const head = vector.slice(0, config.embeddingDimensions);
   const norm = Math.hypot(...head) || 1;
@@ -124,15 +82,17 @@ const fitDimensions = (vector: number[]) => {
 // keeps a switch of EMBEDDING_PROVIDER safe.
 const EMBED_CONCURRENCY = 4;
 
-const embedOne = async (text: string): Promise<number[]> => {
-  const body = await callModel("embed", async (signal) => {
+type EmbeddingInput = string | { content: { type: "image_url"; image_url: { url: string } }[] };
+
+const requestEmbedding = async (label: string, input: EmbeddingInput): Promise<number[]> => {
+  const body = await callModel(label, async (signal) => {
     const response = await fetch("https://openrouter.ai/api/v1/embeddings", {
       method: "POST",
       signal,
       headers: { Authorization: `Bearer ${config.openrouterApiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: config.embeddingModel,
-        input: text,
+        input: typeof input === "string" ? input : [input],
         dimensions: config.embeddingDimensions,
         provider: embeddingRouting(),
       }),
@@ -149,6 +109,15 @@ const embedOne = async (text: string): Promise<number[]> => {
   const [item] = body.data;
   if (!item) throw new Error("Embedding: pusta odpowiedź");
   return fitDimensions(item.embedding);
+};
+
+const embedOne = (text: string) => requestEmbedding("embed", text);
+
+// The page image goes into the same vector space as the text (Gemini Embedding 2 is multimodal),
+// so a question can find a drawing even when the PDF has no text layer.
+export const embedImage = async (imagePath: string): Promise<number[]> => {
+  const url = `data:image/jpeg;base64,${(await readFile(imagePath)).toString("base64")}`;
+  return requestEmbedding("embed image", { content: [{ type: "image_url", image_url: { url } }] });
 };
 
 export const embed = async (texts: string[]): Promise<number[][]> => {

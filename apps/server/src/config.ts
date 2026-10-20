@@ -24,13 +24,14 @@ export const config = {
   uploadsPerHour: Number(process.env.RATE_LIMIT_UPLOADS_PER_HOUR ?? 30),
   loginAttemptsPer15Min: Number(process.env.RATE_LIMIT_LOGIN_PER_15_MIN ?? 10),
   openrouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
-  // Chat about the project: strongest model, served from an EU region.
-  agentModel: process.env.AGENT_MODEL ?? "anthropic/claude-opus-5.5",
-  agentProvider: process.env.AGENT_PROVIDER ?? "google-vertex/europe",
-  // Bulk page indexing (vision): cheaper model, same EU region.
-  indexModel: process.env.INDEX_MODEL ?? "anthropic/claude-sonnet-5.5",
-  indexProvider: process.env.INDEX_PROVIDER ?? "google-vertex/europe",
-  embeddingModel: process.env.EMBEDDING_MODEL ?? "qwen/qwen3-embedding-8b",
+  // Chat about the project: a cheap model served from an EU region.
+  agentModel: process.env.AGENT_MODEL ?? "google/gemini-3.1-flash-lite",
+  agentProvider: process.env.AGENT_PROVIDER ?? "google-vertex/eu",
+  // Reading a drawing on demand (the agent's inspect tool), same model and region.
+  visionModel: process.env.VISION_MODEL ?? "google/gemini-3.1-flash-lite",
+  visionProvider: process.env.VISION_PROVIDER ?? "google-vertex/eu",
+  // Indexing has no language model: page text and the page image are embedded directly.
+  embeddingModel: process.env.EMBEDDING_MODEL ?? "google/gemini-embedding-2",
   // Empty = any provider that keeps no data (embeddings may leave the EU); set one to pin it.
   embeddingProvider: process.env.EMBEDDING_PROVIDER ?? "",
   embeddingDimensions: 1536,
@@ -38,10 +39,10 @@ export const config = {
   // Upload limits: the PDF is streamed to disk and cut off as soon as it passes the size limit.
   maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 1024) * 1024 * 1024,
   maxPages: Number(process.env.MAX_PAGES ?? 3000),
-  // Estimate shown before indexing starts. A page is one vision call (image + up to 12k chars of text)
-  // plus a few embeddings; tune both from real runs.
-  indexCostPerPageUsd: Number(process.env.INDEX_COST_PER_PAGE_USD ?? 0.03),
-  indexSecondsPerPage: Number(process.env.INDEX_SECONDS_PER_PAGE ?? 20),
+  // Estimate shown before indexing starts. A page is one image embedding plus a few text embeddings;
+  // tune both from real runs.
+  indexCostPerPageUsd: Number(process.env.INDEX_COST_PER_PAGE_USD ?? 0.002),
+  indexSecondsPerPage: Number(process.env.INDEX_SECONDS_PER_PAGE ?? 3),
   // Model calls: per-request timeout and retries with exponential backoff on 429/5xx and timeouts.
   llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 180_000),
   llmMaxRetries: Number(process.env.LLM_MAX_RETRIES ?? 5),

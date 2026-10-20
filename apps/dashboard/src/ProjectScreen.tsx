@@ -16,7 +16,7 @@ const pagesLabel = (count: number) => pluralize(count, "strona", "strony", "stro
 const estimateText = (doc: ProjectDocument) => {
   if (!doc.estimate) return pagesLabel(doc.pageCount);
   const { costUsd, seconds, vision } = doc.estimate;
-  const cost = vision ? `koszt ok. ${formatUsd(costUsd)}` : "bez opisu AI, tylko tekst z PDF";
+  const cost = vision ? `koszt ok. ${formatUsd(costUsd)}` : "bez wyszukiwania AI, tylko tekst z PDF";
   return `${pagesLabel(doc.pageCount)} · ${cost} · potrwa ok. ${formatDuration(seconds)}`;
 };
 

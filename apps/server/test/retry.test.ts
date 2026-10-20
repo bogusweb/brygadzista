@@ -1,6 +1,9 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config.js";
-import { embed } from "../src/llm.js";
+import { embed, embedImage } from "../src/llm.js";
 import { HttpError, isRetryable, parseRetryAfter, withRetry } from "../src/retry.js";
 
 const fast = { retries: 3, baseMs: 1 };
@@ -102,5 +105,20 @@ describe("embed against a flaky OpenRouter", () => {
 
     await expect(embed(["sciana"])).rejects.toThrow("Embedding 401: no auth");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends a page image as one multimodal input with a data URL", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok());
+    vi.stubGlobal("fetch", fetchMock);
+    const image = path.join(await mkdtemp(path.join(tmpdir(), "embed-")), "page-0001.jpg");
+    await writeFile(image, Buffer.from("jpeg"));
+
+    const vector = await embedImage(image);
+
+    expect(vector).toHaveLength(config.embeddingDimensions);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
+    expect(body.input).toEqual([
+      { content: [{ type: "image_url", image_url: { url: `data:image/jpeg;base64,${Buffer.from("jpeg").toString("base64")}` } }] },
+    ]);
   });
 });
