@@ -1,0 +1,54 @@
+# Openship project on ruth154. Secrets (OPENROUTER_API_KEY, ADMIN_TOKEN, APP_TOKEN,
+# POSTGRES_PASSWORD) come from Openship environment variables, never from the repo.
+# Local test: docker compose -f deploy/openship.yaml up --build
+name: brygadzista
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://brygadzista:${POSTGRES_PASSWORD:-brygadzista}@postgres:5432/brygadzista
+      DATA_DIR: /data
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN}
+      APP_TOKEN: ${APP_TOKEN:?set APP_TOKEN}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      INDEX_CONCURRENCY: ${INDEX_CONCURRENCY:-2}
+      COPILOTKIT_TELEMETRY_DISABLED: "true"
+    ports:
+      - "3000"
+    volumes:
+      - app-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    mem_limit: 768m
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: brygadzista
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-brygadzista}
+      POSTGRES_DB: brygadzista
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brygadzista -d brygadzista"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 512m
+
+volumes:
+  app-data:
+  postgres-data:

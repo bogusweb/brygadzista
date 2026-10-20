@@ -93,3 +93,13 @@ pnpm typecheck
 ```
 
 Inną bazę wskazujesz przez `TEST_DATABASE_URL` (testy czyszczą jej tabele).
+
+## Docker / Openship
+
+`Dockerfile` buduje jeden obraz (serwer + zbudowany dashboard; Node 22, poppler, użytkownik non-root). `deploy/openship.yaml` to compose dla projektu Openship na ruth154: `app` (port 3000, healthcheck `/api/health`, 768 MB) i `postgres` z pgvector (512 MB), wolumeny `app-data` (`/data`) i `postgres-data`.
+
+```bash
+ADMIN_TOKEN=... APP_TOKEN=... OPENROUTER_API_KEY=... docker compose -f deploy/openship.yaml up --build
+```
+
+Sekrety (`ADMIN_TOKEN`, `APP_TOKEN`, `OPENROUTER_API_KEY`, opcjonalnie `POSTGRES_PASSWORD`) ustawiamy w zmiennych środowiskowych Openship.
