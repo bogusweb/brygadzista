@@ -688,3 +688,141 @@ a.button {
 .page-card-note {
   color: var(--chat-muted);
 }
+
+/* A2UI construction catalog (a2uiCatalog.tsx). */
+
+.a2ui-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+section.a2ui-block {
+  padding-top: 8px;
+}
+
+.a2ui-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.a2ui-parameter {
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius);
+  background: var(--chat-surface);
+}
+
+.a2ui-label,
+.a2ui-meta {
+  color: var(--chat-muted);
+}
+
+.a2ui-value {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.a2ui-unit {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.a2ui-rows,
+.a2ui-steps,
+.a2ui-layers {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.a2ui-row,
+.a2ui-layer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--chat-border);
+}
+
+.a2ui-row:first-child,
+.a2ui-layer:first-child {
+  border-top: 0;
+}
+
+.a2ui-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.a2ui-quantity {
+  flex-shrink: 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.a2ui-steps {
+  gap: 12px;
+}
+
+.a2ui-step {
+  display: flex;
+  gap: 12px;
+}
+
+.a2ui-step-no {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--chat-accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.a2ui-partitions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.a2ui-partition {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius);
+  background: var(--chat-surface);
+  min-width: 0;
+}
+
+.a2ui-partition.highlight {
+  border-color: var(--chat-accent);
+  box-shadow: inset 0 0 0 1px var(--chat-accent);
+}
+
+.a2ui-partition-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--chat-border);
+}
+
+.a2ui-source {
+  padding: 0;
+}

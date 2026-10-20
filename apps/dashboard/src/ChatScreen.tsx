@@ -1,6 +1,7 @@
 import { CopilotChat, CopilotKitProvider } from "@copilotkit/react-core/v2";
 import "@copilotkit/react-core/v2/styles.css";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { A2UIDocumentProvider, a2uiCatalog } from "./a2uiCatalog";
 import { ApiError, type Api, type Project, type ProjectDocument } from "./api";
 import { makeAssistantMessage } from "./chatSources";
 import { useChatToolRenderers } from "./chatTools";
@@ -21,6 +22,9 @@ const labels = {
   userMessageToolbarCopyMessageLabel: "Kopiuj",
   userMessageToolbarEditMessageLabel: "Edytuj",
 };
+
+// The schema the client sends along is replaced by the server's copy (a2ui.schema in the runtime).
+const a2ui = { catalog: a2uiCatalog };
 
 // CopilotKit's chat switches theme with a "dark" class rather than the media query the dashboard uses.
 const darkQuery = "(prefers-color-scheme: dark)";
@@ -115,11 +119,14 @@ export const ChatScreen = ({ api, projectId, onUnauthorized }: Props) => {
         useSingleEndpoint={false}
         showIntelligenceIndicator={false}
         onError={onError}
+        a2ui={a2ui}
       >
         <PageViewerProvider api={api}>
-          <div className={`card chat-panel${prefersDark ? " dark" : ""}`}>
-            <ProjectChat key={projectId} api={api} fallbackDocumentId={indexed[0]?.id ?? null} />
-          </div>
+          <A2UIDocumentProvider value={indexed[0]?.id ?? null}>
+            <div className={`card chat-panel${prefersDark ? " dark" : ""}`}>
+              <ProjectChat key={projectId} api={api} fallbackDocumentId={indexed[0]?.id ?? null} />
+            </div>
+          </A2UIDocumentProvider>
         </PageViewerProvider>
       </CopilotKitProvider>
     </section>

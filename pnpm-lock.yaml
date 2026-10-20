@@ -10,6 +10,9 @@ importers:
 
   apps/dashboard:
     dependencies:
+      '@brygadzista/server':
+        specifier: workspace:*
+        version: link:../server
       '@copilotkit/a2ui-renderer':
         specifier: 1.79.1
         version: 1.79.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -44,6 +47,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@a2ui/web_core':
+        specifier: 0.10.4
+        version: 0.10.4
       '@ag-ui/client':
         specifier: 1.0.2
         version: 1.0.2
@@ -71,6 +77,12 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+      zod-to-json-schema:
+        specifier: 3.25.2
+        version: 3.25.2(zod@4.6.7)
+      zod3:
+        specifier: npm:zod@3.25.76
+        version: zod@3.25.76
     devDependencies:
       '@types/node':
         specifier: ^26.6.5
