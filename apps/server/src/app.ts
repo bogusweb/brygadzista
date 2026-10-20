@@ -197,6 +197,16 @@ app.get("/api/documents/:id/pages", requireRole("app", "admin"), requireDocument
     from pages where document_id = ${c.req.param("id")} order by page_no`),
 );
 
+// Full PDF text of one page, loaded only when a page is opened (the page list stays small for huge documents).
+app.get("/api/documents/:id/pages/:pageNo/text", requireRole("app", "admin"), requireDocumentAccess(), async (c) => {
+  const pageNo = Number(c.req.param("pageNo"));
+  if (!Number.isInteger(pageNo)) return c.json({ error: "Nie ma takiej strony" }, 404);
+  const [page] = await sql<{ text: string }[]>`
+    select raw_text as text from pages where document_id = ${c.req.param("id")} and page_no = ${pageNo}`;
+  if (!page) return c.json({ error: "Nie ma takiej strony" }, 404);
+  return c.json(page);
+});
+
 app.get("/api/documents/:id/pages/:pageNo/image", requireRoleOrQueryToken("app", "admin"), requireDocumentAccess(), async (c) => {
   const file = pageImage(c.req.param("id"), Number(c.req.param("pageNo")));
   const info = await stat(file).catch(() => null);

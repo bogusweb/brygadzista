@@ -451,6 +451,14 @@ progress {
   margin-bottom: 4px;
 }
 
+.page-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
 .facts {
   margin: 0;
   display: flex;

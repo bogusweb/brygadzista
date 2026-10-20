@@ -15,9 +15,18 @@ const exists = (file: string) =>
 
 const TITLE_CHARS = 120;
 
-// Without a reading model the title is the first line of the PDF text, which on a sheet is usually its heading.
-const titleFromText = (raw: string) => {
-  const line = raw.split("\n").map((text) => text.replace(/\s+/g, " ").trim()).find(Boolean);
+const HEADING_SEARCH_LINES = 30;
+
+// Without a reading model the title comes from the PDF text: the first heading in capitals near the top
+// (e.g. "IV. OGÓLNA CHARAKTERYSTYKA BUDYNKU"), else the first line.
+const isHeading = (line: string) => {
+  const letters = line.replace(/[^\p{L}]/gu, "");
+  return letters.length >= 4 && letters === letters.toLocaleUpperCase("pl") && line.length <= TITLE_CHARS;
+};
+
+export const titleFromText = (raw: string) => {
+  const lines = raw.split("\n").map((text) => text.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const line = lines.slice(0, HEADING_SEARCH_LINES).find(isHeading) ?? lines[0];
   return line ? line.slice(0, TITLE_CHARS) : null;
 };
 
