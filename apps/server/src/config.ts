@@ -28,8 +28,9 @@ export const config = {
   // Bulk page indexing (vision): cheaper model, same EU region.
   indexModel: process.env.INDEX_MODEL ?? "anthropic/claude-sonnet-5.5",
   indexProvider: process.env.INDEX_PROVIDER ?? "google-vertex/europe",
-  embeddingModel: process.env.EMBEDDING_MODEL ?? "google/gemini-embedding-2",
-  embeddingProvider: process.env.EMBEDDING_PROVIDER ?? "google-vertex/eu",
+  embeddingModel: process.env.EMBEDDING_MODEL ?? "qwen/qwen3-embedding-8b",
+  // Empty = any provider that keeps no data (embeddings may leave the EU); set one to pin it.
+  embeddingProvider: process.env.EMBEDDING_PROVIDER ?? "",
   embeddingDimensions: 1536,
   indexConcurrency: Number(process.env.INDEX_CONCURRENCY ?? 2),
   // Upload limits: the PDF is streamed to disk and cut off as soon as it passes the size limit.

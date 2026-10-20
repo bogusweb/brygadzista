@@ -15,6 +15,10 @@ export const euOnlyRouting = (endpoint: string) => ({
   zdr: true,
 });
 
+// Embeddings may be served outside the EU (owner's decision), but never by a provider that keeps data.
+const embeddingRouting = () =>
+  config.embeddingProvider ? euOnlyRouting(config.embeddingProvider) : { data_collection: "deny" as const, zdr: true };
+
 const openrouter = () =>
   createOpenRouter({ apiKey: config.openrouterApiKey, compatibility: "strict", appName: "Brygadzista" });
 
@@ -109,15 +113,15 @@ export const askAboutPage = async (imagePaths: string[], question: string): Prom
   return text;
 };
 
-// Gemini Embedding 2 is Matryoshka-trained, so a longer vector can be truncated and renormalised.
+// Qwen3 Embedding is Matryoshka-trained, so a longer vector can be truncated and renormalised.
 const fitDimensions = (vector: number[]) => {
   const head = vector.slice(0, config.embeddingDimensions);
   const norm = Math.hypot(...head) || 1;
   return head.map((value) => value / norm);
 };
 
-// Vertex endpoints on OpenRouter take one input per request: an array input is routed only to
-// google-ai-studio, which is outside the EU. So every text is its own call, a few at a time.
+// One text per request, a few at a time: some endpoints (Vertex) reject array input, and this
+// keeps a switch of EMBEDDING_PROVIDER safe.
 const EMBED_CONCURRENCY = 4;
 
 const embedOne = async (text: string): Promise<number[]> => {
@@ -130,7 +134,7 @@ const embedOne = async (text: string): Promise<number[]> => {
         model: config.embeddingModel,
         input: text,
         dimensions: config.embeddingDimensions,
-        provider: euOnlyRouting(config.embeddingProvider),
+        provider: embeddingRouting(),
       }),
     });
     if (!response.ok) {
