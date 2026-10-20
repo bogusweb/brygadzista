@@ -8,7 +8,7 @@ Asystent AI dla wykonawcy: agent, który zna projekt techniczny budynku (PDF) i 
 apps/server     Node 22 + Hono: API, upload i indeksowanie PDF, agent CopilotKit (AG-UI), serwuje dashboard
 apps/dashboard  panel operatora: Vite + React 19, czat CopilotKit z A2UI, upload PDF
 apps/mobile     aplikacja Expo (expo-router, @copilotkit/react-native), zob. apps/mobile/README.md
-deploy/         (epik) docker compose dla Openship na serwerze ruth154
+openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowania to katalog główny repo)
 ```
 
 **Indeksowanie PDF** (`apps/server/src/ingest.ts`): PDF jest strumieniowany na dysk, potem w tle strona po stronie: `pdftotext` (tekst), `pdftoppm` (JPEG strony), model z wizją robi ustrukturyzowany indeks strony (tytuł, rodzaj, opis, parametry, słowa kluczowe), a Gemini Embedding 2 liczy wektory (pgvector). Przetwarzanie jest wznawialne po restarcie.
@@ -96,10 +96,10 @@ Inną bazę wskazujesz przez `TEST_DATABASE_URL` (testy czyszczą jej tabele).
 
 ## Docker / Openship
 
-`Dockerfile` buduje jeden obraz (serwer + zbudowany dashboard; Node 22, poppler, użytkownik non-root). `deploy/openship.yaml` to compose dla projektu Openship na ruth154: `app` (port 3000, healthcheck `/api/health`, 768 MB) i `postgres` z pgvector (512 MB), wolumeny `app-data` (`/data`) i `postgres-data`.
+`Dockerfile` buduje jeden obraz (serwer + zbudowany dashboard; Node 22, poppler, użytkownik non-root). `openship.yaml` (w katalogu głównym, bo Openship nie przyjmuje kontekstu budowania poza katalogiem pliku compose) to compose dla projektu Openship na ruth154: `app` (port 3000, healthcheck `/api/health`, 768 MB) i `postgres` z pgvector (512 MB), wolumeny `app-data` (`/data`) i `postgres-data`.
 
 ```bash
-ADMIN_TOKEN=... APP_TOKEN=... OPENROUTER_API_KEY=... docker compose -f deploy/openship.yaml up --build
+ADMIN_TOKEN=... APP_TOKEN=... OPENROUTER_API_KEY=... docker compose -f openship.yaml up --build
 ```
 
 Sekrety (`ADMIN_TOKEN`, `APP_TOKEN`, `OPENROUTER_API_KEY`, opcjonalnie `POSTGRES_PASSWORD`) ustawiamy w zmiennych środowiskowych Openship.
