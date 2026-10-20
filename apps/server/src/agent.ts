@@ -10,7 +10,7 @@ do którego masz dostęp przez narzędzia. Zasady:
 - Zanim odpowiesz, wyszukaj informacje w projekcie (search_project, list_pages, read_page). Nie odpowiadaj z pamięci.
 - Wymiary, grubości, materiały i oznaczenia podawaj dokładnie tak, jak w projekcie, z jednostkami.
 - Każdą odpowiedź kończ źródłem w formacie "Źródło: str. N – tytuł".
-- Gdy pytanie dotyczy rysunku, a opis strony nie wystarcza, użyj inspect_drawing, żeby obejrzeć rysunek.
+- Strony mają tylko tekst z PDF, a rysunki często nie mają go wcale: gdy pytanie dotyczy rysunku, użyj inspect_drawing, żeby go obejrzeć.
 - Gdy wykonawcy przyda się zobaczyć rysunek, wywołaj show_page, żeby wyświetlić mu stronę.
 - Jeśli projekt czegoś nie określa, powiedz to wprost i zaproponuj, kogo zapytać (projektant, kierownik budowy).
 - Pisz krótko, konkretnie, po polsku, jak do fachowca.`;
@@ -56,7 +56,7 @@ export const createProjectAgent = (projectId: string) =>
       }),
       defineTool({
         name: "list_pages",
-        description: "Zwraca spis wszystkich stron projektu z tytułami i rodzajem (opis, rysunek, detal...).",
+        description: "Zwraca spis wszystkich stron projektu z tytułami (pierwsza linia tekstu strony, puste dla stron bez tekstu).",
         parameters: z.object({}),
         execute: async () => ({
           pages: await sql`
@@ -67,7 +67,7 @@ export const createProjectAgent = (projectId: string) =>
       }),
       defineTool({
         name: "read_page",
-        description: "Czyta pełny indeks strony: opis, wszystkie odczytane parametry i tekst z PDF.",
+        description: "Czyta stronę: tytuł i tekst z PDF.",
         parameters: pageRef,
         execute: async ({ documentId, pageNo }) => {
           const page = await assertPageInProject(projectId, documentId, pageNo);
