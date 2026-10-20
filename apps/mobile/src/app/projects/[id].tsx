@@ -5,6 +5,7 @@ import { AgentStatus } from "../../components/AgentStatus";
 import { PageViewerProvider } from "../../components/chat/PageViewer";
 import { ProjectChat } from "../../components/chat/ProjectChat";
 import { ProjectPages } from "../../components/pages/ProjectPages";
+import { ProjectSearch } from "../../components/pages/ProjectSearch";
 import { ProjectCopilot } from "../../components/ProjectCopilot";
 import { useSettings } from "../../lib/settings";
 import { colors, radius, spacing } from "../../lib/theme";
@@ -55,7 +56,9 @@ const ProjectScreen = () => {
           <ProjectChat projectId={id} />
         </View>
         <View style={[styles.pane, tab !== "pages" && styles.hidden]}>
-          <ProjectPages projectId={id} />
+          <ProjectSearch projectId={id}>
+            <ProjectPages projectId={id} />
+          </ProjectSearch>
         </View>
       </PageViewerProvider>
     </ProjectCopilot>

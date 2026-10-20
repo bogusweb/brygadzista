@@ -49,6 +49,7 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | GET | `/api/documents/:id` (postęp, ETA, szacunek) | app/admin |
 | POST | `/api/documents/:id/start` | admin |
 | GET | `/api/documents/:id/pages` | app/admin |
+| GET | `/api/projects/:id/search-index` (tekst wszystkich stron projektu do wyszukiwania offline w aplikacji) | app/admin |
 | GET | `/api/documents/:id/pages/:n/image` (jedyna ścieżka, która przyjmuje też `?token=`) | app/admin |
 | POST | `/api/documents/:id/reindex` | admin |
 | * | `/api/copilotkit/*` (nagłówek `x-project-id`) | app/admin |

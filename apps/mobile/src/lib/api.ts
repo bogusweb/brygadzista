@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import type { ImageSourcePropType } from "react-native";
+import type { SearchIndex } from "./search";
 import type { Connection } from "./settings";
 
 export type Project = { id: string; name: string; createdAt: string; documentCount: number };
@@ -60,6 +61,10 @@ export const fetchDocuments = (connection: Connection, projectId: string) =>
 
 export const fetchPages = (connection: Connection, documentId: string) =>
   getJson<DocumentPage[]>(connection, `/api/documents/${encodeURIComponent(documentId)}/pages`);
+
+// The text of every page in the project, kept on the phone for searching without signal.
+export const fetchSearchIndex = (connection: Connection, projectId: string) =>
+  getJson<SearchIndex>(connection, `/api/projects/${encodeURIComponent(projectId)}/search-index`);
 
 export const pageImagePath = (documentId: string, pageNo: number) =>
   `/api/documents/${encodeURIComponent(documentId)}/pages/${pageNo}/image`;

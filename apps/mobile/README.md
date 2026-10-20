@@ -22,7 +22,15 @@ Renderer A2UI z CopilotKit jest tylko webowy, więc aplikacja ma własny, natywn
 - Każda strona obejrzana z zasięgiem (w czacie albo w zakładce) też trafia na telefon.
 - Lista projektów, dokumentów i spis stron są zapisywane przy każdym udanym pobraniu. Bez zasięgu aplikacja pokazuje ostatnią zapisaną wersję z informacją „Brak połączenia z serwerem”. Błędy serwera (np. zły kod dostępu) nie są ukrywane.
 - „Usuń zapisane strony z telefonu” zwalnia miejsce.
-- W przeglądarce zapis nie działa (`offlineCache.web.ts`), strony zawsze idą z serwera.
+- W przeglądarce obrazy stron nie są zapisywane (`offlineCache.web.ts`), zawsze idą z serwera. Listy i tekst do wyszukiwania trafiają do `localStorage`.
+
+## Wyszukiwanie bez zasięgu (#54)
+
+- Pole „Szukaj w projekcie” nad stronami w zakładce „Projekt”. Szuka w tekście wszystkich stron projektu (`GET /api/projects/:id/search-index`: tytuł, słowa kluczowe, streszczenie, tekst PDF), który aplikacja pobiera i zapisuje przy każdym otwarciu projektu z zasięgiem.
+- Całe wyszukiwanie dzieje się w telefonie (`src/lib/search.ts`, bez modułów natywnych, więc działa w Expo Go i w /app): odmiana przez skracanie słów jak na serwerze, wielkość liter i polskie znaki bez znaczenia („cokol” znajdzie „cokół”), oznaczenia rysunków („rys. A-04”, „A04”, „D-3”) dopasowywane w całości.
+- Bez zasięgu nad wynikami jest informacja, z kiedy jest kopia. Dotknięcie wyniku otwiera stronę (z telefonu, jeśli była zapisana).
+
+<img src="docs/screenshots/search-1-cokol.png" width="240" alt="Wyniki wyszukiwania „cokol”"> <img src="docs/screenshots/search-3-offline.png" width="240" alt="Wyszukiwanie bez zasięgu">
 
 Jak sprawdzić na telefonie: otwórz projekt, zakładka „Projekt”, „Pobierz … na telefon”, włącz tryb samolotowy, zamknij i otwórz aplikację, wejdź w projekt i otwórz dowolną stronę.
 
@@ -44,7 +52,7 @@ Serwer serwuje aplikację pod `/app`, np. https://brygadzista.smieci.online/app.
 
 - Eksport: `pnpm export:web` (`expo export --platform web` z `EXPO_BASE_URL=/app`, wynik w `dist-web/`). Robi go Dockerfile, w osobnym etapie, więc obraz serwera nie zawiera React Native.
 - Serwer czyta eksport z `MOBILE_WEB_DIR` (domyślnie `../mobile/dist-web`). Mock też go serwuje: `pnpm export:web`, potem `pnpm --filter @brygadzista/server mock` i http://localhost:3100/app/ (kod `demo`).
-- Różnice względem Expo Go: brak zapisu stron offline, kod dostępu w `localStorage` przeglądarki, Enter wysyła pytanie (Shift+Enter to nowa linia).
+- Różnice względem Expo Go: brak zapisu obrazów stron offline (wyszukiwanie działa z kopii w `localStorage`), kod dostępu w `localStorage` przeglądarki, Enter wysyła pytanie (Shift+Enter to nowa linia).
 
 ## Test bez klucza OpenRouter
 
@@ -70,7 +78,8 @@ src/components/            przycisk, provider CopilotKit, status połączenia z 
 src/components/a2ui/       natywny renderer A2UI: katalog budowlany i podstawowe komponenty układu
 src/components/chat/       czat na useAgent, statusy narzędzi, karta show_page, pełny ekran z pinch-zoom
 src/components/pages/      zakładka „Projekt”: siatka stron, pobieranie na telefon, obraz strony z telefonu lub serwera
-src/lib/offline*.ts        zapis stron i danych na telefonie (expo-file-system; wersja .web bez zapisu)
+src/lib/offline*.ts        zapis stron i danych na telefonie (expo-file-system; wersja .web: dane w localStorage)
+src/lib/search.ts          wyszukiwanie w tekście projektu na telefonie, bez zasięgu
 ```
 
 ## CopilotKit a Expo Go
