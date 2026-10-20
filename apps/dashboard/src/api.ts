@@ -110,6 +110,8 @@ export const createApi = (token: string) => ({
   reindexDocument: (id: string) => request<{ ok: true }>(token, `/api/documents/${id}/reindex`, { method: "POST" }),
   deleteDocument: (id: string) => request<void>(token, `/api/documents/${id}`, { method: "DELETE" }),
   listPages: (documentId: string) => request<DocumentPage[]>(token, `/api/documents/${documentId}/pages`),
+  pageText: (documentId: string, pageNo: number) =>
+    request<{ text: string }>(token, `/api/documents/${documentId}/pages/${pageNo}/text`),
   // <img> can't send headers, so the image URL carries the token as a query parameter.
   pageImageUrl: (documentId: string, pageNo: number) =>
     `/api/documents/${documentId}/pages/${pageNo}/image?token=${encodeURIComponent(token)}`,

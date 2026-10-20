@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
-import { processNextDocument, requeueInterrupted } from "../src/ingest.js";
+import { processNextDocument, requeueInterrupted, titleFromText } from "../src/ingest.js";
 import { axisVector, createDocument, createProject, insertPage, makePdf, resetDatabase, writeDocumentPdf } from "./helpers.js";
 
 const { embedImage, embed } = vi.hoisted(() => ({
@@ -138,6 +138,18 @@ describe("ingest", () => {
 
   it("does nothing when the queue is empty", async () => {
     expect(await processNextDocument()).toBe(false);
+  });
+});
+
+describe("page title from PDF text", () => {
+  it("prefers a heading in capitals near the top over a sentence cut mid-way", () => {
+    const raw = "d) liczba kondygnacji – dwie kondygnacje nadziemne (parter i piętro), budynek\nniepodpiwniczony,\n\nIV.   OGÓLNA CHARAKTERYSTYKA BUDYNKU\nPrzedmiotem opracowania jest";
+    expect(titleFromText(raw)).toBe("IV. OGÓLNA CHARAKTERYSTYKA BUDYNKU");
+  });
+
+  it("falls back to the first line, and to nothing for a page without text", () => {
+    expect(titleFromText("\n  Rzut   przyziemia\nskala 1:100")).toBe("Rzut przyziemia");
+    expect(titleFromText(" \n")).toBeNull();
   });
 });
 

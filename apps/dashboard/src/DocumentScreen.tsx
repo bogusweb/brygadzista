@@ -17,6 +17,24 @@ const kindLabels: Record<PageKind, string> = {
   inne: "Inne",
 };
 
+// PDF text of the open page, fetched on demand; null while loading, false when it failed.
+const usePageText = (api: Api, documentId: string, pageNo: number | null) => {
+  const [text, setText] = useState<string | null | false>(null);
+  useEffect(() => {
+    if (pageNo === null) return;
+    let cancelled = false;
+    setText(null);
+    api
+      .pageText(documentId, pageNo)
+      .then((page) => !cancelled && setText(page.text))
+      .catch(() => !cancelled && setText(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [api, documentId, pageNo]);
+  return text;
+};
+
 export const DocumentScreen = ({ api, projectId, documentId, onUnauthorized }: Props) => {
   const [document, setDocument] = useState<ProjectDocument | null>(null);
   const [pages, setPages] = useState<DocumentPage[] | null>(null);
@@ -59,6 +77,7 @@ export const DocumentScreen = ({ api, projectId, documentId, onUnauthorized }: P
   }, [selected, lastPage]);
 
   const page = pages?.find((candidate) => candidate.pageNo === selected);
+  const pageText = usePageText(api, documentId, selected);
 
   return (
     <section className="stack">
@@ -125,25 +144,31 @@ export const DocumentScreen = ({ api, projectId, documentId, onUnauthorized }: P
                 {page.kind && <span className="badge">{kindLabels[page.kind]}</span>}
                 <h2>{page.title ?? `Strona ${page.pageNo}`}</h2>
               </div>
-              {page.indexed ? (
-                <>
-                  {page.summary && <p>{page.summary}</p>}
-                  {page.facts.length > 0 && (
-                    <dl className="facts">
-                      {page.facts.map((fact, index) => (
-                        <div key={index}>
-                          <dt className="muted small">{fact.label}</dt>
-                          <dd>{fact.value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  )}
-                </>
-              ) : (
-                <p className="muted">
-                  Ta strona ma na razie tylko tekst z PDF, bez opisu AI. Opis pojawi się po indeksowaniu z kluczem
-                  OpenRouter (przycisk „Indeksuj ponownie” na liście dokumentów).
+              {!page.indexed && (
+                <p className="muted small">
+                  Ta strona nie jest jeszcze w wyszukiwaniu AI. Trafi tam po indeksowaniu z kluczem OpenRouter
+                  (przycisk „Indeksuj ponownie” na liście dokumentów).
                 </p>
+              )}
+              {page.summary && <p>{page.summary}</p>}
+              {page.facts.length > 0 && (
+                <dl className="facts">
+                  {page.facts.map((fact, index) => (
+                    <div key={index}>
+                      <dt className="muted small">{fact.label}</dt>
+                      <dd>{fact.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              {pageText === null ? (
+                <p className="muted small">Wczytywanie tekstu strony…</p>
+              ) : pageText === false ? (
+                <p className="error small">Nie udało się wczytać tekstu strony.</p>
+              ) : pageText.trim() ? (
+                <p className="page-text small">{pageText}</p>
+              ) : (
+                <p className="muted small">Ta strona nie ma warstwy tekstowej w PDF (np. skan albo rysunek).</p>
               )}
             </div>
           </div>

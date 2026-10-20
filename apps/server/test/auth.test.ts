@@ -218,7 +218,7 @@ describe("contractor access", () => {
     expect((await app.request(`/api/documents/${mine}`, { headers: contractor })).status).toBe(200);
     expect((await app.request(`/api/documents/${mine}/pages`, { headers: contractor })).status).toBe(200);
 
-    for (const path of [`/api/projects/${other}/documents`, `/api/documents/${theirs}`, `/api/documents/${theirs}/pages`]) {
+    for (const path of [`/api/projects/${other}/documents`, `/api/documents/${theirs}`, `/api/documents/${theirs}/pages`, `/api/documents/${theirs}/pages/1/text`]) {
       const response = await app.request(path, { headers: contractor });
       expect(response.status, path).toBe(404);
     }
