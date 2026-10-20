@@ -116,7 +116,11 @@ const fitDimensions = (vector: number[]) => {
   return head.map((value) => value / norm);
 };
 
-export const embed = async (texts: string[]): Promise<number[][]> => {
+// Vertex endpoints on OpenRouter take one input per request: an array input is routed only to
+// google-ai-studio, which is outside the EU. So every text is its own call, a few at a time.
+const EMBED_CONCURRENCY = 4;
+
+const embedOne = async (text: string): Promise<number[]> => {
   const body = await callModel("embed", async (signal) => {
     const response = await fetch("https://openrouter.ai/api/v1/embeddings", {
       method: "POST",
@@ -124,7 +128,7 @@ export const embed = async (texts: string[]): Promise<number[][]> => {
       headers: { Authorization: `Bearer ${config.openrouterApiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: config.embeddingModel,
-        input: texts,
+        input: text,
         dimensions: config.embeddingDimensions,
         provider: euOnlyRouting(config.embeddingProvider),
       }),
@@ -136,7 +140,19 @@ export const embed = async (texts: string[]): Promise<number[][]> => {
         parseRetryAfter(response.headers.get("retry-after")),
       );
     }
-    return (await response.json()) as { data: { index: number; embedding: number[] }[] };
+    return (await response.json()) as { data: { embedding: number[] }[] };
   });
-  return body.data.sort((a, b) => a.index - b.index).map((item) => fitDimensions(item.embedding));
+  const [item] = body.data;
+  if (!item) throw new Error("Embedding: pusta odpowiedź");
+  return fitDimensions(item.embedding);
+};
+
+export const embed = async (texts: string[]): Promise<number[][]> => {
+  const vectors: number[][] = new Array(texts.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(EMBED_CONCURRENCY, texts.length) }, async () => {
+    for (let i = next++; i < texts.length; i = next++) vectors[i] = await embedOne(texts[i]!);
+  });
+  await Promise.all(workers);
+  return vectors;
 };

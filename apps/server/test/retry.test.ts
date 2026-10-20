@@ -79,6 +79,23 @@ describe("embed against a flaky OpenRouter", () => {
     expect(fetchMock.mock.calls[0]![1]!.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("sends each text as its own single input, keeping the order", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
+      const { input } = JSON.parse(String(init!.body)) as { input: unknown };
+      // A string input gets a vector pointing along the axis of its length; an array input gets nothing.
+      const embedding = Array.from({ length: config.embeddingDimensions }, (_, i) => (typeof input === "string" && i === input.length ? 1 : 0));
+      return new Response(JSON.stringify({ data: [{ index: 0, embedding }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const texts = ["a", "bb", "ccc", "dddd", "eeeee", "ffffff"];
+    const vectors = await embed(texts);
+
+    expect(fetchMock).toHaveBeenCalledTimes(texts.length);
+    expect(vectors.map((vector) => vector.indexOf(1))).toEqual(texts.map((text) => text.length));
+    expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init!.body)).input)).toEqual(expect.arrayContaining(texts));
+  });
+
   it("fails at once on a rejected key", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response("no auth", { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
