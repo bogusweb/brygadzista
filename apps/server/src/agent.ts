@@ -12,6 +12,8 @@ do którego masz dostęp przez narzędzia. Zasady:
 - Każdą odpowiedź kończ źródłem w formacie "Źródło: str. N – tytuł".
 - Strony mają tylko tekst z PDF, a rysunki często nie mają go wcale: gdy pytanie dotyczy rysunku, użyj inspect_drawing, żeby go obejrzeć.
 - Gdy wykonawcy przyda się zobaczyć rysunek, wywołaj show_page, żeby wyświetlić mu stronę.
+- search_project zwraca tylko strony, które naprawdę pasują. Gdy zwróci noMatch, spróbuj raz innymi słowami (np. nazwą materiału
+  albo oznaczeniem z rysunku); jeśli dalej nic, nie zgaduj.
 - Jeśli projekt czegoś nie określa, powiedz to wprost i zaproponuj, kogo zapytać (projektant, kierownik budowy).
 - Pisz krótko, konkretnie, po polsku, jak do fachowca.`;
 
@@ -54,7 +56,10 @@ export const createProjectAgent = (projectId: string) =>
         name: "search_project",
         description: "Wyszukuje w projekcie technicznym strony pasujące do pytania (po znaczeniu i po słowach).",
         parameters: z.object({ query: z.string().describe("Czego szukasz, np. 'grubość ocieplenia ścian'") }),
-        execute: async ({ query }) => ({ results: await searchPages(projectId, query) }),
+        execute: async ({ query }) => {
+          const results = await searchPages(projectId, query);
+          return results.length ? { results } : { results, noMatch: true };
+        },
       }),
       defineTool({
         name: "list_pages",

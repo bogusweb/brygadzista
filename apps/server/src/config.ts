@@ -35,6 +35,9 @@ export const config = {
   // Empty = any provider that keeps no data (embeddings may leave the EU); set one to pin it.
   embeddingProvider: process.env.EMBEDDING_PROVIDER ?? "",
   embeddingDimensions: 1536,
+  // Search: cosine distance above which a page does not count as an answer by meaning. A loose start, to tune with
+  // the retrieval eval (recall and the share of empty results for "brak" questions) once it has run with a key.
+  searchMaxDistance: Number(process.env.SEARCH_MAX_DISTANCE ?? 0.5),
   indexConcurrency: Number(process.env.INDEX_CONCURRENCY ?? 2),
   // Upload limits: the PDF is streamed to disk and cut off as soon as it passes the size limit.
   maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 1024) * 1024 * 1024,

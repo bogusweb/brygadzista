@@ -17,7 +17,11 @@ describe("prefixQuery", () => {
   });
 
   it("splits on punctuation and keeps numbers", () => {
-    expect(prefixQuery("rys. nr 4, XPS-300")).toBe("rys:* | xps:* | 300:*");
+    expect(prefixQuery("rys. nr 4, ściana-300")).toBe("rys:* | ścian:* | 300:*");
+  });
+
+  it("drops question words and matches an abbreviation or its spelled-out name", () => {
+    expect(prefixQuery("Jaka jest grubość MW?")).toBe("grubo:* | (mw:* | wełn:* | mineral:*)");
   });
 
   it("returns an empty query when no word is long enough", () => {
@@ -71,7 +75,7 @@ describe("searchPages", () => {
 
   it("fuses the semantic ranking with the lexical one", async () => {
     config.openrouterApiKey = "test-key";
-    const lexicalPage = await insertPage(projectId, documentId, 2, { searchText: "Zestawienie stolarki okiennej" });
+    const lexicalPage = await insertPage(projectId, documentId, 2, { searchText: "Zestawienie stolarki: okna PCV" });
     const semanticPage = await insertPage(projectId, documentId, 9, { searchText: "Detal attyki" });
     await sql`insert into chunks (page_id, project_id, content, embedding) values
       (${semanticPage}, ${projectId}, 'attyka', ${`[${axisVector(0).join(",")}]`}::vector),
@@ -97,6 +101,22 @@ describe("searchPages", () => {
     await insertPage(projectId, documentId, 5, { searchText: "Tynk cienkowarstwowy na ścianach" });
 
     expect((await searchPages(projectId, "grubość MW"))[0]?.pageNo).toBe(4);
+  });
+
+  it("returns nothing when no page holds enough of the question's words", async () => {
+    await insertPage(projectId, documentId, 5, { searchText: "Stropy żelbetowe z płyt kanałowych w dobrym stanie" });
+
+    expect(await searchPages(projectId, "Gdzie montujemy panele fotowoltaiczne na dachu?")).toEqual([]);
+  });
+
+  it("returns the part of the page around the question's words as the snippet", async () => {
+    const filler = Array.from({ length: 40 }, (_, i) => `Linia opisu numer ${i} bez znaczenia dla pytania`).join("\n");
+    await insertPage(projectId, documentId, 8, { searchText: `${filler}\nWłaz dachowy uchylny 80x80cm\n${filler}` });
+
+    const [hit] = await searchPages(projectId, "jaki jest właz dachowy");
+
+    expect(hit!.snippet).toContain("Właz dachowy uchylny 80x80cm");
+    expect(hit!.snippet.length).toBeLessThanOrEqual(600);
   });
 
   it("caps the number of results", async () => {
