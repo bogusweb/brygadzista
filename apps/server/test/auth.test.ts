@@ -317,3 +317,36 @@ describe("rate limits", () => {
     expect((await upload()).status).toBe(429);
   });
 });
+
+describe("offline search index", () => {
+  it("gives a contractor the page text of their own project and hides other projects", async () => {
+    const documentId = await createDocument(assigned, "ready");
+    await sql`
+      insert into pages (document_id, project_id, page_no, title, summary, keywords, raw_text, indexed)
+      values (${documentId}, ${assigned}, 2, 'Rzut dachu', 'Dach hali', ${["dach", "A-04"]}, 'Rys. A-04 rzut dachu', true),
+        (${documentId}, ${assigned}, 3, null, null, '{}', '', false)`;
+    const otherDocument = await createDocument(other, "ready");
+    await sql`
+      insert into pages (document_id, project_id, page_no, raw_text, indexed)
+      values (${otherDocument}, ${other}, 1, 'Szkoła', true)`;
+    const auth = await login("jan@budowa.pl");
+
+    const response = await app.request(`/api/projects/${assigned}/search-index`, { headers: auth });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { generatedAt: string; pages: unknown[] };
+    expect(body.pages).toEqual([
+      {
+        documentId,
+        filename: "projekt.pdf",
+        pageNo: 2,
+        title: "Rzut dachu",
+        kind: null,
+        summary: "Dach hali",
+        keywords: ["dach", "A-04"],
+        text: "Rys. A-04 rzut dachu",
+      },
+    ]);
+    expect((await app.request(`/api/projects/${other}/search-index`, { headers: auth })).status).toBe(404);
+  });
+});

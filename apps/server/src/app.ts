@@ -197,6 +197,18 @@ app.get("/api/documents/:id/pages", requireRole("app", "admin"), requireDocument
     from pages where document_id = ${c.req.param("id")} order by page_no`),
 );
 
+// Everything the app needs to search a project on site without signal (#51): the text of every indexed page.
+// A page that failed indexing still has its PDF text, so it is included too.
+app.get("/api/projects/:id/search-index", requireRole("app", "admin"), requireProjectAccess(), async (c) => {
+  const pages = await sql`
+    select p.document_id as "documentId", d.filename, p.page_no as "pageNo", p.title, p.kind, p.summary,
+      p.keywords, p.raw_text as text
+    from pages p join documents d on d.id = p.document_id
+    where p.project_id = ${c.req.param("id")} and (p.indexed or p.raw_text <> '')
+    order by d.created_at, p.page_no`;
+  return c.json({ generatedAt: new Date().toISOString(), pages });
+});
+
 // Full PDF text of one page, loaded only when a page is opened (the page list stays small for huge documents).
 app.get("/api/documents/:id/pages/:pageNo/text", requireRole("app", "admin"), requireDocumentAccess(), async (c) => {
   const pageNo = Number(c.req.param("pageNo"));

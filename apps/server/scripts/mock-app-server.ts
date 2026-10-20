@@ -234,6 +234,35 @@ app.get("/api/projects", (c) => c.json([PROJECT]));
 app.get("/api/projects/:id/documents", (c) =>
   c.json([{ id: DOCUMENT_ID, filename: "projekt.pdf", pageCount: 42, indexedPages: 42, status: "ready", error: null }]),
 );
+// Offline search (#51): a few pages carry text the search can find, e.g. "D-3", "ocieplenie", "cokołu".
+const PAGE_TEXT: Record<number, { summary: string; keywords: string[]; text: string }> = {
+  3: {
+    summary: "Opis przegród zewnętrznych: ściany, ocieplenie styropianem grafitowym 15 cm, tynk cienkowarstwowy.",
+    keywords: ["ocieplenie", "styropian", "przegrody"],
+    text: "Ściany zewnętrzne ocieplić płytami styropianu grafitowego gr. 15 cm, λ = 0,031 W/mK. Tynk silikonowy 1,5 mm.",
+  },
+  12: {
+    summary: "Rzut parteru hali z oznaczeniem stref, wejść i pomieszczeń zaplecza.",
+    keywords: ["rzut", "parter", "A-02"],
+    text: "Rys. A-02 Rzut parteru. Sala gimnastyczna 24 x 44 m, szatnie, magazyn sprzętu, wejście główne od strony północnej.",
+  },
+  18: {
+    summary: "Detal cokołu: ocieplenie XPS 12 cm do 50 cm nad terenem, opierzenie i izolacja przeciwwodna.",
+    keywords: ["cokół", "XPS", "D-3"],
+    text: "Detal D-3. Cokół ocieplić płytami XPS gr. 12 cm na wysokość 50 cm ponad poziom terenu. Hydroizolacja masą bitumiczną.",
+  },
+};
+app.get("/api/projects/:id/search-index", (c) =>
+  c.json({
+    generatedAt: new Date().toISOString(),
+    pages: ALL_PAGES.map((page) => ({
+      documentId: DOCUMENT_ID,
+      filename: "projekt.pdf",
+      ...page,
+      ...(PAGE_TEXT[page.pageNo] ?? { summary: null, keywords: [], text: page.title }),
+    })),
+  }),
+);
 app.get("/api/documents/:id/pages", (c) => c.json(ALL_PAGES.map((page) => ({ ...page, summary: null, facts: null, indexed: true }))));
 app.get("/api/documents/:id/pages/:pageNo/image", async (c) => {
   c.header("Content-Type", "image/jpeg");
