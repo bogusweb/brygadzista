@@ -10,6 +10,8 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
+import { A2UI_CATALOG_ID } from "../src/a2ui-catalog.js";
+import { a2uiCatalogSchema } from "../src/a2ui-schema.js";
 
 const PORT = Number(process.env.PORT ?? 3100);
 const TOKEN = process.env.APP_TOKEN ?? "demo";
@@ -41,13 +43,34 @@ const toolCallStep = (toolName: string, input: object): LanguageModelV3StreamPar
   { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_use" }, usage },
 ];
 
-const textStep = (text: string, textId = `text-${Date.now()}`): LanguageModelV3StreamPart[] => [
-  { type: "stream-start", warnings: [] },
+const textParts = (text: string, textId = `text-${Date.now()}`): LanguageModelV3StreamPart[] => [
   { type: "text-start", id: textId },
   ...(text.match(/\S+\s*/g) ?? []).map((delta) => ({ type: "text-delta" as const, id: textId, delta })),
   { type: "text-end", id: textId },
+];
+
+const textStep = (text: string): LanguageModelV3StreamPart[] => [
+  { type: "stream-start", warnings: [] },
+  ...textParts(text),
   { type: "finish", finishReason: { unified: "stop", raw: "end_turn" }, usage },
 ];
+
+// A short summary, then the surface. The arguments stream in pieces, as from a model, so the A2UI middleware
+// sees the components first and the data model last, the way it does in production.
+const surfaceStep = (text: string, surface: object): LanguageModelV3StreamPart[] => {
+  const toolCallId = `call-render_a2ui-${Date.now()}`;
+  const json = JSON.stringify(surface);
+  const chunks = json.match(/[\s\S]{1,60}/g) ?? [];
+  return [
+    { type: "stream-start", warnings: [] },
+    ...textParts(text),
+    { type: "tool-input-start", id: toolCallId, toolName: "render_a2ui" },
+    ...chunks.map((delta) => ({ type: "tool-input-delta" as const, id: toolCallId, delta })),
+    { type: "tool-input-end", id: toolCallId },
+    { type: "tool-call", toolCallId, toolName: "render_a2ui", input: json },
+    { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_use" }, usage },
+  ];
+};
 
 const ANSWER = `Ściany zewnętrzne hali: **bloczek 24 cm** + **styropian EPS 15 cm** (λ = 0,031 W/mK), klejony i kołkowany.
 
@@ -57,6 +80,78 @@ const ANSWER = `Ściany zewnętrzne hali: **bloczek 24 cm** + **styropian EPS 15
 Rzut pokazałem wyżej, powiększ go palcami.
 
 Źródło: str. 12 – Rzut parteru, str. 18 – Detal D-3`;
+
+// Every component of the construction catalog (src/a2ui-catalog.ts) with test values; the materials come through the data model.
+const SURFACE = (() => {
+  const description = { page: 3, documentId: DOCUMENT_ID };
+  const detail = { page: 18, documentId: DOCUMENT_ID };
+  return {
+    components: [
+      { id: "root", component: "Card", child: "col" },
+      { id: "col", component: "Column", children: ["title", "params", "materials", "steps", "layers"] },
+      { id: "title", component: "Text", text: "Ocieplenie ścian zewnętrznych", variant: "h3" },
+      { id: "params", component: "Row", children: ["thickness", "lambda"] },
+      { id: "thickness", component: "ParameterCard", label: "Grubość ocieplenia", value: "15", unit: "cm", note: "EPS, na cokole XPS", source: description, weight: 1 },
+      { id: "lambda", component: "ParameterCard", label: "Lambda", value: "0,031", unit: "W/(m·K)", source: description, weight: 1 },
+      { id: "materials", component: "MaterialList", title: "Materiały na 100 m² ściany", items: { path: "/materials" } },
+      {
+        id: "steps",
+        component: "WorkSteps",
+        title: "Kolejność prac",
+        steps: [
+          { title: "Przygotuj podłoże", detail: "Oczyść i zagruntuj ścianę.", source: description },
+          { title: "Przyklej płyty", detail: "Metodą obwodowo-punktową, z przesunięciem spoin." },
+          { title: "Zakołkuj i zatop siatkę", detail: "4–6 łączników na m², siatka na zakład 10 cm." },
+          { title: "Wykonaj cokół z XPS", detail: "Do wysokości 50 cm, jak na detalu D-3.", source: detail },
+        ],
+      },
+      {
+        id: "layers",
+        component: "LayerComparison",
+        title: "Ściana zewnętrzna i cokół",
+        highlight: 0,
+        partitions: [
+          {
+            name: "Ściana zewnętrzna SZ1",
+            total: "40,5 cm",
+            uValue: "0,18 W/(m²·K)",
+            source: description,
+            layers: [
+              { material: "Tynk silikonowy", thickness: "1,5 mm" },
+              { material: "Styropian EPS 031", thickness: "15 cm" },
+              { material: "Bloczek betonowy", thickness: "24 cm" },
+              { material: "Tynk gipsowy", thickness: "1,5 cm" },
+            ],
+          },
+          {
+            name: "Cokół",
+            total: "39 cm",
+            source: detail,
+            layers: [
+              { material: "Tynk mozaikowy", thickness: "2 mm" },
+              { material: "Polistyren XPS", thickness: "15 cm", note: "do 50 cm nad terenem" },
+              { material: "Bloczek betonowy", thickness: "24 cm" },
+            ],
+          },
+        ],
+      },
+    ],
+    data: {
+      materials: [
+        { name: "Styropian EPS 031, 15 cm", quantity: 105, unit: "m²", note: "z zapasem 5%", source: description },
+        { name: "Polistyren XPS, 15 cm", quantity: 8, unit: "m²", source: detail },
+        { name: "Klej do styropianu", quantity: 500, unit: "kg" },
+        { name: "Siatka z włókna szklanego", quantity: 115, unit: "m²" },
+        { name: "Łączniki mechaniczne", quantity: 600, unit: "szt." },
+      ],
+    },
+  };
+})();
+
+const SURFACE_SUMMARY = "Zestawienie dla ocieplenia ścian poniżej: parametry, materiały, kolejność prac i warstwy.\n\nŹródło: str. 3 – Opis techniczny, str. 18 – Detal D-3";
+
+// Questions about lists, quantities or layers get an A2UI surface instead of the drawing.
+const wantsSurface = (question: string) => /zestaw|materia|warstw|kolejno|a2ui/i.test(question);
 
 const failedOnce = new Set<string>();
 
@@ -73,6 +168,7 @@ const scriptedStep = (options: LanguageModelV3CallOptions): LanguageModelV3Strea
   }
   const step = prompt.slice(lastUser).filter((message) => message.role === "tool").length;
   if (step === 0) return toolCallStep("search_project", { query: question });
+  if (step === 1 && wantsSurface(question)) return surfaceStep(SURFACE_SUMMARY, { ...SURFACE, surfaceId: `budowa-${Date.now()}` });
   if (step === 1) return toolCallStep("show_page", { documentId: DOCUMENT_ID, pageNo: 12, caption: "Ściany zewnętrzne i wymiary hali" });
   return textStep(ANSWER);
 };
@@ -116,7 +212,10 @@ const createMockAgent = () =>
     ],
   });
 
-const runtime = new CopilotRuntime({ agents: async () => ({ default: createMockAgent() }) });
+const runtime = new CopilotRuntime({
+  agents: async () => ({ default: createMockAgent() }),
+  a2ui: { injectA2UITool: true, schema: a2uiCatalogSchema, defaultCatalogId: A2UI_CATALOG_ID },
+});
 
 const requireToken: MiddlewareHandler = async (c, next) => {
   const token = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? c.req.query("token");
@@ -139,5 +238,5 @@ app.get("/api/documents/:id/pages/:pageNo/image", async (c) => {
 });
 
 serve({ fetch: app.fetch, port: PORT }, () =>
-  console.log(`Mock Brygadzisty: http://localhost:${PORT} (kod dostępu "${TOKEN}"). Słowo "awaria" w pytaniu symuluje błąd przy pierwszej próbie.`),
+  console.log(`Mock Brygadzisty: http://localhost:${PORT} (kod dostępu "${TOKEN}"). Słowo "awaria" w pytaniu symuluje błąd przy pierwszej próbie, "zestawienie" pokazuje powierzchnię A2UI.`),
 );

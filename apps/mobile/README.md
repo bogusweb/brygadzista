@@ -1,6 +1,19 @@
 # apps/mobile
 
-Aplikacja Expo (SDK 58, expo-router) dla wykonawcy: konfiguracja połączenia z serwerem, lista projektów i czat z asystentem, który zna projekt. Asystent pokazuje rysunki (`show_page`) z powiększaniem palcami, a źródła „str. N” w odpowiedziach otwierają stronę. Zakładka „Projekt” pokazuje wszystkie strony dokumentacji i pozwala zapisać je na telefonie, żeby działały bez zasięgu.
+Aplikacja Expo (SDK 58, expo-router) dla wykonawcy: konfiguracja połączenia z serwerem, lista projektów i czat z asystentem, który zna projekt. Asystent pokazuje rysunki (`show_page`) z powiększaniem palcami, a źródła „str. N” w odpowiedziach otwierają stronę. Zakładka „Projekt” pokazuje wszystkie strony dokumentacji i pozwala zapisać je na telefonie, żeby działały bez zasięgu. Zestawienia (parametry, materiały, kroki prac, warstwy przegród) agent pokazuje jako powierzchnie A2UI, rysowane natywnie.
+
+## Zestawienia A2UI
+
+Renderer A2UI z CopilotKit jest tylko webowy, więc aplikacja ma własny, natywny, dla podzbioru katalogu:
+
+- Agent wywołuje `render_a2ui`, a middleware A2UI w runtime zamienia to na wiadomość aktywności `a2ui-surface` (status „building”/„retrying”/„failed” albo lista operacji v0.9). `src/lib/a2ui.ts` odtwarza operacje (`createSurface`, `updateComponents`, `updateDataModel`, `deleteSurface`), rozwiązuje powiązania `{ path }` (także względne w szablonach list) i sprawdza pozycje list, odrzucając błędne zamiast wywracać całą powierzchnię.
+- `src/components/a2ui/`: komponenty budowlane z katalogu serwera (`ParameterCard`, `MaterialList`, `WorkSteps`, `LayerComparison`) i część podstawowego katalogu potrzebna do układu (`Card`, `Column`, `Row`, `List`, `Text`, `Divider`, `Image`). Przegrody stoją jedna pod drugą, a nie obok siebie, bo telefon jest wąski. Link „str. N” otwiera stronę na pełnym ekranie (z telefonu, jeśli jest zapisana).
+- Komponenty interaktywne (przyciski, pola, akcje do agenta) nie są obsługiwane. Pokazuje się wtedy krótka informacja zamiast elementu.
+- Test w `a2ui.test.ts` pilnuje, żeby lista komponentów aplikacji zgadzała się z katalogiem na serwerze (`apps/server/src/a2ui-catalog.ts`).
+
+| Budowanie | Zestawienie | Warstwy | Źródło |
+|---|---|---|---|
+| ![](docs/screenshots/a2ui-0-building.png) | ![](docs/screenshots/a2ui-1-top.png) | ![](docs/screenshots/a2ui-3-layers.png) | ![](docs/screenshots/a2ui-4-source.png) |
 
 ## Strony offline
 
@@ -33,7 +46,7 @@ Serwer testowy udaje backend: prawdziwy runtime CopilotKit i pętla narzędzi, t
 pnpm --filter @brygadzista/server mock    # http://localhost:3100, kod dostępu: demo
 ```
 
-W aplikacji podaj adres komputera w sieci lokalnej (np. `http://192.168.1.20:3100`; telefon musi być w tej samej sieci). Pytanie ze słowem „awaria” za pierwszym razem kończy się błędem, żeby sprawdzić komunikat i przycisk „Ponów”.
+W aplikacji podaj adres komputera w sieci lokalnej (np. `http://192.168.1.20:3100`; telefon musi być w tej samej sieci). Pytanie ze słowem „awaria” za pierwszym razem kończy się błędem, żeby sprawdzić komunikat i przycisk „Ponów”. Pytanie o „zestawienie” (albo materiały, warstwy, kolejność prac) zwraca powierzchnię A2UI ze wszystkimi czterema komponentami katalogu.
 
 Testy logiki czatu: `pnpm test` (vitest).
 
@@ -44,8 +57,9 @@ src/app/_layout.tsx        polyfille CopilotKit, gesty, nawigacja (Stack)
 src/app/index.tsx          lista projektów (GET /api/projects), przekierowanie do ustawień
 src/app/settings.tsx       adres serwera + kod dostępu
 src/app/projects/[id].tsx  ekran projektu: CopilotKitProvider (nagłówki Authorization i x-project-id) + czat
-src/lib/                   ustawienia, klient API, motyw, logika czatu (chat.ts + testy)
+src/lib/                   ustawienia, klient API, motyw, logika czatu (chat.ts) i A2UI (a2ui.ts), z testami
 src/components/            przycisk, provider CopilotKit, status połączenia z agentem
+src/components/a2ui/       natywny renderer A2UI: katalog budowlany i podstawowe komponenty układu
 src/components/chat/       czat na useAgent, statusy narzędzi, karta show_page, pełny ekran z pinch-zoom
 src/components/pages/      zakładka „Projekt”: siatka stron, pobieranie na telefon, obraz strony z telefonu lub serwera
 src/lib/offline*.ts        zapis stron i danych na telefonie (expo-file-system; wersja .web bez zapisu)

@@ -33,19 +33,17 @@ import { users } from "./users.js";
 const isAgentRun = (request: Request) => request.method === "POST" && /\/agent\/[^/]+\/(run|suggest)$/.test(new URL(request.url).pathname);
 
 const projectAgents =
-  ({ a2ui, roles }: { a2ui: boolean; roles: Role[] }) =>
+  (roles: Role[]) =>
   async ({ request }: { request: Request }) => {
     const projectId = await agentProjectId(request, roles);
-    return { default: config.fakeAgent ? new FakeProjectAgent(projectId) : createProjectAgent(projectId, { a2ui }) };
+    return { default: config.fakeAgent ? new FakeProjectAgent(projectId) : createProjectAgent(projectId) };
   };
 
-// The mobile app gets plain tool-call UI; the dashboard additionally gets A2UI surfaces built
-// from the construction catalog (src/a2ui-catalog.ts), which the dashboard renders.
-const appRuntime = new CopilotRuntime({ agents: projectAgents({ a2ui: false, roles: ["app", "admin"] }) });
-const adminRuntime = new CopilotRuntime({
-  agents: projectAgents({ a2ui: true, roles: ["admin"] }),
-  a2ui: { injectA2UITool: true, schema: a2uiCatalogSchema, defaultCatalogId: A2UI_CATALOG_ID },
-});
+// Both clients render A2UI surfaces built from the construction catalog (src/a2ui-catalog.ts):
+// the dashboard with CopilotKit's web renderer, the mobile app with its own native one.
+const a2ui = { injectA2UITool: true, schema: a2uiCatalogSchema, defaultCatalogId: A2UI_CATALOG_ID };
+const appRuntime = new CopilotRuntime({ agents: projectAgents(["app", "admin"]), a2ui });
+const adminRuntime = new CopilotRuntime({ agents: projectAgents(["admin"]), a2ui });
 
 export const app = new Hono<AuthEnv>();
 app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-type", "x-project-id"] }));

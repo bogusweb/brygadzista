@@ -6,7 +6,7 @@ Asystent AI dla wykonawcy: agent, który zna projekt techniczny budynku (PDF) i 
 
 ```
 apps/server     Node 22 + Hono: API, upload i indeksowanie PDF, agent CopilotKit (AG-UI), serwuje dashboard
-apps/dashboard  panel operatora: Vite + React 19, czat CopilotKit + A2UI, upload PDF
+apps/dashboard  panel operatora: Vite + React 19, czat CopilotKit z A2UI, upload PDF
 apps/mobile     aplikacja Expo (expo-router, @copilotkit/react-native), zob. apps/mobile/README.md
 deploy/         (epik) docker compose dla Openship na serwerze ruth154
 ```
@@ -25,7 +25,7 @@ deploy/         (epik) docker compose dla Openship na serwerze ruth154
 
 **Agent** (`agent.ts`): `BuiltInAgent` CopilotKit z narzędziami `search_project`, `list_pages`, `read_page`, `inspect_drawing`, `show_page`. Odpowiada po polsku i zawsze podaje źródło.
 
-**Katalog A2UI** (`apps/server/src/a2ui-catalog.ts`): komponenty budowlane, które agent dashboardu może pokazać przez `render_a2ui` obok podstawowego katalogu A2UI: `ParameterCard` (parametr z jednostką i źródłem), `MaterialList` (materiały z ilościami), `WorkSteps` (kroki prac), `LayerComparison` (warstwy przegród obok siebie). Definicje (zod v3, opisy dla modelu) są wspólne: serwer wysyła z nich schemat v0.9 w `a2ui.schema` runtime'u (`a2ui-schema.ts`), a dashboard renderuje je w `apps/dashboard/src/a2uiCatalog.tsx`. Linki „str. N” w komponentach otwierają stronę projektu. Aplikacja mobilna nie dostaje A2UI ani instrukcji o nim w prompcie.
+**Katalog A2UI** (`apps/server/src/a2ui-catalog.ts`): komponenty budowlane, które agent może pokazać przez `render_a2ui` obok podstawowego katalogu A2UI: `ParameterCard` (parametr z jednostką i źródłem), `MaterialList` (materiały z ilościami), `WorkSteps` (kroki prac), `LayerComparison` (warstwy przegród obok siebie). Definicje (zod v3, opisy dla modelu) są wspólne: serwer wysyła z nich schemat v0.9 w `a2ui.schema` runtime'u (`a2ui-schema.ts`), a dashboard renderuje je w `apps/dashboard/src/a2uiCatalog.tsx`, a aplikacja mobilna własnym natywnym rendererem (`apps/mobile/src/components/a2ui/`). Oba runtime'y (`/api/copilotkit` i `/api/admin/copilotkit`) mają A2UI. Linki „str. N” w komponentach otwierają stronę projektu.
 
 **Modele i prywatność**: wszystko przez OpenRouter, przypięte do jednego endpointu w UE, bez fallbacku, `data_collection: deny`, `zdr: true` (`llm.ts`).
 - rozmowa: `anthropic/claude-opus-5.5` przez `google-vertex/europe`
