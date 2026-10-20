@@ -11,7 +11,7 @@ apps/mobile     aplikacja Expo (expo-router, @copilotkit/react-native), zob. app
 openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowania to katalog główny repo)
 ```
 
-**Indeksowanie PDF** (`apps/server/src/ingest.ts`): PDF jest strumieniowany na dysk, potem w tle strona po stronie: `pdftotext` (tekst), `pdftoppm` (JPEG strony), model z wizją robi ustrukturyzowany indeks strony (tytuł, rodzaj, opis, parametry, słowa kluczowe), a Gemini Embedding 2 liczy wektory (pgvector). Przetwarzanie jest wznawialne po restarcie.
+**Indeksowanie PDF** (`apps/server/src/ingest.ts`): PDF jest strumieniowany na dysk, potem w tle strona po stronie: `pdftotext` (tekst), `pdftoppm` (JPEG strony), model z wizją robi ustrukturyzowany indeks strony (tytuł, rodzaj, opis, parametry, słowa kluczowe), a Qwen3 Embedding 8B liczy wektory (pgvector). Przetwarzanie jest wznawialne po restarcie.
 
 **Duże PDF-y** (setki stron, arkusze A0/A1):
 - Upload jest strumieniowany i przerywany po przekroczeniu `MAX_UPLOAD_MB` (413); PDF z więcej niż `MAX_PAGES` stron jest odrzucany.
@@ -30,7 +30,7 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 **Modele i prywatność**: wszystko przez OpenRouter, przypięte do jednego endpointu w UE, bez fallbacku, `data_collection: deny`, `zdr: true` (`llm.ts`).
 - rozmowa: `anthropic/claude-opus-5.5` przez `google-vertex/europe`
 - indeksowanie stron: `anthropic/claude-sonnet-5.5` przez `google-vertex/europe`
-- embeddingi: `google/gemini-embedding-2` przez `google-vertex/eu`
+- embeddingi: `qwen/qwen3-embedding-8b` przez `nebius` (1536 wymiarów, `zdr: true`); zmiana modelu wymaga ponownego indeksowania
 
 ## API (skrót)
 
