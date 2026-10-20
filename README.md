@@ -6,7 +6,7 @@ Asystent AI dla wykonawcy: agent, który zna projekt techniczny budynku (PDF) i 
 
 ```
 apps/server     Node 22 + Hono: API, upload i indeksowanie PDF, agent CopilotKit (AG-UI), serwuje dashboard
-apps/dashboard  (epik) panel operatora: React + CopilotKit + A2UI
+apps/dashboard  panel operatora: Vite + React 19 (logowanie tokenem, projekty); CopilotKit + A2UI w kolejnych zadaniach
 apps/mobile     (epik) aplikacja Expo: @copilotkit/react-native
 deploy/         (epik) docker compose dla Openship na serwerze ruth154
 ```
@@ -27,7 +27,9 @@ deploy/         (epik) docker compose dla Openship na serwerze ruth154
 | Metoda | Ścieżka | Rola |
 | --- | --- | --- |
 | GET | `/api/health` | publiczne |
+| GET | `/api/auth/me` (zwraca rolę tokenu) | app/admin |
 | GET/POST | `/api/projects` | app/admin, admin |
+| DELETE | `/api/projects/:id` | admin |
 | PUT | `/api/projects/:id/documents?filename=` (body = PDF) | admin |
 | GET | `/api/projects/:id/documents` | app/admin |
 | GET | `/api/documents/:id/pages` | app/admin |
@@ -46,5 +48,13 @@ pnpm install
 cp apps/server/.env.example apps/server/.env   # uzupełnij OPENROUTER_API_KEY
 cd apps/server && node --env-file=.env --import tsx src/index.ts
 ```
+
+Dashboard (dev, proxy `/api` na `localhost:3000`, inny adres przez `API_URL`):
+
+```bash
+pnpm --filter @brygadzista/dashboard dev
+```
+
+W produkcji `pnpm --filter @brygadzista/dashboard build` tworzy `apps/dashboard/dist`, który serwer wystawia pod `/` (`DASHBOARD_DIR`).
 
 Wymaga `poppler-utils` (`pdfinfo`, `pdftotext`, `pdftoppm`).
