@@ -90,6 +90,8 @@ const ABBREVIATIONS: Record<string, string> = {
   gk: "płyta gipsowo-kartonowa",
 };
 
+export const abbreviationOf = (word: string): string | undefined => ABBREVIATIONS[word.toLowerCase()];
+
 export const expandAbbreviations = (query: string) => {
   const extra = query
     .toLowerCase()
