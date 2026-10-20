@@ -7,7 +7,11 @@ export type Project = {
   documentCount: number;
 };
 
-export type DocumentStatus = "uploading" | "queued" | "processing" | "ready" | "error";
+export type DocumentStatus = "uploading" | "awaiting_start" | "queued" | "processing" | "ready" | "error";
+
+export type IndexingEstimate = { pages: number; costUsd: number; seconds: number; vision: boolean };
+
+export type IndexingProgress = { total: number; done: number; startedAt: string | null; etaSeconds: number };
 
 export type ProjectDocument = {
   id: string;
@@ -17,7 +21,13 @@ export type ProjectDocument = {
   status: DocumentStatus;
   error: string | null;
   createdAt: string;
+  // Older servers (before #9) don't send these, so they stay optional.
+  estimate?: IndexingEstimate;
+  progress?: IndexingProgress | null;
+  failedPages?: number;
 };
+
+export type UploadedDocument = { id: string; status?: DocumentStatus; pageCount?: number; estimate?: IndexingEstimate };
 
 export type PageKind = "opis" | "rysunek" | "detal" | "zestawienie" | "formalne" | "inne";
 
@@ -66,15 +76,16 @@ const errorFromXhr = (xhr: XMLHttpRequest) => {
 // fetch() can't report upload progress, so the PDF goes up through XHR.
 const uploadDocument = (token: string, projectId: string, file: File, onProgress: (fraction: number) => void) => {
   const xhr = new XMLHttpRequest();
-  const done = new Promise<{ id: string }>((resolve, reject) => {
-    xhr.open("PUT", `/api/projects/${projectId}/documents?filename=${encodeURIComponent(file.name)}`);
+  const done = new Promise<UploadedDocument>((resolve, reject) => {
+    // autostart=0: indexing waits until the operator has seen the cost estimate and pressed start.
+    xhr.open("PUT", `/api/projects/${projectId}/documents?filename=${encodeURIComponent(file.name)}&autostart=0`);
     xhr.setRequestHeader("authorization", `Bearer ${token}`);
     xhr.setRequestHeader("content-type", "application/pdf");
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(event.loaded / event.total);
     };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText) as { id: string });
+      if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText) as UploadedDocument);
       else reject(errorFromXhr(xhr));
     };
     xhr.onerror = () => reject(new ApiError("Połączenie przerwane. Sprawdź internet i wyślij plik ponownie.", 0));
@@ -95,6 +106,7 @@ export const createApi = (token: string) => ({
   listDocuments: (projectId: string) => request<ProjectDocument[]>(token, `/api/projects/${projectId}/documents`),
   uploadDocument: (projectId: string, file: File, onProgress: (fraction: number) => void) =>
     uploadDocument(token, projectId, file, onProgress),
+  startDocument: (id: string) => request<{ ok: true }>(token, `/api/documents/${id}/start`, { method: "POST" }),
   reindexDocument: (id: string) => request<{ ok: true }>(token, `/api/documents/${id}/reindex`, { method: "POST" }),
   deleteDocument: (id: string) => request<void>(token, `/api/documents/${id}`, { method: "DELETE" }),
   listPages: (documentId: string) => request<DocumentPage[]>(token, `/api/documents/${documentId}/pages`),

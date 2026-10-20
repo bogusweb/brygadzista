@@ -1,9 +1,9 @@
 import { BuiltInAgent, defineTool } from "@copilotkit/runtime/v2";
 import { z } from "zod";
 import { sql } from "./db.js";
+import { inspectionImages } from "./drawing.js";
 import { agentLanguageModel, askAboutPage } from "./llm.js";
 import { searchPages } from "./search.js";
-import { pageImage } from "./storage.js";
 
 const SYSTEM_PROMPT = `Jesteś Brygadzistą: asystentem wykonawcy na budowie. Odpowiadasz wyłącznie na podstawie projektu technicznego,
 do którego masz dostęp przez narzędzia. Zasady:
@@ -80,7 +80,7 @@ export const createProjectAgent = (projectId: string) =>
         parameters: pageRef.extend({ question: z.string() }),
         execute: async ({ documentId, pageNo, question }) => {
           await assertPageInProject(projectId, documentId, pageNo);
-          return { answer: await askAboutPage(pageImage(documentId, pageNo), question) };
+          return { answer: await askAboutPage(await inspectionImages(documentId, pageNo), question) };
         },
       }),
       defineTool({
