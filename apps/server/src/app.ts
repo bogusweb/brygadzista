@@ -48,7 +48,8 @@ const adminRuntime = new CopilotRuntime({ agents: projectAgents(["admin"]), a2ui
 export const app = new Hono<AuthEnv>();
 app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-type", "x-project-id"] }));
 
-app.get("/api/health", (c) => c.json({ ok: true }));
+// `llm` tells an operator at a glance whether the OpenRouter key reached the server.
+app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterApiKey) }));
 app.route("/", users);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun));

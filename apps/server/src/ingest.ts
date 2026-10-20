@@ -79,6 +79,10 @@ const describeFailedPages = (pageNos: number[]) =>
   `Nie udało się zindeksować ${pageNos.length} ${pageNos.length === 1 ? "strony" : "stron"}: ${pageNos.slice(0, 20).join(", ")}` +
   `${pageNos.length > 20 ? ", …" : ""}. Ponowne indeksowanie spróbuje jeszcze raz.`;
 
+// Without a key the document still becomes searchable by its text, but the dashboard must not present that as done.
+const NO_API_KEY_MESSAGE =
+  "Brak klucza OPENROUTER_API_KEY na serwerze: strony mają tylko tekst z PDF, bez odczytu rysunków. Ustaw klucz i zindeksuj ponownie.";
+
 const processDocument = async (doc: { id: string; project_id: string }) => {
   const pageCount = await pdfPageCount(documentPdf(doc.id));
   await sql`update documents set page_count = ${pageCount}, status = 'processing', error = null where id = ${doc.id}`;
@@ -119,7 +123,11 @@ const processDocument = async (doc: { id: string; project_id: string }) => {
 
   const failed = await sql<{ page_no: number }[]>`
     select page_no from pages where document_id = ${doc.id} and error is not null order by page_no`;
-  const error = failed.length ? describeFailedPages(failed.map((row) => row.page_no)) : null;
+  const error = failed.length
+    ? describeFailedPages(failed.map((row) => row.page_no))
+    : config.openrouterApiKey
+      ? null
+      : NO_API_KEY_MESSAGE;
   await sql`update documents set status = 'ready', error = ${error} where id = ${doc.id}`;
 };
 
