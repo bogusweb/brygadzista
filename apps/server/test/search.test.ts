@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config.js";
-import { sql } from "../src/db.js";
+import { migrate, sql } from "../src/db.js";
 import { prefixQuery, searchPages } from "../src/search.js";
 import { axisVector, createDocument, createProject, insertPage, resetDatabase } from "./helpers.js";
 
@@ -94,6 +94,23 @@ describe("searchPages", () => {
 
     expect((await searchPages(projectId, "PN-81/B-03020"))[0]?.pageNo).toBe(7);
     expect((await searchPages(projectId, "rury spustowe Ø120"))[0]?.pageNo).toBe(7);
+  });
+
+  it("finds a detail mark written with a leading zero", async () => {
+    await insertPage(projectId, documentId, 2, { searchText: "SPIS ZAWARTOŚCI PROJEKTU rys. nr 10 Szczegóły" });
+    await insertPage(projectId, documentId, 24, { searchText: "SZCZEGÓŁ A4 ocieplenie ościeża okna" });
+
+    expect((await searchPages(projectId, "rys. a04"))[0]?.pageNo).toBe(24);
+  });
+
+  it("re-extracts codes of pages stored with an older extraction at startup", async () => {
+    const pageId = await insertPage(projectId, documentId, 24, { searchText: "SZCZEGÓŁ A4" });
+    await sql`update pages set codes = ${["a04"]}, codes_version = 1 where id = ${pageId}`;
+
+    await migrate();
+
+    const [page] = await sql<{ codes: string[] }[]>`select codes from pages where id = ${pageId}`;
+    expect(page?.codes).toContain("a4");
   });
 
   it("expands trade abbreviations in the query", async () => {

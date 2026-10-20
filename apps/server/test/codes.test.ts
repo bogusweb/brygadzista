@@ -4,12 +4,12 @@ import { expandAbbreviations, extractCodes } from "../src/codes.js";
 describe("extractCodes", () => {
   it("keeps sheet marks, classes and standards that full-text search splits apart", () => {
     expect(extractCodes("rys. A-04, beton C25/30 wg PN-81/B-03020")).toEqual(
-      expect.arrayContaining(["a04", "rysa04", "c25/30", "pn81/b03020"]),
+      expect.arrayContaining(["a4", "rysa4", "c25/30", "pn81/b3020"]),
     );
   });
 
   it("writes variants of one mark the same way", () => {
-    for (const variant of ["A-04", "A.04", "A04", "a–04"]) expect(extractCodes(variant)).toContain("a04");
+    for (const variant of ["A-04", "A.04", "A04", "a–04", "A4"]) expect(extractCodes(variant)).toContain("a4");
     expect(extractCodes("Ø120")).toEqual(extractCodes("∅120"));
     expect(extractCodes("PRZEKRÓJ C­C")).toEqual(extractCodes("przekrój C-C"));
   });
