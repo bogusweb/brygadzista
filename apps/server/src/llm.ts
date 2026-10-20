@@ -15,6 +15,10 @@ export const euOnlyRouting = (endpoint: string) => ({
   zdr: true,
 });
 
+// Embeddings may be served outside the EU (owner's decision), but never by a provider that keeps data.
+const embeddingRouting = () =>
+  config.embeddingProvider ? euOnlyRouting(config.embeddingProvider) : { data_collection: "deny" as const, zdr: true };
+
 const openrouter = () =>
   createOpenRouter({ apiKey: config.openrouterApiKey, compatibility: "strict", appName: "Brygadzista" });
 
@@ -130,7 +134,7 @@ const embedOne = async (text: string): Promise<number[]> => {
         model: config.embeddingModel,
         input: text,
         dimensions: config.embeddingDimensions,
-        provider: euOnlyRouting(config.embeddingProvider),
+        provider: embeddingRouting(),
       }),
     });
     if (!response.ok) {

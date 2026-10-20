@@ -27,10 +27,10 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 
 **Katalog A2UI** (`apps/server/src/a2ui-catalog.ts`): komponenty budowlane, które agent może pokazać przez `render_a2ui` obok podstawowego katalogu A2UI: `ParameterCard` (parametr z jednostką i źródłem), `MaterialList` (materiały z ilościami), `WorkSteps` (kroki prac), `LayerComparison` (warstwy przegród obok siebie). Definicje (zod v3, opisy dla modelu) są wspólne: serwer wysyła z nich schemat v0.9 w `a2ui.schema` runtime'u (`a2ui-schema.ts`), a dashboard renderuje je w `apps/dashboard/src/a2uiCatalog.tsx`, a aplikacja mobilna własnym natywnym rendererem (`apps/mobile/src/components/a2ui/`). Oba runtime'y (`/api/copilotkit` i `/api/admin/copilotkit`) mają A2UI. Linki „str. N” w komponentach otwierają stronę projektu.
 
-**Modele i prywatność**: wszystko przez OpenRouter, przypięte do jednego endpointu w UE, bez fallbacku, `data_collection: deny`, `zdr: true` (`llm.ts`).
+**Modele i prywatność**: wszystko przez OpenRouter z `data_collection: deny` i `zdr: true` (`llm.ts`). Modele językowe są przypięte do jednego endpointu w UE, bez fallbacku. Embeddingi mogą iść poza UE.
 - rozmowa: `anthropic/claude-opus-5.5` przez `google-vertex/europe`
 - indeksowanie stron: `anthropic/claude-sonnet-5.5` przez `google-vertex/europe`
-- embeddingi: `qwen/qwen3-embedding-8b` przez `nebius` (1536 wymiarów, `zdr: true`); zmiana modelu wymaga ponownego indeksowania
+- embeddingi: `qwen/qwen3-embedding-8b`, dowolny dostawca z `zdr: true` i `data_collection: deny` (mogą być poza UE; `EMBEDDING_PROVIDER` przypina jednego), 1536 wymiarów; zmiana modelu wymaga ponownego indeksowania
 
 ## API (skrót)
 
