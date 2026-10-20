@@ -9,12 +9,12 @@ import { parseArgs } from "node:util";
 import { config } from "../src/config.js";
 import { migrate, sql } from "../src/db.js";
 import { processNextDocument } from "../src/ingest.js";
-import { lexicalSearch, searchPages, semanticSearch } from "../src/search.js";
+import { codeSearch, lexicalSearch, searchPages, semanticSearch } from "../src/search.js";
 import { documentDir, documentPdf } from "../src/storage.js";
 
 type Question = { id: string; kind: string; question: string; pages: number[] };
 type QuestionSet = { document: string; questions: Question[] };
-type Ranking = "tekst" | "wektor" | "hybryda";
+type Ranking = "tekst" | "wektor" | "kody" | "hybryda";
 
 const TOP_K = 6;
 const DEPTH = 12;
@@ -40,7 +40,8 @@ const pageNumbers = async (projectId: string, pageIds: string[]) => {
 
 const rank = async (projectId: string, ranking: Ranking, query: string): Promise<number[]> => {
   if (ranking === "hybryda") return (await searchPages(projectId, query, TOP_K)).map((hit) => hit.pageNo);
-  const rows = ranking === "tekst" ? await lexicalSearch(projectId, query, DEPTH) : await semanticSearch(projectId, query, DEPTH);
+  const search = { tekst: lexicalSearch, wektor: semanticSearch, kody: codeSearch }[ranking];
+  const rows = await search(projectId, query, DEPTH);
   return pageNumbers(projectId, rows.map((row) => row.page_id));
 };
 
@@ -100,7 +101,7 @@ const main = async () => {
   await migrate();
   const projectId = args.project ?? (await indexPdf(path.resolve(args.pdf!)));
   const set = JSON.parse(await readFile(args.questions!, "utf8")) as QuestionSet;
-  const rankings: Ranking[] = config.openrouterApiKey ? ["tekst", "wektor", "hybryda"] : ["tekst", "hybryda"];
+  const rankings: Ranking[] = config.openrouterApiKey ? ["tekst", "wektor", "kody", "hybryda"] : ["tekst", "kody", "hybryda"];
 
   console.log(`\n${set.document}\nProjekt ${projectId}, ${set.questions.length} pytań, rankingi: ${rankings.join(", ")}\n`);
   const results = new Map<Ranking, { question: Question; score: Score; ranked: number[] }[]>();

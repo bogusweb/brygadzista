@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { extractCodes } from "./codes.js";
 import { config } from "./config.js";
 
 export const sql = postgres(config.databaseUrl, { max: 10, onnotice: () => {} });
@@ -82,10 +83,28 @@ export const migrate = async () => {
       created_at timestamptz not null default now(),
       primary key (project_id, user_id)
     )`;
+  // Exact codes and symbols of each page (#50); null = not extracted yet, filled in by backfillCodes.
+  await sql`alter table pages add column if not exists codes text[]`;
   await sql`create index if not exists sessions_user on sessions (user_id)`;
   await sql`create index if not exists project_members_user on project_members (user_id)`;
   await sql`create index if not exists chunks_embedding on chunks using hnsw (embedding vector_cosine_ops)`;
   await sql`create index if not exists chunks_project on chunks (project_id)`;
   await sql`create index if not exists pages_fts on pages using gin (to_tsvector('simple', search_text))`;
   await sql`create index if not exists pages_trgm on pages using gin (search_text gin_trgm_ops)`;
+  await sql`create index if not exists pages_codes on pages using gin (codes)`;
+  await backfillCodes();
+};
+
+const BACKFILL_BATCH = 200;
+
+// Pages indexed before codes existed get them from their stored text, without reindexing the document.
+const backfillCodes = async () => {
+  for (;;) {
+    const pages = await sql<{ id: string; title: string | null; raw_text: string }[]>`
+      select id, title, raw_text from pages where codes is null and search_text <> '' limit ${BACKFILL_BATCH}`;
+    if (pages.length === 0) return;
+    for (const page of pages) {
+      await sql`update pages set codes = ${extractCodes(`${page.title ?? ""}\n${page.raw_text}`)} where id = ${page.id}`;
+    }
+  }
 };
