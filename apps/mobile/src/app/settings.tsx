@@ -3,12 +3,13 @@ import { useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "../components/Button";
 import { ApiError, fetchProjects } from "../lib/api";
-import { normalizeServerUrl, useSettings } from "../lib/settings";
+import { hostedServerUrl, normalizeServerUrl, useSettings } from "../lib/settings";
 import { colors, radius, spacing } from "../lib/theme";
 
 const SettingsScreen = () => {
   const { connection, saveConnection, clearConnection } = useSettings();
-  const [serverUrl, setServerUrl] = useState(connection?.serverUrl ?? "");
+  const hostedUrl = hostedServerUrl();
+  const [serverUrl, setServerUrl] = useState(connection?.serverUrl ?? hostedUrl ?? "");
   const [token, setToken] = useState(connection?.token ?? "");
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -34,32 +35,38 @@ const SettingsScreen = () => {
 
   const disconnect = async () => {
     await clearConnection();
-    setServerUrl("");
+    setServerUrl(hostedUrl ?? "");
     setToken("");
   };
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text style={styles.intro}>Podaj adres serwera i kod dostępu, które dostałeś od administratora.</Text>
+        <Text style={styles.intro}>
+          {hostedUrl
+            ? "Podaj kod dostępu, który dostałeś od administratora."
+            : "Podaj adres serwera i kod dostępu, które dostałeś od administratora."}
+        </Text>
 
-        <View style={styles.field}>
-          <Text style={styles.label} nativeID="serverUrlLabel">
-            Adres serwera
-          </Text>
-          <TextInput
-            accessibilityLabelledBy="serverUrlLabel"
-            value={serverUrl}
-            onChangeText={setServerUrl}
-            placeholder="np. brygadzista.example.pl"
-            placeholderTextColor={colors.muted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            textContentType="URL"
-            style={styles.input}
-          />
-        </View>
+        {hostedUrl ? null : (
+          <View style={styles.field}>
+            <Text style={styles.label} nativeID="serverUrlLabel">
+              Adres serwera
+            </Text>
+            <TextInput
+              accessibilityLabelledBy="serverUrlLabel"
+              value={serverUrl}
+              onChangeText={setServerUrl}
+              placeholder="np. brygadzista.example.pl"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              textContentType="URL"
+              style={styles.input}
+            />
+          </View>
+        )}
 
         <View style={styles.field}>
           <Text style={styles.label} nativeID="tokenLabel">

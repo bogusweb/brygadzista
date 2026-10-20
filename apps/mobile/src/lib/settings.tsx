@@ -20,6 +20,11 @@ export const normalizeServerUrl = (url: string) => {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 };
 
+// The browser version is served by the server itself under /app, so the server is the page's own origin.
+// The dev preview (`pnpm web`) runs elsewhere and still asks for the address.
+export const hostedServerUrl = (): string | null =>
+  typeof window !== "undefined" && window.location?.pathname?.startsWith("/app") ? window.location.origin : null;
+
 const SettingsContext = createContext<SettingsValue | null>(null);
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {

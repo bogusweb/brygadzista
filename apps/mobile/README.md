@@ -22,7 +22,7 @@ Renderer A2UI z CopilotKit jest tylko webowy, więc aplikacja ma własny, natywn
 - Każda strona obejrzana z zasięgiem (w czacie albo w zakładce) też trafia na telefon.
 - Lista projektów, dokumentów i spis stron są zapisywane przy każdym udanym pobraniu. Bez zasięgu aplikacja pokazuje ostatnią zapisaną wersję z informacją „Brak połączenia z serwerem”. Błędy serwera (np. zły kod dostępu) nie są ukrywane.
 - „Usuń zapisane strony z telefonu” zwalnia miejsce.
-- W podglądzie w przeglądarce zapis nie działa (`offlineCache.web.ts`), strony zawsze idą z serwera.
+- W przeglądarce zapis nie działa (`offlineCache.web.ts`), strony zawsze idą z serwera.
 
 Jak sprawdzić na telefonie: otwórz projekt, zakładka „Projekt”, „Pobierz … na telefon”, włącz tryb samolotowy, zamknij i otwórz aplikację, wejdź w projekt i otwórz dowolną stronę.
 
@@ -36,7 +36,15 @@ pnpm start                # zeskanuj kod QR w Expo Go
 
 Przy pierwszym starcie aplikacja pyta o adres serwera (np. `https://brygadzista.example.pl`) i kod dostępu (`APP_TOKEN` z serwera). Oba są zapisywane w `expo-secure-store`; zapis następuje dopiero, gdy `GET /api/projects` z tymi danymi się powiedzie.
 
-Podgląd w przeglądarce (`pnpm web`) służy tylko do szybkiego sprawdzenia ekranów: na webie dane zapisują się w `localStorage`.
+Podgląd w przeglądarce (`pnpm web`) służy do szybkiego sprawdzenia ekranów: na webie dane zapisują się w `localStorage`.
+
+## Wersja w przeglądarce
+
+Serwer serwuje aplikację pod `/app`, np. https://brygadzista.smieci.online/app. Wykonawca otwiera ten adres w przeglądarce telefonu i podaje tylko kod dostępu, bo adres serwera to ten sam host. Można ją dodać do ekranu głównego („Dodaj do ekranu początkowego”).
+
+- Eksport: `pnpm export:web` (`expo export --platform web` z `EXPO_BASE_URL=/app`, wynik w `dist-web/`). Robi go Dockerfile, w osobnym etapie, więc obraz serwera nie zawiera React Native.
+- Serwer czyta eksport z `MOBILE_WEB_DIR` (domyślnie `../mobile/dist-web`). Mock też go serwuje: `pnpm export:web`, potem `pnpm --filter @brygadzista/server mock` i http://localhost:3100/app/ (kod `demo`).
+- Różnice względem Expo Go: brak zapisu stron offline, kod dostępu w `localStorage` przeglądarki, Enter wysyła pytanie (Shift+Enter to nowa linia).
 
 ## Test bez klucza OpenRouter
 

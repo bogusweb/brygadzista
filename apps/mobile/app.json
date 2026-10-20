@@ -21,6 +21,7 @@
       "package": "app.brygadzista.mobile"
     },
     "web": {
+      "output": "single",
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
