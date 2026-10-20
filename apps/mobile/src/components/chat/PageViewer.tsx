@@ -12,13 +12,15 @@ import {
 } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { pageImageSource } from "../../lib/api";
-import { useConnection } from "../../lib/settings";
 import { colors, radius, spacing } from "../../lib/theme";
+import { usePageImage } from "../pages/usePageImage";
 
 export type ViewedPage = { documentId: string; pageNo: number; title?: string | null; caption?: string | null };
 
-const PageViewerContext = createContext<((page: ViewedPage) => void) | null>(null);
+// `sequence` is the list the page was opened from (e.g. all pages of a document), for flipping to the previous or next page.
+type OpenPage = (page: ViewedPage, sequence?: ViewedPage[]) => void;
+
+const PageViewerContext = createContext<OpenPage | null>(null);
 
 export const usePageViewer = () => {
   const open = useContext(PageViewerContext);
@@ -37,7 +39,7 @@ const clamp = (value: number, min: number, max: number) => {
 
 // A1 drawings need real zoom: pinch around the fingers, drag when zoomed in, double tap to zoom in or back out.
 const ZoomableImage = ({ page, onLoadStateChange }: { page: ViewedPage; onLoadStateChange: (state: "loaded" | "error") => void }) => {
-  const connection = useConnection();
+  const image = usePageImage(page.documentId, page.pageNo);
   const width = useSharedValue(0);
   const height = useSharedValue(0);
   const scale = useSharedValue(1);
@@ -119,11 +121,16 @@ const ZoomableImage = ({ page, onLoadStateChange }: { page: ViewedPage; onLoadSt
       >
         <Animated.View style={[StyleSheet.absoluteFill, animatedStyle]}>
           <Image
-            source={pageImageSource(connection, page.documentId, page.pageNo)}
+            source={image.source}
             style={StyleSheet.absoluteFill}
             resizeMode="contain"
-            onLoad={() => onLoadStateChange("loaded")}
-            onError={() => onLoadStateChange("error")}
+            onLoad={() => {
+              image.onLoad();
+              onLoadStateChange("loaded");
+            }}
+            onError={() => {
+              if (!image.onError()) onLoadStateChange("error");
+            }}
             accessibilityLabel={`Strona ${page.pageNo}${page.title ? `: ${page.title}` : ""}`}
           />
         </Animated.View>
@@ -132,7 +139,9 @@ const ZoomableImage = ({ page, onLoadStateChange }: { page: ViewedPage; onLoadSt
   );
 };
 
-const PageViewerModal = ({ page, onClose }: { page: ViewedPage; onClose: () => void }) => {
+type Neighbours = { onPrevious: (() => void) | null; onNext: (() => void) | null };
+
+const PageViewerModal = ({ page, onClose, onPrevious, onNext }: { page: ViewedPage; onClose: () => void } & Neighbours) => {
   const [loadState, setLoadState] = useState<"loading" | "loaded" | "error">("loading");
   const [attempt, setAttempt] = useState(0);
   const retry = () => {
@@ -163,29 +172,64 @@ const PageViewerModal = ({ page, onClose }: { page: ViewedPage; onClose: () => v
           {loadState === "loading" ? <ActivityIndicator style={styles.overlay} color="#FFFFFF" size="large" /> : null}
           {loadState === "error" ? (
             <View style={styles.overlay}>
-              <Text style={styles.errorText}>Nie udało się pobrać rysunku. Sprawdź zasięg.</Text>
+              <Text style={styles.errorText}>
+                Nie udało się pobrać rysunku. Sprawdź zasięg albo zapisz strony na telefonie w zakładce „Projekt”.
+              </Text>
               <Pressable accessibilityRole="button" onPress={retry} style={styles.retryButton}>
                 <Text style={styles.retryLabel}>Ponów</Text>
               </Pressable>
             </View>
           ) : null}
         </View>
+        {onPrevious || onNext ? (
+          <View style={styles.pager}>
+            <PagerButton label="‹ Poprzednia" onPress={onPrevious} />
+            <PagerButton label="Następna ›" onPress={onNext} />
+          </View>
+        ) : null}
         <Text style={styles.hint}>Rozsuń palce, aby powiększyć. Stuknij dwa razy, aby przybliżyć lub wrócić.</Text>
       </SafeAreaView>
     </GestureHandlerRootView>
   );
 };
 
+const PagerButton = ({ label, onPress }: { label: string; onPress: (() => void) | null }) => (
+  <Pressable
+    accessibilityRole="button"
+    accessibilityState={{ disabled: !onPress }}
+    disabled={!onPress}
+    onPress={onPress ?? undefined}
+    style={[styles.pagerButton, !onPress && styles.pagerDisabled]}
+  >
+    <Text style={styles.closeLabel}>{label}</Text>
+  </Pressable>
+);
+
+const samePage = (a: ViewedPage, b: ViewedPage) => a.documentId === b.documentId && a.pageNo === b.pageNo;
+
 export const PageViewerProvider = ({ children }: { children: ReactNode }) => {
-  const [page, setPage] = useState<ViewedPage | null>(null);
-  const open = useCallback((next: ViewedPage) => setPage(next), []);
-  const close = useCallback(() => setPage(null), []);
+  const [viewing, setViewing] = useState<{ sequence: ViewedPage[]; index: number } | null>(null);
+  const open = useCallback<OpenPage>((page, sequence) => {
+    const index = sequence?.findIndex((candidate) => samePage(candidate, page)) ?? -1;
+    setViewing(sequence && index >= 0 ? { sequence, index } : { sequence: [page], index: 0 });
+  }, []);
+  const close = useCallback(() => setViewing(null), []);
+  const page = viewing ? viewing.sequence[viewing.index] : undefined;
+  const step = (delta: number) => () => setViewing((current) => current && { ...current, index: current.index + delta });
 
   return (
     <PageViewerContext.Provider value={open}>
       {children}
-      <Modal visible={page !== null} animationType="fade" onRequestClose={close} supportedOrientations={["portrait", "landscape"]}>
-        {page ? <PageViewerModal page={page} onClose={close} /> : null}
+      <Modal visible={page !== undefined} animationType="fade" onRequestClose={close} supportedOrientations={["portrait", "landscape"]}>
+        {viewing && page ? (
+          <PageViewerModal
+            key={`${page.documentId}:${page.pageNo}`}
+            page={page}
+            onClose={close}
+            onPrevious={viewing.index > 0 ? step(-1) : null}
+            onNext={viewing.index < viewing.sequence.length - 1 ? step(1) : null}
+          />
+        ) : null}
       </Modal>
     </PageViewerContext.Provider>
   );
@@ -205,5 +249,8 @@ const styles = StyleSheet.create({
   errorText: { color: colors.text, fontSize: 16, textAlign: "center" },
   retryButton: { minHeight: 44, paddingHorizontal: spacing.lg, borderRadius: radius.md, backgroundColor: colors.accent, justifyContent: "center" },
   retryLabel: { color: colors.accentText, fontSize: 16, fontWeight: "600" },
+  pager: { flexDirection: "row", gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
+  pagerButton: { flex: 1, minHeight: 48, borderRadius: radius.md, backgroundColor: "#2A2A28", alignItems: "center", justifyContent: "center" },
+  pagerDisabled: { opacity: 0.35 },
   hint: { color: "#C9C8C2", fontSize: 13, textAlign: "center", padding: spacing.sm },
 });

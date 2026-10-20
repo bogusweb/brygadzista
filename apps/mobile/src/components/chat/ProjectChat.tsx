@@ -8,8 +8,8 @@ import { fetchDocuments } from "../../lib/api";
 import type { ProjectDocument } from "../../lib/api";
 import { pageDocuments, toChatItems, trimToLastQuestion } from "../../lib/chat";
 import type { ChatItem } from "../../lib/chat";
-import { useConnection } from "../../lib/settings";
 import { colors, radius, spacing } from "../../lib/theme";
+import { useCachedResource } from "../../lib/useCachedResource";
 import { useReconnectCopilot } from "../ProjectCopilot";
 import { MessageText } from "./MessageText";
 import { usePageViewer } from "./PageViewer";
@@ -31,14 +31,9 @@ const useConnectionStatus = () => {
 };
 
 // "str. N" in an answer has no document id. Tool calls usually tell us; otherwise fall back to the project's first PDF.
-const useProjectDocuments = (projectId: string) => {
-  const connection = useConnection();
-  const [documents, setDocuments] = useState<ProjectDocument[]>([]);
-  useEffect(() => {
-    fetchDocuments(connection, projectId).then(setDocuments, () => setDocuments([]));
-  }, [connection, projectId]);
-  return documents;
-};
+// The list shares its saved copy with the "Projekt" tab, so cited pages still open without signal.
+const useProjectDocuments = (projectId: string): ProjectDocument[] =>
+  useCachedResource(`documents-${projectId}`, (connection) => fetchDocuments(connection, projectId), "").data ?? [];
 
 export const ProjectChat = ({ projectId }: { projectId: string }) => {
   const { copilotkit } = useCopilotKit();

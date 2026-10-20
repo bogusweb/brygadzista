@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
-import { pageImageSource } from "../../lib/api";
-import { useConnection } from "../../lib/settings";
 import { colors, radius, spacing } from "../../lib/theme";
+import { usePageImage } from "../pages/usePageImage";
 import { usePageViewer } from "./PageViewer";
 import type { ViewedPage } from "./PageViewer";
 
 // A drawing the agent decided to show: thumbnail in the chat, tap for the full-screen zoomable view.
 export const PageCard = ({ page }: { page: ViewedPage }) => {
-  const connection = useConnection();
+  const image = usePageImage(page.documentId, page.pageNo);
   const openPage = usePageViewer();
   const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
   const [attempt, setAttempt] = useState(0);
@@ -29,11 +28,16 @@ export const PageCard = ({ page }: { page: ViewedPage }) => {
       <View style={styles.thumbnail}>
         <Image
           key={attempt}
-          source={pageImageSource(connection, page.documentId, page.pageNo)}
+          source={image.source}
           style={StyleSheet.absoluteFill}
           resizeMode="contain"
-          onLoad={() => setState("loaded")}
-          onError={() => setState("error")}
+          onLoad={() => {
+            image.onLoad();
+            setState("loaded");
+          }}
+          onError={() => {
+            if (!image.onError()) setState("error");
+          }}
         />
         {state === "loading" ? <ActivityIndicator style={styles.center} color={colors.muted} /> : null}
         {state === "error" ? (

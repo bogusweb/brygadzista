@@ -24,6 +24,12 @@ const PAGES = [
   { pageNo: 18, title: "Detal D-3 – cokół i ocieplenie", kind: "detal" },
 ];
 
+// The pages list the app shows: all 42 pages of the sample PDF, titled where the scripted answers need it.
+const ALL_PAGES = Array.from({ length: 42 }, (_, index) => {
+  const known = PAGES.find((page) => page.pageNo === index + 1);
+  return known ?? { pageNo: index + 1, title: index < 10 ? `Opis techniczny – część ${index + 1}` : `Rysunek ${index + 1}`, kind: index < 10 ? "opis" : "rysunek" };
+});
+
 const usage = {
   inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 10, text: 10, reasoning: 0 },
@@ -126,7 +132,7 @@ app.get("/api/projects", (c) => c.json([PROJECT]));
 app.get("/api/projects/:id/documents", (c) =>
   c.json([{ id: DOCUMENT_ID, filename: "projekt.pdf", pageCount: 42, indexedPages: 42, status: "ready", error: null }]),
 );
-app.get("/api/documents/:id/pages", (c) => c.json(PAGES.map((page) => ({ ...page, summary: null, facts: null, indexed: true }))));
+app.get("/api/documents/:id/pages", (c) => c.json(ALL_PAGES.map((page) => ({ ...page, summary: null, facts: null, indexed: true }))));
 app.get("/api/documents/:id/pages/:pageNo/image", async (c) => {
   c.header("Content-Type", "image/jpeg");
   return c.body(await readFile(PAGE_IMAGE));

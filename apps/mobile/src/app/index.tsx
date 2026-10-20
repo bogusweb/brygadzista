@@ -1,20 +1,15 @@
 import { Link, Redirect, Stack, router } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Button } from "../components/Button";
-import { ApiError, fetchProjects } from "../lib/api";
+import { fetchProjects } from "../lib/api";
 import type { Project } from "../lib/api";
+import { pluralPl } from "../lib/format";
 import { useSettings } from "../lib/settings";
-import type { Connection } from "../lib/settings";
+import { useCachedResource } from "../lib/useCachedResource";
 import { colors, radius, spacing } from "../lib/theme";
 
-const documentLabel = (count: number) => {
-  if (count === 1) return "1 dokument";
-  const lastDigit = count % 10;
-  const lastTwo = count % 100;
-  const few = lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14);
-  return `${count} ${few ? "dokumenty" : "dokumentów"}`;
-};
+const documentLabel = (count: number) => pluralPl(count, "dokument", "dokumenty", "dokumentów");
 
 const ProjectRow = ({ project, recent, onPress }: { project: Project; recent: boolean; onPress: () => void }) => (
   <Pressable
@@ -33,24 +28,11 @@ const ProjectRow = ({ project, recent, onPress }: { project: Project; recent: bo
   </Pressable>
 );
 
-const ProjectList = ({ connection }: { connection: Connection }) => {
+const ProjectList = () => {
   const { lastProjectId, rememberProject } = useSettings();
-  const [projects, setProjects] = useState<Project[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Kept on the phone so a site without signal can still reach the saved drawings.
+  const { data: projects, offline, error, reload: load } = useCachedResource("projects", fetchProjects, "Nie udało się pobrać projektów.");
   const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      setProjects(await fetchProjects(connection));
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Nie udało się pobrać projektów.");
-    }
-  }, [connection]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -86,7 +68,13 @@ const ProjectList = ({ connection }: { connection: Connection }) => {
       keyExtractor={(project) => project.id}
       contentContainerStyle={styles.list}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.accent} />}
-      ListHeaderComponent={error ? <Text style={styles.inlineError}>{error}</Text> : undefined}
+      ListHeaderComponent={
+        error ? (
+          <Text style={styles.inlineError}>{error}</Text>
+        ) : offline ? (
+          <Text style={styles.offlineNote}>Brak połączenia z serwerem. Lista projektów z ostatniego połączenia.</Text>
+        ) : undefined
+      }
       ListEmptyComponent={
         <Text style={styles.message}>Na serwerze nie ma jeszcze projektów. Poproś administratora o dodanie projektu.</Text>
       }
@@ -120,7 +108,7 @@ const HomeScreen = () => {
           ),
         }}
       />
-      <ProjectList connection={connection} />
+      <ProjectList />
     </>
   );
 };
@@ -145,6 +133,7 @@ const styles = StyleSheet.create({
   rowMeta: { fontSize: 14, color: colors.muted },
   chevron: { fontSize: 24, color: colors.muted },
   message: { fontSize: 16, lineHeight: 22, color: colors.muted, textAlign: "center" },
+  offlineNote: { fontSize: 15, lineHeight: 21, color: colors.muted, marginBottom: spacing.sm },
   inlineError: { fontSize: 15, color: colors.danger, marginBottom: spacing.sm },
   headerLink: { fontSize: 16, color: colors.accent, fontWeight: "600" },
 });

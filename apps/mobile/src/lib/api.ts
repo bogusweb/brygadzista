@@ -4,6 +4,7 @@ import type { Connection } from "./settings";
 
 export type Project = { id: string; name: string; createdAt: string; documentCount: number };
 export type ProjectDocument = { id: string; filename: string; pageCount: number | null; status: string };
+export type DocumentPage = { pageNo: number; title: string | null; kind: string | null };
 
 export class ApiError extends Error {
   constructor(
@@ -56,6 +57,9 @@ export const copilotRuntimeUrl = ({ serverUrl }: Connection) => `${serverUrl}/ap
 
 export const fetchDocuments = (connection: Connection, projectId: string) =>
   getJson<ProjectDocument[]>(connection, `/api/projects/${encodeURIComponent(projectId)}/documents`);
+
+export const fetchPages = (connection: Connection, documentId: string) =>
+  getJson<DocumentPage[]>(connection, `/api/documents/${encodeURIComponent(documentId)}/pages`);
 
 export const pageImagePath = (documentId: string, pageNo: number) =>
   `/api/documents/${encodeURIComponent(documentId)}/pages/${pageNo}/image`;
