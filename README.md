@@ -94,6 +94,19 @@ pnpm typecheck
 
 Inną bazę wskazujesz przez `TEST_DATABASE_URL` (testy czyszczą jej tabele).
 
+### Trafność wyszukiwania
+
+`apps/server/eval/hala-pilawa.json` to 55 pytań o próbny PDF z oczekiwanymi stronami (wymiary, oznaczenia, skróty, materiały, pytania ogólne i takie, na które projekt nie odpowiada). Skrypt liczy recall@1/3/6 i MRR dla rankingu tekstowego, wektorowego i hybrydy oraz to, jak często wyszukiwanie słusznie nic nie zwraca:
+
+```bash
+# indeksuje PDF do projektu „eval: …” w bazie z DATABASE_URL (ponowne uruchomienie go nie indeksuje), potem liczy wynik
+pnpm --filter @brygadzista/server eval -- --pdf ścieżka/do/projektu.pdf --verbose
+# albo projekt już zaindeksowany
+pnpm --filter @brygadzista/server eval -- --project <id projektu>
+```
+
+Bez `OPENROUTER_API_KEY` działa tylko ranking tekstowy (za darmo); z kluczem dochodzą embeddingi zapytań, ok. $0,01 za przebieg.
+
 ## Docker / Openship
 
 `Dockerfile` buduje jeden obraz (serwer + zbudowany dashboard; Node 22, poppler, użytkownik non-root). `openship.yaml` (w katalogu głównym, bo Openship nie przyjmuje kontekstu budowania poza katalogiem pliku compose) to compose dla projektu Openship na ruth154: `app` (port 3000, healthcheck `/api/health`, 768 MB) i `postgres` z pgvector (512 MB), wolumeny `app-data` (`/data`) i `postgres-data`.
