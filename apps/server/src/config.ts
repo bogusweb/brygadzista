@@ -47,4 +47,6 @@ export const config = {
   pdfToolTimeoutMs: Number(process.env.PDF_TOOL_TIMEOUT_MS ?? 120_000),
   // After this many failed pages in a row the problem is not the page (key, outage), so the document stops.
   maxConsecutivePageFailures: Number(process.env.MAX_CONSECUTIVE_PAGE_FAILURES ?? 5),
+  // Scripted agent for building the chat UIs without an OpenRouter key. Never in production.
+  fakeAgent: process.env.FAKE_AGENT === "1" && process.env.NODE_ENV !== "production",
 };

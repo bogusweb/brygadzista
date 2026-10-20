@@ -9,6 +9,8 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { createProjectAgent } from "./agent.js";
+import { A2UI_CATALOG_ID } from "./a2ui-catalog.js";
+import { a2uiCatalogSchema } from "./a2ui-schema.js";
 import {
   agentProjectId,
   requireDocumentAccess,
@@ -16,10 +18,12 @@ import {
   requireRole,
   requireRoleOrQueryToken,
   type AuthEnv,
+  type Role,
 } from "./auth.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
+import { FakeProjectAgent } from "./fake-agent.js";
 import { pdfPageCount } from "./pdf.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { documentDir, documentPdf, pageImage } from "./storage.js";
@@ -28,13 +32,19 @@ import { users } from "./users.js";
 // Chat is limited per user on agent runs only; the runtime's info and connect calls are free.
 const isAgentRun = (request: Request) => request.method === "POST" && /\/agent\/[^/]+\/(run|suggest)$/.test(new URL(request.url).pathname);
 
-// The mobile app gets plain tool-call UI; the dashboard additionally gets A2UI surfaces.
-const appRuntime = new CopilotRuntime({
-  agents: async ({ request }) => ({ default: createProjectAgent(await agentProjectId(request, ["app", "admin"])) }),
-});
+const projectAgents =
+  ({ a2ui, roles }: { a2ui: boolean; roles: Role[] }) =>
+  async ({ request }: { request: Request }) => {
+    const projectId = await agentProjectId(request, roles);
+    return { default: config.fakeAgent ? new FakeProjectAgent(projectId) : createProjectAgent(projectId, { a2ui }) };
+  };
+
+// The mobile app gets plain tool-call UI; the dashboard additionally gets A2UI surfaces built
+// from the construction catalog (src/a2ui-catalog.ts), which the dashboard renders.
+const appRuntime = new CopilotRuntime({ agents: projectAgents({ a2ui: false, roles: ["app", "admin"] }) });
 const adminRuntime = new CopilotRuntime({
-  agents: async ({ request }) => ({ default: createProjectAgent(await agentProjectId(request, ["admin"])) }),
-  a2ui: { injectA2UITool: true },
+  agents: projectAgents({ a2ui: true, roles: ["admin"] }),
+  a2ui: { injectA2UITool: true, schema: a2uiCatalogSchema, defaultCatalogId: A2UI_CATALOG_ID },
 });
 
 export const app = new Hono<AuthEnv>();

@@ -6,7 +6,7 @@ Asystent AI dla wykonawcy: agent, który zna projekt techniczny budynku (PDF) i 
 
 ```
 apps/server     Node 22 + Hono: API, upload i indeksowanie PDF, agent CopilotKit (AG-UI), serwuje dashboard
-apps/dashboard  (epik) panel operatora: React + CopilotKit + A2UI
+apps/dashboard  panel operatora: Vite + React 19 (logowanie tokenem, projekty); CopilotKit + A2UI w kolejnych zadaniach
 apps/mobile     (epik) aplikacja Expo: @copilotkit/react-native
 deploy/         (epik) docker compose dla Openship na serwerze ruth154
 ```
@@ -25,6 +25,8 @@ deploy/         (epik) docker compose dla Openship na serwerze ruth154
 
 **Agent** (`agent.ts`): `BuiltInAgent` CopilotKit z narzędziami `search_project`, `list_pages`, `read_page`, `inspect_drawing`, `show_page`. Odpowiada po polsku i zawsze podaje źródło.
 
+**Katalog A2UI** (`apps/server/src/a2ui-catalog.ts`): komponenty budowlane, które agent dashboardu może pokazać przez `render_a2ui` obok podstawowego katalogu A2UI: `ParameterCard` (parametr z jednostką i źródłem), `MaterialList` (materiały z ilościami), `WorkSteps` (kroki prac), `LayerComparison` (warstwy przegród obok siebie). Definicje (zod v3, opisy dla modelu) są wspólne: serwer wysyła z nich schemat v0.9 w `a2ui.schema` runtime'u (`a2ui-schema.ts`), a dashboard renderuje je w `apps/dashboard/src/a2uiCatalog.tsx`. Linki „str. N” w komponentach otwierają stronę projektu. Aplikacja mobilna nie dostaje A2UI ani instrukcji o nim w prompcie.
+
 **Modele i prywatność**: wszystko przez OpenRouter, przypięte do jednego endpointu w UE, bez fallbacku, `data_collection: deny`, `zdr: true` (`llm.ts`).
 - rozmowa: `anthropic/claude-opus-5.5` przez `google-vertex/europe`
 - indeksowanie stron: `anthropic/claude-sonnet-5.5` przez `google-vertex/europe`
@@ -41,6 +43,7 @@ deploy/         (epik) docker compose dla Openship na serwerze ruth154
 | GET/POST | `/api/users`, PATCH/DELETE `/api/users/:id` | admin |
 | GET | `/api/projects/:id/members`, PUT/DELETE `/api/projects/:id/members/:userId` | admin |
 | GET/POST | `/api/projects` (wykonawca widzi tylko swoje) | app/admin, admin |
+| DELETE | `/api/projects/:id` | admin |
 | PUT | `/api/projects/:id/documents?filename=&autostart=0` (body = PDF) | admin |
 | GET | `/api/projects/:id/documents` | app/admin |
 | GET | `/api/documents/:id` (postęp, ETA, szacunek) | app/admin |
@@ -66,6 +69,16 @@ pnpm install
 cp apps/server/.env.example apps/server/.env   # uzupełnij OPENROUTER_API_KEY
 cd apps/server && node --env-file=.env --import tsx src/index.ts
 ```
+
+Bez klucza OpenRouter czat można testować na skryptowanym agencie: `FAKE_AGENT=1` w `.env`. Odpowiada tymi samymi zdarzeniami AG-UI co prawdziwy agent (tekst, statusy narzędzi, `show_page` z pierwszą stroną projektu, a na pytanie ze słowem „zestawienie” lub „A2UI” także powierzchnię A2UI ze wszystkimi komponentami katalogu budowy). Przy `NODE_ENV=production` flaga jest ignorowana.
+
+Dashboard (dev, proxy `/api` na `localhost:3000`, inny adres przez `API_URL`):
+
+```bash
+pnpm --filter @brygadzista/dashboard dev
+```
+
+W produkcji `pnpm --filter @brygadzista/dashboard build` tworzy `apps/dashboard/dist`, który serwer wystawia pod `/` (`DASHBOARD_DIR`).
 
 Wymaga `poppler-utils` (`pdfinfo`, `pdftotext`, `pdftoppm`).
 
