@@ -1,12 +1,12 @@
 # Openship project on ruth154. Secrets (OPENROUTER_API_KEY, ADMIN_TOKEN, APP_TOKEN,
 # POSTGRES_PASSWORD) come from Openship environment variables, never from the repo.
-# Local test: docker compose -f deploy/openship.yaml up --build
+# Local test: docker compose -f openship.yaml up --build
 name: brygadzista
 
 services:
   app:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
