@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { app } from "../src/app.js";
 import { hashPassword, type UserRole } from "../src/auth.js";
+import { extractCodes } from "../src/codes.js";
 import { config } from "../src/config.js";
 import { migrate, sql } from "../src/db.js";
 import { limiters } from "../src/rate-limit.js";
@@ -60,9 +61,9 @@ export const insertPage = async (
   fields: { title?: string; searchText?: string; indexed?: boolean } = {},
 ) => {
   const [page] = await sql<{ id: string }[]>`
-    insert into pages (document_id, project_id, page_no, title, search_text, raw_text, indexed)
+    insert into pages (document_id, project_id, page_no, title, search_text, raw_text, indexed, codes)
     values (${documentId}, ${projectId}, ${pageNo}, ${fields.title ?? null}, ${fields.searchText ?? ""},
-      ${fields.searchText ?? ""}, ${fields.indexed ?? false})
+      ${fields.searchText ?? ""}, ${fields.indexed ?? false}, ${extractCodes(fields.searchText ?? "")})
     returning id`;
   return page!.id;
 };

@@ -84,6 +84,21 @@ describe("searchPages", () => {
     expect(hits.map((hit) => hit.pageNo).sort()).toEqual([2, 9]);
   });
 
+  it("ranks a page holding the exact code first, whichever way it is written", async () => {
+    await insertPage(projectId, documentId, 3, { searchText: "Ściany docieplone, rury spustowe wymienione, norma do przemarzania gruntu" });
+    await insertPage(projectId, documentId, 7, { searchText: "Głębokość przemarzania wg PN-81/B-03020, rynny ∅150, rury spustowe Ø120mm" });
+
+    expect((await searchPages(projectId, "PN-81/B-03020"))[0]?.pageNo).toBe(7);
+    expect((await searchPages(projectId, "rury spustowe Ø120"))[0]?.pageNo).toBe(7);
+  });
+
+  it("expands trade abbreviations in the query", async () => {
+    await insertPage(projectId, documentId, 4, { searchText: "Ocieplenie ścian wełną mineralną gr. 15 cm" });
+    await insertPage(projectId, documentId, 5, { searchText: "Tynk cienkowarstwowy na ścianach" });
+
+    expect((await searchPages(projectId, "grubość MW"))[0]?.pageNo).toBe(4);
+  });
+
   it("caps the number of results", async () => {
     for (let pageNo = 1; pageNo <= 5; pageNo++) {
       await insertPage(projectId, documentId, pageNo, { searchText: `Rzut kondygnacji ${pageNo}` });
