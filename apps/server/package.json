@@ -11,7 +11,8 @@
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest run",
-    "test:db": "docker run -d --rm --name brygadzista-test-db -e POSTGRES_USER=brygadzista -e POSTGRES_PASSWORD=brygadzista -e POSTGRES_DB=brygadzista_test -p 5433:5432 pgvector/pgvector:pg16"
+    "test:db": "docker run -d --rm --name brygadzista-test-db -e POSTGRES_USER=brygadzista -e POSTGRES_PASSWORD=brygadzista -e POSTGRES_DB=brygadzista_test -p 5433:5432 pgvector/pgvector:pg16",
+    "mock": "tsx scripts/mock-app-server.ts"
   },
   "dependencies": {
     "@a2ui/web_core": "0.10.4",
@@ -29,6 +30,7 @@
     "zod3": "npm:zod@3.25.76"
   },
   "devDependencies": {
+    "@ai-sdk/provider": "3.0.19",
     "@types/node": "^26.6.5",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
