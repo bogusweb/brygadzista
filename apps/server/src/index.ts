@@ -1,10 +1,12 @@
 import { serve } from "@hono/node-server";
 import { app } from "./app.js";
+import { failInterruptedChecklists } from "./checklists.js";
 import { config } from "./config.js";
 import { migrate } from "./db.js";
 import { startIngestWorker } from "./ingest.js";
 
 await migrate();
+await failInterruptedChecklists();
 await startIngestWorker();
 if (config.fakeAgent) console.warn("brygadzista: FAKE_AGENT=1, chat answers come from the scripted test agent");
 if (!config.openrouterApiKey) console.warn("brygadzista: OPENROUTER_API_KEY is not set, pages are indexed from PDF text only and the agent cannot answer");

@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { A2UI_CATALOG_ID } from "../src/a2ui-catalog.js";
 import { a2uiCatalogSchema } from "../src/a2ui-schema.js";
+import { STAGE_TEMPLATES, stageTemplate } from "../src/checklist-templates.js";
 
 const PORT = Number(process.env.PORT ?? 3100);
 const TOKEN = process.env.APP_TOKEN ?? "demo";
@@ -267,6 +268,66 @@ app.get("/api/documents/:id/pages", (c) => c.json(ALL_PAGES.map((page) => ({ ...
 app.get("/api/documents/:id/pages/:pageNo/image", async (c) => {
   c.header("Content-Type", "image/jpeg");
   return c.body(await readFile(PAGE_IMAGE));
+});
+
+// Stage checklists (#68), kept in memory: the first item of each stage is found on page 3, the rest are "do potwierdzenia".
+type MockItem = { id: string; position: number; label: string; ask: string; value: string | null; status: string; checked: boolean;
+  note: string | null; checkedAt: string | null; checkedBy: string | null; source: object | null };
+type MockChecklist = { id: string; projectId: string; stage: string; title: string; when: string; status: string; error: null;
+  createdBy: string; createdAt: string; generatedAt: string; items: MockItem[]; results: object[] };
+const checklists = new Map<string, MockChecklist>();
+const seenEvents = new Set<string>();
+const source = (pageNo: number, quote: string) => ({ documentId: DOCUMENT_ID, pageNo, quote, imagePath: imagePath(pageNo) });
+app.get("/api/checklist-templates", (c) =>
+  c.json(STAGE_TEMPLATES.map(({ stage, title, when, items }) => ({ stage, title, when, items: items.map((item) => item.label) }))),
+);
+app.get("/api/projects/:id/checklists", (c) =>
+  c.json([...checklists.values()].reverse().map(({ items, results, ...checklist }) => ({
+    ...checklist,
+    itemCount: items.length,
+    checkedCount: items.filter((item) => item.checked).length,
+    toConfirmCount: items.filter((item) => item.status === "to_confirm").length,
+    lastCompletedAt: (results[0] as { completedAt?: string } | undefined)?.completedAt ?? null,
+  }))),
+);
+app.post("/api/projects/:id/checklists", async (c) => {
+  const { stage } = await c.req.json<{ stage?: string }>();
+  const template = stage ? stageTemplate(stage) : undefined;
+  if (!template) return c.json({ error: "Nieznany etap budowy" }, 400);
+  const now = new Date().toISOString();
+  const checklist: MockChecklist = {
+    id: crypto.randomUUID(), projectId: PROJECT.id, stage: template.stage, title: template.title, when: template.when,
+    status: "ready", error: null, createdBy: "Demo", createdAt: now, generatedAt: now, results: [],
+    items: template.items.map((item, position) => ({
+      id: crypto.randomUUID(), position, label: item.label, ask: item.ask, checked: false, note: null, checkedAt: null, checkedBy: null,
+      ...(position === 0
+        ? { value: "zgodnie z opisem, str. 3", status: "found", source: source(3, PAGE_TEXT[3]!.text) }
+        : { value: null, status: "to_confirm", source: position % 2 ? source(18, PAGE_TEXT[18]!.text) : null }),
+    })),
+  };
+  checklists.set(checklist.id, checklist);
+  return c.json(checklist, 202);
+});
+app.get("/api/checklists/:id", (c) => {
+  const checklist = checklists.get(c.req.param("id"));
+  return checklist ? c.json(checklist) : c.json({ error: "Nie ma takiej checklisty" }, 404);
+});
+app.post("/api/checklists/:id/sync", async (c) => {
+  const checklist = checklists.get(c.req.param("id"));
+  if (!checklist) return c.json({ error: "Nie ma takiej checklisty" }, 404);
+  const { events } = await c.req.json<{ events: { id: string; type: string; itemId?: string; checked?: boolean; note?: string | null; at: string }[] }>();
+  for (const event of [...events].sort((a, b) => a.at.localeCompare(b.at))) {
+    if (seenEvents.has(event.id)) continue;
+    seenEvents.add(event.id);
+    const item = checklist.items.find((candidate) => candidate.id === event.itemId);
+    if (event.type === "check" && item && (!item.checkedAt || item.checkedAt <= event.at)) {
+      Object.assign(item, { checked: Boolean(event.checked), note: event.note ?? null, checkedAt: event.at, checkedBy: "Demo" });
+    }
+    if (event.type === "complete") {
+      checklist.results.unshift({ id: event.id, completedAt: event.at, completedBy: "Demo", items: checklist.items.map(({ label, value, status, checked, note }) => ({ label, value, status, checked, note })) });
+    }
+  }
+  return c.json(checklist);
 });
 
 // The browser version of the app, when exported (pnpm --filter @brygadzista/mobile export:web): http://localhost:3100/app/
