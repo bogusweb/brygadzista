@@ -7,3 +7,4 @@ export const pageImagePrefix = (documentId: string, pageNo: number) =>
   path.join(documentDir(documentId), `page-${String(pageNo).padStart(4, "0")}`);
 export const pageImage = (documentId: string, pageNo: number) => `${pageImagePrefix(documentId, pageNo)}.jpg`;
 export const pageTilesDir = (documentId: string, pageNo: number) => `${pageImagePrefix(documentId, pageNo)}-tiles`;
+export const diaryAudio = (entryId: string, extension: string) => path.join(config.dataDir, "diary", `${entryId}.${extension}`);

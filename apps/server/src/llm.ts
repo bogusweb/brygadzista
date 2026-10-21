@@ -27,7 +27,7 @@ export const agentLanguageModel = () =>
 const visionLanguageModel = () => openrouter().chat(config.visionModel, { provider: euOnlyRouting(config.visionProvider) });
 
 // Each attempt gets its own timeout, so one hung request cannot hold an indexing worker forever.
-const callModel = <T>(label: string, request: (abortSignal: AbortSignal) => Promise<T>) =>
+export const callModel = <T>(label: string, request: (abortSignal: AbortSignal) => Promise<T>) =>
   withRetry(() => request(AbortSignal.timeout(config.llmTimeoutMs)), {
     retries: config.llmMaxRetries,
     baseMs: config.llmRetryBaseMs,

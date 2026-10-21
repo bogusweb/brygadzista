@@ -22,6 +22,7 @@ export const config = {
   // Rate limits per user (or per shared token); login attempts per e-mail and per IP.
   chatRequestsPerMinute: Number(process.env.RATE_LIMIT_CHAT_PER_MINUTE ?? 10),
   uploadsPerHour: Number(process.env.RATE_LIMIT_UPLOADS_PER_HOUR ?? 30),
+  diaryNotesPerHour: Number(process.env.RATE_LIMIT_DIARY_PER_HOUR ?? 60),
   loginAttemptsPer15Min: Number(process.env.RATE_LIMIT_LOGIN_PER_15_MIN ?? 10),
   openrouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
   // Chat about the project: a cheap model served from an EU region.
@@ -30,6 +31,8 @@ export const config = {
   // Reading a drawing on demand (the agent's inspect tool), same model and region.
   visionModel: process.env.VISION_MODEL ?? "google/gemini-3.1-flash-lite",
   visionProvider: process.env.VISION_PROVIDER ?? "google-vertex/eu",
+  // Daily site log (#69): the voice note is transcribed and sorted by the chat model, in the same EU region.
+  diaryMaxAudioBytes: Number(process.env.MAX_DIARY_AUDIO_MB ?? 25) * 1024 * 1024,
   // Indexing has no language model: page text and the page image are embedded directly.
   embeddingModel: process.env.EMBEDDING_MODEL ?? "google/gemini-embedding-2",
   // Empty = any provider that keeps no data (embeddings may leave the EU); set one to pin it.

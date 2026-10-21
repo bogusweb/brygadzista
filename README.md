@@ -50,6 +50,8 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | POST | `/api/documents/:id/start` | admin |
 | GET | `/api/documents/:id/pages` | app/admin |
 | GET | `/api/projects/:id/search-index` (tekst wszystkich stron projektu do wyszukiwania offline w aplikacji) | app/admin |
+| GET/POST | `/api/projects/:id/diary` (dziennik dnia, #69; POST: body `audio/*` z `?date=&clientId=` albo JSON `{text, date, clientId}`) | app/admin |
+| PATCH/DELETE | `/api/diary/:id` (`{entryDate?, transcript?, entry?}`), POST `/api/diary/:id/retry` | app/admin |
 | GET | `/api/documents/:id/pages/:n/image` (jedyna ścieżka, która przyjmuje też `?token=`) | app/admin |
 | POST | `/api/documents/:id/resume` (tylko niegotowe strony; dokument `paused`, `error` lub `ready`) | admin |
 | POST | `/api/documents/:id/reindex` | admin |
@@ -61,7 +63,9 @@ Autoryzacja: `Authorization: Bearer <token>`.
 **Konta** (#10): właściciel (`owner`, rola API `admin`) widzi wszystkie projekty i zarządza kontami; wykonawca (`contractor`, rola API `app`) widzi tylko projekty, do których go dodano (lista projektów, dokumenty, strony, obrazy stron i fabryka agenta; cudzy projekt odpowiada 404). Hasła to argon2id, sesja to losowy token `bs_…` (w bazie tylko jego SHA-256), ważny `SESSION_TTL_DAYS` dni i przedłużany przy użyciu. Wyłączenie konta lub nowe hasło kończy jego sesje.
 - `ADMIN_TOKEN` z env działa dalej jako awaryjny dostęp administratora; nim zakłada się pierwsze konto właściciela (`POST /api/users` z `role: "owner"`).
 - `APP_TOKEN` to stary wspólny token aplikacji (wszystkie projekty). Jest wyłączony, gdy pusty, a w produkcji (`NODE_ENV=production`) także gdy nieustawiony.
-- Limity (w pamięci procesu): uruchomienia agenta `RATE_LIMIT_CHAT_PER_MINUTE` na użytkownika, upload `RATE_LIMIT_UPLOADS_PER_HOUR`, logowanie `RATE_LIMIT_LOGIN_PER_15_MIN` na e-mail (i 5× tyle na IP). Po przekroczeniu 429 z `Retry-After`.
+- Limity (w pamięci procesu): uruchomienia agenta `RATE_LIMIT_CHAT_PER_MINUTE` na użytkownika, upload `RATE_LIMIT_UPLOADS_PER_HOUR`, notatki do dziennika `RATE_LIMIT_DIARY_PER_HOUR`, logowanie `RATE_LIMIT_LOGIN_PER_15_MIN` na e-mail (i 5× tyle na IP). Po przekroczeniu 429 z `Retry-After`.
+
+**Dziennik dnia** (#69): nagranie (m4a z telefonu, mp4 lub ogg z przeglądarki, do `MAX_DIARY_AUDIO_MB`) jest zapisywane w `DATA_DIR/diary` i porządkowane w tle: transkrypcja i wpis (prace, ludzie, dostawy, pogoda, problemy, odniesienia do stron projektu) robi model czatu (`AGENT_MODEL`, region EU, bez retencji). Strony do odniesień szuka wyszukiwanie słowne i kodów, bez embeddingów. Nieudany wpis zostaje z nagraniem, `retry` porządkuje go ponownie; wpis przerwany restartem serwer bierze po starcie. `clientId` z kolejki offline sprawia, że powtórzone wysłanie nie tworzy drugiego wpisu. Z `FAKE_AGENT=1` transkrypcja i wpis są skryptowane.
 
 ## Lokalnie
 
