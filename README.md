@@ -25,6 +25,8 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 
 **Agent** (`agent.ts`): `BuiltInAgent` CopilotKit z narzędziami `search_project`, `list_pages`, `read_page`, `inspect_drawing`, `show_page`. Odpowiada po polsku i zawsze podaje źródło.
 
+**Zdjęcia na rzucie** (#70, `pins.ts`): pinezka to punkt na stronie projektu we współrzędnych względnych strony (0..1) z pomieszczeniem, notatką i zdjęciami. Identyfikatory pinezek i zdjęć generuje telefon, więc ponowiona po zerwaniu synchronizacja niczego nie dubluje; przy edycji wygrywa nowszy `updatedAt`. Zdjęcie (JPEG/PNG/WebP, do `MAX_PHOTO_MB`, domyślnie 25 MB) serwer obraca wg EXIF, usuwa metadane (także GPS), zmniejsza do `PHOTO_MAX_EDGE` px (domyślnie 2560) i robi miniaturę 480 px (sharp). Pliki leżą w `DATA_DIR/projects/<projekt>/photos/`, więc kopia wolumenu `/data` (#13) obejmuje je razem z PDF-ami. Agent ma narzędzie `search_photos` (słowa z notatki, pomieszczenia i tytułu strony z polską odmianą, strona, zakres dat). Pole `kind` (na razie `photo`) zostawia miejsce na usterki (#74).
+
 **Katalog A2UI** (`apps/server/src/a2ui-catalog.ts`): komponenty budowlane, które agent może pokazać przez `render_a2ui` obok podstawowego katalogu A2UI: `ParameterCard` (parametr z jednostką i źródłem), `MaterialList` (materiały z ilościami), `WorkSteps` (kroki prac), `LayerComparison` (warstwy przegród obok siebie). Definicje (zod v3, opisy dla modelu) są wspólne: serwer wysyła z nich schemat v0.9 w `a2ui.schema` runtime'u (`a2ui-schema.ts`), a dashboard renderuje je w `apps/dashboard/src/a2uiCatalog.tsx`, a aplikacja mobilna własnym natywnym rendererem (`apps/mobile/src/components/a2ui/`). Oba runtime'y (`/api/copilotkit` i `/api/admin/copilotkit`) mają A2UI. Linki „str. N” w komponentach otwierają stronę projektu.
 
 **Modele i prywatność**: wszystko przez OpenRouter z `data_collection: deny` i `zdr: true` (`llm.ts`). Modele językowe są przypięte do jednego endpointu w UE, bez fallbacku. Embeddingi mogą iść poza UE.
@@ -50,7 +52,12 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | POST | `/api/documents/:id/start` | admin |
 | GET | `/api/documents/:id/pages` | app/admin |
 | GET | `/api/projects/:id/search-index` (tekst wszystkich stron projektu do wyszukiwania offline w aplikacji) | app/admin |
-| GET | `/api/documents/:id/pages/:n/image` (jedyna ścieżka, która przyjmuje też `?token=`) | app/admin |
+| GET | `/api/documents/:id/pages/:n/image` (przyjmuje też `?token=`) | app/admin |
+| GET | `/api/projects/:id/pins` (pinezki projektu ze zdjęciami) | app/admin |
+| PUT/DELETE | `/api/projects/:id/pins/:pinId` (`{documentId, pageNo, x, y, note, room, createdAt, updatedAt}`) | app/admin |
+| PUT | `/api/projects/:id/pins/:pinId/photos/:photoId?takenAt=` (body = zdjęcie) | app/admin |
+| DELETE | `/api/projects/:id/photos/:photoId` | app/admin |
+| GET | `/api/projects/:id/photos/:photoId/image?size=thumb` (przyjmuje też `?token=`) | app/admin |
 | POST | `/api/documents/:id/resume` (tylko niegotowe strony; dokument `paused`, `error` lub `ready`) | admin |
 | POST | `/api/documents/:id/reindex` | admin |
 | * | `/api/copilotkit/*` (nagłówek `x-project-id`) | app/admin |

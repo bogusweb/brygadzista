@@ -6,6 +6,7 @@ import { PageViewerProvider } from "../../components/chat/PageViewer";
 import { ProjectChat } from "../../components/chat/ProjectChat";
 import { ProjectPages } from "../../components/pages/ProjectPages";
 import { ProjectSearch } from "../../components/pages/ProjectSearch";
+import { PinsProvider } from "../../components/pins/PinsProvider";
 import { ProjectCopilot } from "../../components/ProjectCopilot";
 import { useSettings } from "../../lib/settings";
 import { colors, radius, spacing } from "../../lib/theme";
@@ -46,21 +47,23 @@ const ProjectScreen = () => {
   return (
     <ProjectCopilot projectId={id}>
       <Stack.Screen options={{ title: name ?? "Projekt" }} />
-      <PageViewerProvider>
-        <View style={styles.top}>
-          <TabBar tab={tab} onChange={setTab} />
-          {tab === "chat" ? <AgentStatus /> : null}
-        </View>
-        {/* Both tabs stay mounted: switching to the drawings must not drop the conversation or a running download. */}
-        <View style={[styles.pane, tab !== "chat" && styles.hidden]}>
-          <ProjectChat projectId={id} />
-        </View>
-        <View style={[styles.pane, tab !== "pages" && styles.hidden]}>
-          <ProjectSearch projectId={id}>
-            <ProjectPages projectId={id} />
-          </ProjectSearch>
-        </View>
-      </PageViewerProvider>
+      <PinsProvider projectId={id}>
+        <PageViewerProvider>
+          <View style={styles.top}>
+            <TabBar tab={tab} onChange={setTab} />
+            {tab === "chat" ? <AgentStatus /> : null}
+          </View>
+          {/* Both tabs stay mounted: switching to the drawings must not drop the conversation or a running download. */}
+          <View style={[styles.pane, tab !== "chat" && styles.hidden]}>
+            <ProjectChat projectId={id} />
+          </View>
+          <View style={[styles.pane, tab !== "pages" && styles.hidden]}>
+            <ProjectSearch projectId={id}>
+              <ProjectPages projectId={id} />
+            </ProjectSearch>
+          </View>
+        </PageViewerProvider>
+      </PinsProvider>
     </ProjectCopilot>
   );
 };

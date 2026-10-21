@@ -70,6 +70,8 @@ export const toolLabel = (name: string, args: ToolArgs, done: boolean) => {
       return done ? `Obejrzałem rysunek, ${page}` : `Oglądam rysunek, ${page}…`;
     case "show_page":
       return done ? `Pokazuję ${page}` : `Przygotowuję ${page}…`;
+    case "search_photos":
+      return done ? `Przejrzałem zdjęcia z budowy${args.query ? `: „${args.query}”` : ""}` : "Szukam zdjęć z budowy…";
     default:
       return done ? "Gotowe" : "Pracuję…";
   }

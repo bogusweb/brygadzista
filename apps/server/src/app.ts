@@ -25,6 +25,7 @@ import { sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
 import { FakeProjectAgent } from "./fake-agent.js";
 import { pdfPageCount } from "./pdf.js";
+import { pins, removeDocumentPhotos, removeProjectFiles } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { documentDir, documentPdf, pageImage } from "./storage.js";
 import { users } from "./users.js";
@@ -51,6 +52,7 @@ app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-t
 // `llm` tells an operator at a glance whether the OpenRouter key reached the server.
 app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterApiKey) }));
 app.route("/", users);
+app.route("/", pins);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun));
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));
@@ -78,6 +80,7 @@ app.delete("/api/projects/:id", requireRole("admin"), async (c) => {
   const documents = await sql<{ id: string }[]>`select id from documents where project_id = ${c.req.param("id")}`;
   await sql`delete from projects where id = ${c.req.param("id")}`;
   await Promise.all(documents.map((doc) => rm(documentDir(doc.id), { recursive: true, force: true })));
+  await removeProjectFiles(c.req.param("id"));
   return c.body(null, 204);
 });
 
@@ -195,6 +198,7 @@ app.post("/api/documents/:id/resume", requireRole("admin"), async (c) => {
 });
 
 app.delete("/api/documents/:id", requireRole("admin"), async (c) => {
+  await removeDocumentPhotos(c.req.param("id"));
   await sql`delete from documents where id = ${c.req.param("id")}`;
   await rm(documentDir(c.req.param("id")), { recursive: true, force: true });
   return c.body(null, 204);

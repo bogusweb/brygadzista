@@ -153,6 +153,19 @@ const SURFACE = (() => {
 
 const SURFACE_SUMMARY = "Zestawienie dla ocieplenia ścian poniżej: parametry, materiały, kolejność prac i warstwy.\n\nŹródło: str. 3 – Opis techniczny, str. 18 – Detal D-3";
 
+// Pins with photos (#70) live in memory: enough to try placing, syncing and finding photos without a database.
+type MockPhoto = { id: string; width: number; height: number; takenAt: string };
+type MockPinFields = { pageNo: number; createdAt: string; updatedAt: string; [field: string]: unknown };
+type MockPin = MockPinFields & { id: string; photos: MockPhoto[] };
+const pins = new Map<string, MockPin>();
+const photoFiles = new Map<string, Buffer>();
+const photoPath = (photoId: string) => `/api/projects/${PROJECT.id}/photos/${photoId}/image?size=thumb`;
+
+const PHOTOS_ANSWER = (count: number) =>
+  count
+    ? `Znalazłem ${count === 1 ? "jedno miejsce" : `${count} miejsca`} ze zdjęciami, miniatury są wyżej. Dotknij, aby zobaczyć je na rysunku.`
+    : "Nie ma jeszcze zdjęć z budowy. Otwórz stronę w zakładce „Projekt” i dotknij „Przypnij zdjęcie”.";
+
 // Questions about lists, quantities or layers get an A2UI surface instead of the drawing.
 const wantsSurface = (question: string) => /zestaw|materia|warstw|kolejno|a2ui/i.test(question);
 
@@ -170,6 +183,7 @@ const scriptedStep = (options: LanguageModelV3CallOptions): LanguageModelV3Strea
     throw new Error("Symulowana awaria modelu");
   }
   const step = prompt.slice(lastUser).filter((message) => message.role === "tool").length;
+  if (/zdj[eę]|foto/i.test(question)) return step === 0 ? toolCallStep("search_photos", { query: "" }) : textStep(PHOTOS_ANSWER(pins.size));
   if (step === 0) return toolCallStep("search_project", { query: question });
   if (step === 1 && wantsSurface(question)) return surfaceStep(SURFACE_SUMMARY, { ...SURFACE, surfaceId: `budowa-${Date.now()}` });
   if (step === 1) return toolCallStep("show_page", { documentId: DOCUMENT_ID, pageNo: 12, caption: "Ściany zewnętrzne i wymiary hali" });
@@ -200,6 +214,22 @@ const createMockAgent = () =>
         execute: async () => {
           await pause(900);
           return { results: PAGES.map((page) => ({ documentId: DOCUMENT_ID, filename: "projekt.pdf", ...page, snippet: page.title })) };
+        },
+      }),
+      defineTool({
+        name: "search_photos",
+        description: "Szuka zdjęć z budowy.",
+        parameters: z.object({ query: z.string().optional() }),
+        execute: async () => {
+          await pause(400);
+          const found = [...pins.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+          return {
+            photos: found.map((pin) => ({
+              ...pin,
+              pageTitle: ALL_PAGES.find((page) => page.pageNo === pin.pageNo)?.title ?? null,
+              photos: pin.photos.map((photo) => ({ ...photo, thumbPath: photoPath(photo.id) })),
+            })),
+          };
         },
       }),
       defineTool({
@@ -269,6 +299,40 @@ app.get("/api/documents/:id/pages/:pageNo/image", async (c) => {
   return c.body(await readFile(PAGE_IMAGE));
 });
 
+app.get("/api/projects/:id/pins", (c) => c.json({ pins: [...pins.values()] }));
+app.put("/api/projects/:id/pins/:pinId", async (c) => {
+  const body = await c.req.json<MockPinFields>();
+  const existing = pins.get(c.req.param("pinId"));
+  if (existing && existing.updatedAt > body.updatedAt) return c.json(existing);
+  const pin: MockPin = { kind: "photo", authorName: "Demo", ...body, id: c.req.param("pinId"), photos: existing?.photos ?? [] };
+  pins.set(pin.id, pin);
+  return c.json(pin);
+});
+app.delete("/api/projects/:id/pins/:pinId", (c) => {
+  pins.delete(c.req.param("pinId"));
+  return c.body(null, 204);
+});
+// Stored as sent, without the server's resizing; the thumbnail is the same file.
+app.put("/api/projects/:id/pins/:pinId/photos/:photoId", async (c) => {
+  const pin = pins.get(c.req.param("pinId"));
+  if (!pin) return c.json({ error: "Nie ma takiej pinezki" }, 404);
+  const photo = { id: c.req.param("photoId"), width: 0, height: 0, takenAt: c.req.query("takenAt") ?? new Date().toISOString() };
+  if (!photoFiles.has(photo.id)) pin.photos.push(photo);
+  photoFiles.set(photo.id, Buffer.from(await c.req.arrayBuffer()));
+  return c.json(photo, 201);
+});
+app.delete("/api/projects/:id/photos/:photoId", (c) => {
+  pins.forEach((pin) => (pin.photos = pin.photos.filter((photo) => photo.id !== c.req.param("photoId"))));
+  photoFiles.delete(c.req.param("photoId"));
+  return c.body(null, 204);
+});
+app.get("/api/projects/:id/photos/:photoId/image", (c) => {
+  const file = photoFiles.get(c.req.param("photoId"));
+  if (!file) return c.json({ error: "Nie ma takiego zdjęcia" }, 404);
+  c.header("Content-Type", "image/jpeg");
+  return c.body(new Uint8Array(file));
+});
+
 // The browser version of the app, when exported (pnpm --filter @brygadzista/mobile export:web): http://localhost:3100/app/
 const mobileWebRoot = path.relative(process.cwd(), fileURLToPath(new URL("../../mobile/dist-web", import.meta.url)));
 app.get("/app", (c) => c.redirect("/app/"));
@@ -276,5 +340,5 @@ app.use("/app/*", serveStatic({ root: mobileWebRoot, rewriteRequestPath: (reques
 app.get("/app/*", serveStatic({ root: mobileWebRoot, path: "index.html" }));
 
 serve({ fetch: app.fetch, port: PORT }, () =>
-  console.log(`Mock Brygadzisty: http://localhost:${PORT} (kod dostępu "${TOKEN}"). Słowo "awaria" w pytaniu symuluje błąd przy pierwszej próbie, "zestawienie" pokazuje powierzchnię A2UI.`),
+  console.log(`Mock Brygadzisty: http://localhost:${PORT} (kod dostępu "${TOKEN}"). Słowo "awaria" w pytaniu symuluje błąd przy pierwszej próbie, "zestawienie" pokazuje powierzchnię A2UI, "zdjęcia" szuka przypiętych zdjęć.`),
 );

@@ -9,6 +9,7 @@ import { colors, radius, spacing } from "../../lib/theme";
 import { useCachedResource } from "../../lib/useCachedResource";
 import { Button } from "../Button";
 import { usePageViewer } from "../chat/PageViewer";
+import { usePins } from "../pins/PinsProvider";
 import type { ViewedPage } from "../chat/PageViewer";
 import { useOfflineDownload } from "./useOfflineDownload";
 import { usePageCacheVersion, usePageImage } from "./usePageImage";
@@ -23,13 +24,13 @@ const OfflineNotice = () => (
   </View>
 );
 
-const PageTile = ({ documentId, page, onPress }: { documentId: string; page: DocumentPage; onPress: () => void }) => {
+const PageTile = ({ documentId, page, pinCount, onPress }: { documentId: string; page: DocumentPage; pinCount: number; onPress: () => void }) => {
   const image = usePageImage(documentId, page.pageNo);
   const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Strona ${page.pageNo}${page.title ? `, ${page.title}` : ""}${image.saved ? ", zapisana na telefonie" : ""}`}
+      accessibilityLabel={`Strona ${page.pageNo}${page.title ? `, ${page.title}` : ""}${image.saved ? ", zapisana na telefonie" : ""}${pinCount ? `, pinezki ze zdjęciami: ${pinCount}` : ""}`}
       onPress={onPress}
       style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
     >
@@ -51,6 +52,11 @@ const PageTile = ({ documentId, page, onPress }: { documentId: string; page: Doc
         {state === "error" ? (
           <View style={styles.center}>
             <Text style={styles.tileError}>Brak podglądu</Text>
+          </View>
+        ) : null}
+        {pinCount ? (
+          <View style={styles.pinBadge}>
+            <Text style={styles.savedBadgeText}>{pluralPl(pinCount, "pinezka", "pinezki", "pinezek")}</Text>
           </View>
         ) : null}
         {image.saved ? (
@@ -164,6 +170,12 @@ const DocumentPages = ({
 }) => {
   const pages = useCachedResource(`pages-${document.id}`, (connection) => fetchPages(connection, document.id), "Nie udało się pobrać spisu stron.");
   const openPage = usePageViewer();
+  const { pins } = usePins();
+  const pinCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    pins.forEach((pin) => pin.documentId === document.id && counts.set(pin.pageNo, (counts.get(pin.pageNo) ?? 0) + 1));
+    return counts;
+  }, [pins, document.id]);
   const sequence = useMemo<ViewedPage[]>(
     () => (pages.data ?? []).map((page) => ({ documentId: document.id, pageNo: page.pageNo, title: page.title })),
     [document.id, pages.data],
@@ -213,7 +225,7 @@ const DocumentPages = ({
       windowSize={5}
       renderItem={({ item, index }) => (
         <View style={styles.cell}>
-          <PageTile documentId={document.id} page={item} onPress={() => openPage(sequence[index]!, sequence)} />
+          <PageTile documentId={document.id} page={item} pinCount={pinCounts.get(item.pageNo) ?? 0} onPress={() => openPage(sequence[index]!, sequence)} />
         </View>
       )}
     />
@@ -307,6 +319,15 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 6,
     backgroundColor: "rgba(28, 28, 26, 0.75)",
+  },
+  pinBadge: {
+    position: "absolute",
+    right: spacing.xs,
+    top: spacing.xs,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: colors.accent,
   },
   savedBadgeText: { fontSize: 11, fontWeight: "600", color: "#FFFFFF" },
   tileMeta: { padding: spacing.sm, gap: 2 },
