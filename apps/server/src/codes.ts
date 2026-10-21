@@ -21,8 +21,16 @@ const normalize = (text: string) =>
     .normalize("NFD")
     .replace(/\p{M}/gu, "");
 
+// Bump when extraction changes: pages with an older version get their codes again from stored text at startup.
+export const CODES_VERSION = 2;
+
 // Separators inside a code are dropped (A-04, A.04 and A04 are one mark); a dot between digits is a decimal point.
-const canonical = (token: string) => token.toLowerCase().replace(/(?<!\d)\.|\.(?!\d)|-/g, "");
+// Leading zeros after letters are dropped too, so "A04" finds "SZCZEGÓŁ A4".
+const canonical = (token: string) =>
+  token
+    .toLowerCase()
+    .replace(/(?<!\d)\.|\.(?!\d)|-/g, "")
+    .replace(/(?<=\p{L})0+(?=\d)/gu, "");
 
 const isNumber = (token: string) => /^\d+(\.\d+)?$/.test(token);
 const hasDigit = (token: string) => /\d/.test(token);

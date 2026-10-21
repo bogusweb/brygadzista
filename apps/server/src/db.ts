@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import { extractCodes } from "./codes.js";
+import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
 
 export const sql = postgres(config.databaseUrl, { max: 10, onnotice: () => {} });
@@ -107,6 +107,67 @@ export const migrate = async () => {
       unique (project_id, client_id)
     )`;
   await sql`create index if not exists diary_entries_project on diary_entries (project_id, entry_date desc)`;
+  // Stage checklists (#68): items filled from the project, ticked on site (also offline) and synced later.
+  await sql`
+    create table if not exists checklists (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references projects(id) on delete cascade,
+      stage text not null,
+      title text not null,
+      status text not null default 'generating',
+      error text,
+      created_by uuid references users(id) on delete set null,
+      created_by_name text not null default '',
+      created_at timestamptz not null default now(),
+      generated_at timestamptz
+    )`;
+  await sql`
+    create table if not exists checklist_items (
+      id uuid primary key default gen_random_uuid(),
+      checklist_id uuid not null references checklists(id) on delete cascade,
+      position int not null,
+      label text not null,
+      ask text not null,
+      value text,
+      status text not null default 'to_confirm' check (status in ('found', 'to_confirm')),
+      document_id uuid references documents(id) on delete set null,
+      page_no int,
+      quote text,
+      checked boolean not null default false,
+      note text,
+      checked_at timestamptz,
+      checked_by uuid references users(id) on delete set null,
+      checked_by_name text,
+      unique (checklist_id, position)
+    )`;
+  // Every change sent from the app, keyed by an id the app generates, so a batch resent after a lost response
+  // is applied once.
+  await sql`
+    create table if not exists checklist_events (
+      id uuid primary key,
+      checklist_id uuid not null references checklists(id) on delete cascade,
+      item_id uuid references checklist_items(id) on delete cascade,
+      type text not null check (type in ('check', 'complete')),
+      checked boolean,
+      note text,
+      happened_at timestamptz not null,
+      user_id uuid references users(id) on delete set null,
+      user_name text not null,
+      received_at timestamptz not null default now()
+    )`;
+  // A finished checklist: who closed it, when, and the state of every item at that moment.
+  await sql`
+    create table if not exists checklist_results (
+      id uuid primary key,
+      checklist_id uuid not null references checklists(id) on delete cascade,
+      completed_at timestamptz not null,
+      completed_by uuid references users(id) on delete set null,
+      completed_by_name text not null,
+      items jsonb not null
+    )`;
+  await sql`create index if not exists checklists_project on checklists (project_id)`;
+  await sql`create index if not exists checklist_items_checklist on checklist_items (checklist_id)`;
+  await sql`alter table pages add column if not exists codes_version int`;
   await sql`create index if not exists sessions_user on sessions (user_id)`;
   await sql`create index if not exists project_members_user on project_members (user_id)`;
   await sql`create index if not exists chunks_embedding on chunks using hnsw (embedding vector_cosine_ops)`;
@@ -119,14 +180,16 @@ export const migrate = async () => {
 
 const BACKFILL_BATCH = 200;
 
-// Pages indexed before codes existed get them from their stored text, without reindexing the document.
+// Pages indexed before codes existed, or with an older extraction, get them from their stored text without reindexing.
 const backfillCodes = async () => {
   for (;;) {
     const pages = await sql<{ id: string; title: string | null; raw_text: string }[]>`
-      select id, title, raw_text from pages where codes is null and search_text <> '' limit ${BACKFILL_BATCH}`;
+      select id, title, raw_text from pages where codes_version is distinct from ${CODES_VERSION} and search_text <> '' limit ${BACKFILL_BATCH}`;
     if (pages.length === 0) return;
     for (const page of pages) {
-      await sql`update pages set codes = ${extractCodes(`${page.title ?? ""}\n${page.raw_text}`)} where id = ${page.id}`;
+      await sql`
+        update pages set codes = ${extractCodes(`${page.title ?? ""}\n${page.raw_text}`)}, codes_version = ${CODES_VERSION}
+        where id = ${page.id}`;
     }
   }
 };

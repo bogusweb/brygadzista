@@ -1,11 +1,13 @@
 import { serve } from "@hono/node-server";
 import { app } from "./app.js";
+import { failInterruptedChecklists } from "./checklists.js";
 import { config } from "./config.js";
 import { migrate } from "./db.js";
 import { resumeDiaryEntries } from "./diary.js";
 import { startIngestWorker } from "./ingest.js";
 
 await migrate();
+await failInterruptedChecklists();
 await startIngestWorker();
 void resumeDiaryEntries();
 if (config.fakeAgent) console.warn("brygadzista: FAKE_AGENT=1, chat answers come from the scripted test agent");

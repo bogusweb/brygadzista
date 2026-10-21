@@ -27,6 +27,8 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 
 **Katalog A2UI** (`apps/server/src/a2ui-catalog.ts`): komponenty budowlane, które agent może pokazać przez `render_a2ui` obok podstawowego katalogu A2UI: `ParameterCard` (parametr z jednostką i źródłem), `MaterialList` (materiały z ilościami), `WorkSteps` (kroki prac), `LayerComparison` (warstwy przegród obok siebie). Definicje (zod v3, opisy dla modelu) są wspólne: serwer wysyła z nich schemat v0.9 w `a2ui.schema` runtime'u (`a2ui-schema.ts`), a dashboard renderuje je w `apps/dashboard/src/a2uiCatalog.tsx`, a aplikacja mobilna własnym natywnym rendererem (`apps/mobile/src/components/a2ui/`). Oba runtime'y (`/api/copilotkit` i `/api/admin/copilotkit`) mają A2UI. Linki „str. N” w komponentach otwierają stronę projektu.
 
+**Checklisty etapów** (`checklist-templates.ts`, `checklists.ts`, #68): szablony dla domu jednorodzinnego (fundamenty, ściany, strop i wieniec, dach, instalacje przed zakryciem, tynki, wylewki). Po `POST /api/projects/:id/checklists` (`{stage}`) serwer w tle wypełnia każdą pozycję: wyszukiwanie w projekcie, potem model czyta wartość ze znalezionych stron. Pozycja ma status `found` tylko wtedy, gdy cytat naprawdę jest na wskazanej stronie; inaczej `to_confirm` („do potwierdzenia”) z odnośnikiem do strony, gdzie temat się pojawia (albo bez źródła). Bez klucza OpenRouter wszystko jest `to_confirm` z najlepszą stroną. Odhaczanie idzie przez `POST /api/checklists/:id/sync` z paczką zdarzeń (`check` z `itemId`, `checked`, `note` albo `complete`), każde z własnym `id` (UUID z aplikacji) i czasem `at`: ponownie wysłana paczka nie zmienia nic drugi raz, a o stanie pozycji decyduje najpóźniejsza zmiana wg czasu jej zrobienia, więc aplikacja może je zbierać offline i wysłać po powrocie zasięgu. `complete` zapisuje wynik z datą, osobą i stanem wszystkich pozycji.
+
 **Modele i prywatność**: wszystko przez OpenRouter z `data_collection: deny` i `zdr: true` (`llm.ts`). Modele językowe są przypięte do jednego endpointu w UE, bez fallbacku. Embeddingi mogą iść poza UE.
 - rozmowa: `google/gemini-3.1-flash-lite` przez `google-vertex/eu`
 - oglądanie rysunku na żądanie agenta (`inspect_drawing`): ten sam model (`VISION_MODEL`)
@@ -55,6 +57,11 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | GET | `/api/documents/:id/pages/:n/image` (jedyna ścieżka, która przyjmuje też `?token=`) | app/admin |
 | POST | `/api/documents/:id/resume` (tylko niegotowe strony; dokument `paused`, `error` lub `ready`) | admin |
 | POST | `/api/documents/:id/reindex` | admin |
+| GET | `/api/checklist-templates` | app/admin |
+| GET/POST | `/api/projects/:id/checklists` (`{stage}` → 202, wypełnianie w tle) | app/admin |
+| GET | `/api/checklists/:id` (pozycje, źródła, wyniki) | app/admin |
+| POST | `/api/checklists/:id/sync` (`{events}` zebrane offline) | app/admin |
+| DELETE | `/api/checklists/:id` | admin |
 | * | `/api/copilotkit/*` (nagłówek `x-project-id`) | app/admin |
 | * | `/api/admin/copilotkit/*` (z A2UI) | admin |
 
