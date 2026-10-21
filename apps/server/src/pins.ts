@@ -67,8 +67,11 @@ export const pinPhotosJson = sql`
   coalesce((select json_agg(json_build_object('id', ph.id, 'width', ph.width, 'height', ph.height, 'takenAt', ph.taken_at, 'stage', ph.stage)
     order by ph.taken_at) from pin_photos ph where ph.pin_id = p.id), '[]')`;
 
-const pinRows = (where: ReturnType<typeof sql>, limit = 10_000) => sql<Pin[]>`
-  select ${pinColumns}, ${pinPhotosJson} as photos from pins p where ${where} order by p.created_at desc limit ${limit}`;
+// The page title comes along, so the phone can name the floor of a defect without signal.
+const pinRows = (where: ReturnType<typeof sql>, limit = 10_000) => sql<(Pin & { pageTitle: string | null })[]>`
+  select ${pinColumns}, pg.title as "pageTitle", ${pinPhotosJson} as photos
+  from pins p left join pages pg on pg.document_id = p.document_id and pg.page_no = p.page_no
+  where ${where} order by p.created_at desc limit ${limit}`;
 
 const isDate = (value: unknown): value is string => typeof value === "string" && !Number.isNaN(Date.parse(value));
 const isDay = (value: unknown): value is string =>

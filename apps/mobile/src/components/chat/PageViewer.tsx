@@ -15,10 +15,12 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-na
 import type { SharedValue } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { containRect, pageToScreen, pinAt, pinsOnPage, randomId, screenToPage } from "../../lib/pins";
-import type { PinFields, Point, Size, ViewPhoto, ViewPin } from "../../lib/pins";
+import { STATUS_COLORS, assigneesOf } from "../../lib/defects";
+import type { DefectStatus, PinFields, PinKind, Point, Size, ViewPhoto, ViewPin } from "../../lib/pins";
 import { colors, radius, spacing } from "../../lib/theme";
 import { usePageImage } from "../pages/usePageImage";
 import { confirm } from "../pins/pickPhotos";
+import { DefectDetails, DefectEditor } from "../pins/DefectPanel";
 import { PhotoOverlay, PinDetails, PinEditor } from "../pins/PinPanel";
 import { usePins } from "../pins/PinsProvider";
 
@@ -49,15 +51,34 @@ type PageTap = { point: Point | null; pin: ViewPin | null };
 
 const MARKER = 30;
 
+const DEFECT_SYMBOLS: Record<DefectStatus, string> = { open: "!", to_check: "?", closed: "✓" };
+
+// A photo pin shows how many photos it has; a defect its status, by colour and symbol.
+const markerLook = (pin: ViewPin | null) => {
+  if (!pin) return { label: "+", color: undefined };
+  if (pin.kind === "defect") return { label: DEFECT_SYMBOLS[pin.status ?? "open"], color: STATUS_COLORS[pin.status ?? "open"] };
+  return { label: String(pin.photos.length || "•"), color: undefined };
+};
+
 // A pin on the drawing. It sits inside the zoomed layer, so it follows the page, and is scaled back to keep its size.
-const PinMarker = ({ pin, at, selected, counterScale }: { pin: ViewPin | null; at: Point; selected: boolean; counterScale: ReturnType<typeof useAnimatedStyle> }) => (
-  <Animated.View
-    pointerEvents="none"
-    style={[styles.marker, { left: at.x - MARKER / 2, top: at.y - MARKER / 2 }, selected && styles.markerSelected, pin?.pending && styles.markerPending, counterScale]}
-  >
-    <Text style={styles.markerLabel}>{pin ? (pin.photos.length || "•") : "+"}</Text>
-  </Animated.View>
-);
+const PinMarker = ({ pin, at, selected, counterScale }: { pin: ViewPin | null; at: Point; selected: boolean; counterScale: ReturnType<typeof useAnimatedStyle> }) => {
+  const { label, color } = markerLook(pin);
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        styles.marker,
+        { left: at.x - MARKER / 2, top: at.y - MARKER / 2 },
+        color ? { backgroundColor: color, borderRadius: 6 } : null,
+        selected && styles.markerSelected,
+        pin?.pending && styles.markerPending,
+        counterScale,
+      ]}
+    >
+      <Text style={styles.markerLabel}>{label}</Text>
+    </Animated.View>
+  );
+};
 
 const sourceUri = (source: ImageSourcePropType) =>
   typeof source === "object" && source !== null && "uri" in source ? source.uri : undefined;
@@ -210,17 +231,19 @@ type Neighbours = { onPrevious: (() => void) | null; onNext: (() => void) | null
 
 type Mode =
   | { type: "view" }
-  | { type: "placing" }
-  | { type: "new"; point: Point }
+  | { type: "placing"; kind: PinKind }
+  | { type: "new"; kind: PinKind; point: Point }
   | { type: "details"; pinId: string }
   | { type: "edit"; pinId: string };
 
-const pinFields = ({ photos: _photos, pending: _pending, authorName: _authorName, ...fields }: ViewPin): PinFields => fields;
+const pinFields = ({ photos: _photos, pending: _pending, authorName: _authorName, spec: _spec, ...fields }: ViewPin): PinFields => fields;
 
 const PageViewerModal = ({ page, onClose, onPrevious, onNext }: { page: ViewedPage; onClose: () => void } & Neighbours) => {
   const [loadState, setLoadState] = useState<"loading" | "loaded" | "error">("loading");
   const [attempt, setAttempt] = useState(0);
   const { projectId, pins: allPins, savePin, removePin, addPhotos, removePhoto } = usePins();
+  const openPage = usePageViewer();
+  const assignees = useMemo(() => assigneesOf(allPins), [allPins]);
   const pins = useMemo(() => pinsOnPage(allPins, page.documentId, page.pageNo), [allPins, page.documentId, page.pageNo]);
   const [mode, setMode] = useState<Mode>(page.pinId ? { type: "details", pinId: page.pinId } : { type: "view" });
   const [openPhoto, setOpenPhoto] = useState<ViewPhoto | null>(null);
@@ -235,7 +258,7 @@ const PageViewerModal = ({ page, onClose, onPrevious, onNext }: { page: ViewedPa
 
   const onTap = ({ point, pin }: PageTap) => {
     if (current.type === "placing") {
-      if (point) setMode({ type: "new", point });
+      if (point) setMode({ type: "new", kind: current.kind, point });
     } else if (current.type === "view" || current.type === "details") {
       setMode(pin ? { type: "details", pinId: pin.id } : { type: "view" });
     }
@@ -243,7 +266,11 @@ const PageViewerModal = ({ page, onClose, onPrevious, onNext }: { page: ViewedPa
 
   const deletePin = async (pin: ViewPin) => {
     const photos = pin.photos.length ? ` i ${pin.photos.length === 1 ? "jego zdjęcie" : "wszystkie jego zdjęcia"}` : "";
-    if (!(await confirm("Usunąć pinezkę?", `Usuniesz to miejsce${photos} dla całej ekipy.`, "Usuń"))) return;
+    const confirmed =
+      pin.kind === "defect"
+        ? await confirm("Usunąć usterkę?", `Usterka${photos ? " ze zdjęciami" : ""} zniknie z listy całej ekipy i z protokołu.`, "Usuń")
+        : await confirm("Usunąć pinezkę?", `Usuniesz to miejsce${photos} dla całej ekipy.`, "Usuń");
+    if (!confirmed) return;
     removePin(pin.id);
     setMode({ type: "view" });
   };
@@ -254,7 +281,83 @@ const PageViewerModal = ({ page, onClose, onPrevious, onNext }: { page: ViewedPa
     setOpenPhoto(null);
   };
 
+  const newPin = (point: Point, kind: PinKind, text: { note: string; room: string; assignee?: string; dueDate?: string | null }) => {
+    const now = new Date().toISOString();
+    const id = randomId();
+    const defect = kind === "defect";
+    savePin({
+      id,
+      documentId: page.documentId,
+      pageNo: page.pageNo,
+      pageTitle: page.title ?? null,
+      x: point.x,
+      y: point.y,
+      kind,
+      note: text.note.trim(),
+      room: text.room.trim(),
+      status: defect ? "open" : null,
+      assignee: defect ? (text.assignee ?? "").trim() : "",
+      dueDate: defect ? (text.dueDate ?? null) : null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return id;
+  };
+
   const panel = (() => {
+    if (current.type === "new" && current.kind === "defect") {
+      return (
+        <DefectEditor
+          projectId={projectId}
+          isNew
+          assignees={assignees}
+          initial={{ note: "", room: "", assignee: "", dueDate: null, photos: [] }}
+          onCancel={() => setMode({ type: "view" })}
+          onSave={(draft) => {
+            const id = newPin(current.point, "defect", draft);
+            addPhotos(id, draft.photos, "before");
+            setMode({ type: "details", pinId: id });
+          }}
+        />
+      );
+    }
+    if (current.type === "edit" && shownPin?.kind === "defect") {
+      return (
+        <DefectEditor
+          projectId={projectId}
+          isNew={false}
+          assignees={assignees}
+          initial={{ note: shownPin.note, room: shownPin.room, assignee: shownPin.assignee, dueDate: shownPin.dueDate, photos: [] }}
+          onCancel={() => setMode({ type: "details", pinId: shownPin.id })}
+          onSave={(draft) => {
+            savePin({
+              ...pinFields(shownPin),
+              note: draft.note.trim(),
+              room: draft.room.trim(),
+              assignee: draft.assignee.trim(),
+              dueDate: draft.dueDate,
+              updatedAt: new Date().toISOString(),
+            });
+            setMode({ type: "details", pinId: shownPin.id });
+          }}
+        />
+      );
+    }
+    if (current.type === "details" && shownPin?.kind === "defect") {
+      return (
+        <DefectDetails
+          projectId={projectId}
+          pin={shownPin}
+          onClose={() => setMode({ type: "view" })}
+          onEdit={() => setMode({ type: "edit", pinId: shownPin.id })}
+          onDelete={() => void deletePin(shownPin)}
+          onSetStatus={(status) => savePin({ ...pinFields(shownPin), status, updatedAt: new Date().toISOString() })}
+          onAddPhotos={(photos, stage) => addPhotos(shownPin.id, photos, stage)}
+          onOpenPhoto={setOpenPhoto}
+          onOpenSource={({ source }) => source && openPage({ documentId: source.documentId, pageNo: source.pageNo, title: source.title })}
+        />
+      );
+    }
     if (current.type === "new") {
       return (
         <PinEditor
@@ -262,10 +365,7 @@ const PageViewerModal = ({ page, onClose, onPrevious, onNext }: { page: ViewedPa
           initial={{ note: "", room: "", photos: [] }}
           onCancel={() => setMode({ type: "view" })}
           onSave={(draft) => {
-            const now = new Date().toISOString();
-            const id = randomId();
-            const { x, y } = current.point;
-            savePin({ id, documentId: page.documentId, pageNo: page.pageNo, x, y, kind: "photo", note: draft.note.trim(), room: draft.room.trim(), createdAt: now, updatedAt: now });
+            const id = newPin(current.point, "photo", draft);
             addPhotos(id, draft.photos);
             setMode({ type: "details", pinId: id });
           }}
@@ -343,7 +443,9 @@ const PageViewerModal = ({ page, onClose, onPrevious, onNext }: { page: ViewedPa
             ) : null}
             {current.type === "placing" ? (
               <View style={styles.placingBanner} pointerEvents="none">
-                <Text style={styles.placingText}>Stuknij miejsce na rysunku, gdzie robisz zdjęcie</Text>
+                <Text style={styles.placingText}>
+                  {current.kind === "defect" ? "Stuknij miejsce usterki na rysunku" : "Stuknij miejsce na rysunku, gdzie robisz zdjęcie"}
+                </Text>
               </View>
             ) : null}
           </View>
@@ -357,11 +459,21 @@ const PageViewerModal = ({ page, onClose, onPrevious, onNext }: { page: ViewedPa
                     {onPrevious || onNext ? <PagerButton label="‹" onPress={onPrevious} narrow /> : null}
                     <Pressable
                       accessibilityRole="button"
+                      accessibilityLabel="Przypnij zdjęcie"
                       disabled={loadState !== "loaded"}
-                      onPress={() => setMode({ type: "placing" })}
+                      onPress={() => setMode({ type: "placing", kind: "photo" })}
                       style={[styles.pinButton, loadState !== "loaded" && styles.pagerDisabled]}
                     >
-                      <Text style={styles.pinButtonLabel}>Przypnij zdjęcie</Text>
+                      <Text style={styles.pinButtonLabel}>+ Zdjęcie</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Zgłoś usterkę"
+                      disabled={loadState !== "loaded"}
+                      onPress={() => setMode({ type: "placing", kind: "defect" })}
+                      style={[styles.pinButton, styles.defectButton, loadState !== "loaded" && styles.pagerDisabled]}
+                    >
+                      <Text style={styles.pinButtonLabel}>+ Usterka</Text>
                     </Pressable>
                     {onPrevious || onNext ? <PagerButton label="›" onPress={onNext} narrow /> : null}
                   </>
@@ -369,7 +481,7 @@ const PageViewerModal = ({ page, onClose, onPrevious, onNext }: { page: ViewedPa
               </View>
               <Text style={styles.hint}>
                 {pins.length
-                  ? "Stuknij pinezkę, aby zobaczyć zdjęcia. Rozsuń palce, aby powiększyć."
+                  ? "Stuknij pinezkę, aby zobaczyć zdjęcia lub usterkę. Rozsuń palce, aby powiększyć."
                   : "Rozsuń palce, aby powiększyć. Stuknij dwa razy, aby przybliżyć lub wrócić."}
               </Text>
             </>
@@ -447,6 +559,7 @@ const styles = StyleSheet.create({
   pagerDisabled: { opacity: 0.35 },
   pinButton: { flex: 1, minHeight: 48, borderRadius: radius.md, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
   pinButtonLabel: { color: colors.accentText, fontSize: 16, fontWeight: "600" },
+  defectButton: { backgroundColor: STATUS_COLORS.open },
   placingBanner: { position: "absolute", top: spacing.sm, left: spacing.md, right: spacing.md, padding: spacing.sm, borderRadius: radius.md, backgroundColor: "rgba(17, 17, 16, 0.85)" },
   placingText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600", textAlign: "center" },
   marker: {

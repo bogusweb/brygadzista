@@ -25,13 +25,16 @@ const fields = (id: string, note = ""): PinFields => ({
   kind: "photo",
   note,
   room: "",
+  status: null,
+  assignee: "",
+  dueDate: null,
   createdAt: "2026-10-20T08:00:00.000Z",
   updatedAt: "2026-10-20T08:00:00.000Z",
 });
 
 const serverPin = (id: string, note = ""): Pin => ({ ...fields(id, note), authorName: "Jan", photos: [] });
 
-const photoOp = (id: string, pinId: string): PinOp => ({ type: "photo", photo: { id, pinId, takenAt: "2026-10-20T08:01:00.000Z", uri: `file:///${id}.jpg` } });
+const photoOp = (id: string, pinId: string): PinOp => ({ type: "photo", photo: { id, pinId, takenAt: "2026-10-20T08:01:00.000Z", uri: `file:///${id}.jpg`, stage: "before" } });
 
 const apply = (state: PinState, ...ops: PinOp[]) => ops.reduce((current, op) => enqueue(current, op).state, state);
 
