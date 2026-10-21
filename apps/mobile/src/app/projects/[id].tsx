@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { AgentStatus } from "../../components/AgentStatus";
 import { PageViewerProvider } from "../../components/chat/PageViewer";
 import { ProjectChat } from "../../components/chat/ProjectChat";
+import { ProjectDiary } from "../../components/diary/ProjectDiary";
 import { ProjectPages } from "../../components/pages/ProjectPages";
 import { ProjectSearch } from "../../components/pages/ProjectSearch";
 import { PinsProvider } from "../../components/pins/PinsProvider";
@@ -11,11 +12,12 @@ import { ProjectCopilot } from "../../components/ProjectCopilot";
 import { useSettings } from "../../lib/settings";
 import { colors, radius, spacing } from "../../lib/theme";
 
-type Tab = "chat" | "pages";
+type Tab = "chat" | "pages" | "diary";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "chat", label: "Czat" },
   { id: "pages", label: "Projekt" },
+  { id: "diary", label: "Dziennik" },
 ];
 
 const TabBar = ({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void }) => (
@@ -53,7 +55,7 @@ const ProjectScreen = () => {
             <TabBar tab={tab} onChange={setTab} />
             {tab === "chat" ? <AgentStatus /> : null}
           </View>
-          {/* Both tabs stay mounted: switching to the drawings must not drop the conversation or a running download. */}
+          {/* All tabs stay mounted: switching to the drawings must not drop the conversation, a running download or a recording. */}
           <View style={[styles.pane, tab !== "chat" && styles.hidden]}>
             <ProjectChat projectId={id} />
           </View>
@@ -61,6 +63,9 @@ const ProjectScreen = () => {
             <ProjectSearch projectId={id}>
               <ProjectPages projectId={id} />
             </ProjectSearch>
+          </View>
+          <View style={[styles.pane, tab !== "diary" && styles.hidden]}>
+            <ProjectDiary projectId={id} />
           </View>
         </PageViewerProvider>
       </PinsProvider>

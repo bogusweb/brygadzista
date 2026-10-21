@@ -29,6 +29,8 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 
 **Katalog A2UI** (`apps/server/src/a2ui-catalog.ts`): komponenty budowlane, które agent może pokazać przez `render_a2ui` obok podstawowego katalogu A2UI: `ParameterCard` (parametr z jednostką i źródłem), `MaterialList` (materiały z ilościami), `WorkSteps` (kroki prac), `LayerComparison` (warstwy przegród obok siebie). Definicje (zod v3, opisy dla modelu) są wspólne: serwer wysyła z nich schemat v0.9 w `a2ui.schema` runtime'u (`a2ui-schema.ts`), a dashboard renderuje je w `apps/dashboard/src/a2uiCatalog.tsx`, a aplikacja mobilna własnym natywnym rendererem (`apps/mobile/src/components/a2ui/`). Oba runtime'y (`/api/copilotkit` i `/api/admin/copilotkit`) mają A2UI. Linki „str. N” w komponentach otwierają stronę projektu.
 
+**Checklisty etapów** (`checklist-templates.ts`, `checklists.ts`, #68): szablony dla domu jednorodzinnego (fundamenty, ściany, strop i wieniec, dach, instalacje przed zakryciem, tynki, wylewki). Po `POST /api/projects/:id/checklists` (`{stage}`) serwer w tle wypełnia każdą pozycję: wyszukiwanie w projekcie, potem model czyta wartość ze znalezionych stron. Pozycja ma status `found` tylko wtedy, gdy cytat naprawdę jest na wskazanej stronie; inaczej `to_confirm` („do potwierdzenia”) z odnośnikiem do strony, gdzie temat się pojawia (albo bez źródła). Bez klucza OpenRouter wszystko jest `to_confirm` z najlepszą stroną. Odhaczanie idzie przez `POST /api/checklists/:id/sync` z paczką zdarzeń (`check` z `itemId`, `checked`, `note` albo `complete`), każde z własnym `id` (UUID z aplikacji) i czasem `at`: ponownie wysłana paczka nie zmienia nic drugi raz, a o stanie pozycji decyduje najpóźniejsza zmiana wg czasu jej zrobienia, więc aplikacja może je zbierać offline i wysłać po powrocie zasięgu. `complete` zapisuje wynik z datą, osobą i stanem wszystkich pozycji.
+
 **Modele i prywatność**: wszystko przez OpenRouter z `data_collection: deny` i `zdr: true` (`llm.ts`). Modele językowe są przypięte do jednego endpointu w UE, bez fallbacku. Embeddingi mogą iść poza UE.
 - rozmowa: `google/gemini-3.1-flash-lite` przez `google-vertex/eu`
 - oglądanie rysunku na żądanie agenta (`inspect_drawing`): ten sam model (`VISION_MODEL`)
@@ -52,6 +54,8 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | POST | `/api/documents/:id/start` | admin |
 | GET | `/api/documents/:id/pages` | app/admin |
 | GET | `/api/projects/:id/search-index` (tekst wszystkich stron projektu do wyszukiwania offline w aplikacji) | app/admin |
+| GET/POST | `/api/projects/:id/diary` (dziennik dnia, #69; POST: body `audio/*` z `?date=&clientId=` albo JSON `{text, date, clientId}`) | app/admin |
+| PATCH/DELETE | `/api/diary/:id` (`{entryDate?, transcript?, entry?}`), POST `/api/diary/:id/retry` | app/admin |
 | GET | `/api/documents/:id/pages/:n/image` (przyjmuje też `?token=`) | app/admin |
 | GET | `/api/projects/:id/pins` (pinezki projektu ze zdjęciami) | app/admin |
 | PUT/DELETE | `/api/projects/:id/pins/:pinId` (`{documentId, pageNo, x, y, note, room, createdAt, updatedAt}`) | app/admin |
@@ -60,6 +64,11 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | GET | `/api/projects/:id/photos/:photoId/image?size=thumb` (przyjmuje też `?token=`) | app/admin |
 | POST | `/api/documents/:id/resume` (tylko niegotowe strony; dokument `paused`, `error` lub `ready`) | admin |
 | POST | `/api/documents/:id/reindex` | admin |
+| GET | `/api/checklist-templates` | app/admin |
+| GET/POST | `/api/projects/:id/checklists` (`{stage}` → 202, wypełnianie w tle) | app/admin |
+| GET | `/api/checklists/:id` (pozycje, źródła, wyniki) | app/admin |
+| POST | `/api/checklists/:id/sync` (`{events}` zebrane offline) | app/admin |
+| DELETE | `/api/checklists/:id` | admin |
 | * | `/api/copilotkit/*` (nagłówek `x-project-id`) | app/admin |
 | * | `/api/admin/copilotkit/*` (z A2UI) | admin |
 
@@ -68,7 +77,9 @@ Autoryzacja: `Authorization: Bearer <token>`.
 **Konta** (#10): właściciel (`owner`, rola API `admin`) widzi wszystkie projekty i zarządza kontami; wykonawca (`contractor`, rola API `app`) widzi tylko projekty, do których go dodano (lista projektów, dokumenty, strony, obrazy stron i fabryka agenta; cudzy projekt odpowiada 404). Hasła to argon2id, sesja to losowy token `bs_…` (w bazie tylko jego SHA-256), ważny `SESSION_TTL_DAYS` dni i przedłużany przy użyciu. Wyłączenie konta lub nowe hasło kończy jego sesje.
 - `ADMIN_TOKEN` z env działa dalej jako awaryjny dostęp administratora; nim zakłada się pierwsze konto właściciela (`POST /api/users` z `role: "owner"`).
 - `APP_TOKEN` to stary wspólny token aplikacji (wszystkie projekty). Jest wyłączony, gdy pusty, a w produkcji (`NODE_ENV=production`) także gdy nieustawiony.
-- Limity (w pamięci procesu): uruchomienia agenta `RATE_LIMIT_CHAT_PER_MINUTE` na użytkownika, upload `RATE_LIMIT_UPLOADS_PER_HOUR`, logowanie `RATE_LIMIT_LOGIN_PER_15_MIN` na e-mail (i 5× tyle na IP). Po przekroczeniu 429 z `Retry-After`.
+- Limity (w pamięci procesu): uruchomienia agenta `RATE_LIMIT_CHAT_PER_MINUTE` na użytkownika, upload `RATE_LIMIT_UPLOADS_PER_HOUR`, notatki do dziennika `RATE_LIMIT_DIARY_PER_HOUR`, logowanie `RATE_LIMIT_LOGIN_PER_15_MIN` na e-mail (i 5× tyle na IP). Po przekroczeniu 429 z `Retry-After`.
+
+**Dziennik dnia** (#69): nagranie (m4a z telefonu, mp4 lub ogg z przeglądarki, do `MAX_DIARY_AUDIO_MB`) jest zapisywane w `DATA_DIR/diary` i porządkowane w tle: transkrypcja i wpis (prace, ludzie, dostawy, pogoda, problemy, odniesienia do stron projektu) robi model czatu (`AGENT_MODEL`, region EU, bez retencji). Strony do odniesień szuka wyszukiwanie słowne i kodów, bez embeddingów. Nieudany wpis zostaje z nagraniem, `retry` porządkuje go ponownie; wpis przerwany restartem serwer bierze po starcie. `clientId` z kolejki offline sprawia, że powtórzone wysłanie nie tworzy drugiego wpisu. Z `FAKE_AGENT=1` transkrypcja i wpis są skryptowane.
 
 ## Lokalnie
 

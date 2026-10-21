@@ -47,6 +47,18 @@ Test na serwerze testowym: pinezki i zdjęcia trzyma w pamięci, pytanie ze sło
 
 Jak sprawdzić na telefonie: otwórz projekt, zakładka „Projekt”, „Pobierz … na telefon”, włącz tryb samolotowy, zamknij i otwórz aplikację, wejdź w projekt i otwórz dowolną stronę.
 
+## Dziennik dnia głosem (#69)
+
+- Zakładka „Dziennik” w projekcie. Brygadzista dotyka mikrofonu i mówi pół minuty po pracy („zalaliśmy ławy, przyszła dostawa bloczków, padało od 14”). Serwer przepisuje nagranie i porządkuje wpis: wykonane prace, ludzie, dostawy, pogoda, problemy i strony projektu, których dotyczą prace. Można też wpisać tekst. Dzień wybiera się jako „Dziś” albo „Wczoraj”.
+- Nagrywa `expo-audio` (jest w Expo Go): na telefonie mono AAC .m4a w katalogu dokumentów aplikacji, w przeglądarce MediaRecorder w MP4 albo Ogg. Przeglądarka nagrywająca tylko WebM (starszy Chrome) dostaje samo pole tekstowe, bo model nie przyjmuje WebM.
+- Bez zasięgu nagranie czeka w kolejce na telefonie (w przeglądarce w localStorage) i wychodzi, gdy serwer odpowie: przy powrocie do aplikacji i co 30 s. Każde ma `clientId`, więc powtórka nie zdubluje wpisu.
+- Historia dni, najnowszy na górze. Dotknięcie wpisu otwiera edycję wszystkich pól i daty; tekst nagrania można poprawić i uporządkować wpis od nowa.
+- „Szkic do EDB” przy każdym dniu: tekst wpisu dla Elektronicznego Dziennika Budowy (GUNB) do skopiowania przez kierownika budowy. Bez integracji z EDB.
+
+<img src="docs/screenshots/diary-1-recording.png" width="240" alt="Nagrywanie dnia"> <img src="docs/screenshots/diary-2-day.png" width="240" alt="Wpis dnia"> <img src="docs/screenshots/diary-3-edb.png" width="240" alt="Szkic do EDB">
+
+Jak sprawdzić bez klucza: serwer testowy (`pnpm --filter @brygadzista/server mock`) zapisuje dziennik w pamięci i po 2,5 s zwraca ten sam przykładowy wpis. Wpis tekstowy ze słowem „awaria” za pierwszym razem kończy się błędem, żeby sprawdzić „Spróbuj ponownie”.
+
 ## Uruchomienie
 
 ```bash

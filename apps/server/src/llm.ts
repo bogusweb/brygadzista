@@ -1,6 +1,7 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateText } from "ai";
+import { generateText, Output } from "ai";
 import { readFile } from "node:fs/promises";
+import { z } from "zod";
 import { config } from "./config.js";
 import { HttpError, parseRetryAfter, withRetry } from "./retry.js";
 
@@ -27,7 +28,7 @@ export const agentLanguageModel = () =>
 const visionLanguageModel = () => openrouter().chat(config.visionModel, { provider: euOnlyRouting(config.visionProvider) });
 
 // Each attempt gets its own timeout, so one hung request cannot hold an indexing worker forever.
-const callModel = <T>(label: string, request: (abortSignal: AbortSignal) => Promise<T>) =>
+export const callModel = <T>(label: string, request: (abortSignal: AbortSignal) => Promise<T>) =>
   withRetry(() => request(AbortSignal.timeout(config.llmTimeoutMs)), {
     retries: config.llmMaxRetries,
     baseMs: config.llmRetryBaseMs,
@@ -69,6 +70,40 @@ export const askAboutPage = async (imagePaths: string[], question: string): Prom
     ],
   }));
   return text;
+};
+
+export type ChecklistSourcePage = { documentId: string; pageNo: number; title: string | null; text: string };
+
+export type ChecklistFinding = { value: string; documentId: string; pageNo: number; quote: string };
+
+const findingSchema = z.object({
+  found: z.boolean(),
+  value: z.string(),
+  documentId: z.string(),
+  pageNo: z.number().int(),
+  quote: z.string(),
+});
+
+// Reads one checklist value from the project pages the search found (#68). Text only: a value that is only on a drawing
+// comes back as not found, and the item stays "do potwierdzenia". The caller verifies the quote against the page.
+export const readChecklistValue = async (ask: string, pages: ChecklistSourcePage[]): Promise<ChecklistFinding | null> => {
+  const context = pages
+    .map((page) => `### dokument ${page.documentId}, strona ${page.pageNo}${page.title ? ` – ${page.title}` : ""}\n${page.text}`)
+    .join("\n\n");
+  const { output } = await callModel("checklist value", (abortSignal) => generateText({
+    model: agentLanguageModel(),
+    abortSignal,
+    maxRetries: 0,
+    output: Output.object({ schema: findingSchema }),
+    prompt:
+      "Wypełniasz checklistę wykonawcy na budowie danymi z projektu technicznego. Poniżej fragmenty stron projektu.\n" +
+      `Znajdź: ${ask}.\n` +
+      "Zasady: wartość podaj dokładnie tak, jak w projekcie, z jednostkami i oznaczeniami. quote to dosłowny, krótki cytat " +
+      "(jedno zdanie lub wiersz) ze strony, na której to jest, przepisany bez zmian. Podaj documentId i pageNo tej strony. " +
+      "Jeśli strony tego nie określają, ustaw found na false i zostaw pozostałe pola puste (pageNo 0). Niczego nie zgaduj.\n\n" +
+      context,
+  }));
+  return output.found && output.value.trim() ? { value: output.value.trim(), documentId: output.documentId, pageNo: output.pageNo, quote: output.quote.trim() } : null;
 };
 
 // Gemini Embedding is Matryoshka-trained, so a longer vector can be truncated and renormalised.

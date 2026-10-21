@@ -20,9 +20,11 @@ import {
   type AuthEnv,
   type Role,
 } from "./auth.js";
+import { checklists } from "./checklists.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
+import { diary } from "./diary.js";
 import { FakeProjectAgent } from "./fake-agent.js";
 import { pdfPageCount } from "./pdf.js";
 import { pins, removeDocumentPhotos, removeProjectFiles } from "./pins.js";
@@ -53,6 +55,8 @@ app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-t
 app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterApiKey) }));
 app.route("/", users);
 app.route("/", pins);
+app.route("/", diary);
+app.route("/", checklists);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun));
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));
@@ -78,8 +82,11 @@ app.post("/api/projects", requireRole("admin"), async (c) => {
 
 app.delete("/api/projects/:id", requireRole("admin"), async (c) => {
   const documents = await sql<{ id: string }[]>`select id from documents where project_id = ${c.req.param("id")}`;
+  const notes = await sql<{ audioFile: string }[]>`
+    select audio_file as "audioFile" from diary_entries where project_id = ${c.req.param("id")} and audio_file is not null`;
   await sql`delete from projects where id = ${c.req.param("id")}`;
   await Promise.all(documents.map((doc) => rm(documentDir(doc.id), { recursive: true, force: true })));
+  await Promise.all(notes.map((note) => rm(note.audioFile, { force: true })));
   await removeProjectFiles(c.req.param("id"));
   return c.body(null, 204);
 });

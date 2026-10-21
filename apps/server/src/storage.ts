@@ -10,4 +10,5 @@ export const pageImage = (documentId: string, pageNo: number) => `${pageImagePre
 export const projectDir = (projectId: string) => path.join(config.dataDir, "projects", projectId);
 export const photoFile = (projectId: string, photoId: string, size: "full" | "thumb") =>
   path.join(projectDir(projectId), "photos", size === "thumb" ? `${photoId}-thumb.jpg` : `${photoId}.jpg`);
-export const pageTilesDir =(documentId: string, pageNo: number) => `${pageImagePrefix(documentId, pageNo)}-tiles`;
+export const pageTilesDir = (documentId: string, pageNo: number) => `${pageImagePrefix(documentId, pageNo)}-tiles`;
+export const diaryAudio = (entryId: string, extension: string) => path.join(config.dataDir, "diary", `${entryId}.${extension}`);
