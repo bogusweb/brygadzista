@@ -19,13 +19,11 @@ RUN pnpm --filter @brygadzista/dashboard build \
  && mkdir -p /out/dashboard && cp -r apps/dashboard/dist/. /out/dashboard/
 
 # Web export of the Expo app, served by the server under /app. A separate stage keeps
-# React Native and Metro out of the runtime image.
-FROM node:22-bookworm-slim AS mobile-web
-ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true EXPO_NO_TELEMETRY=1
-RUN corepack enable
-WORKDIR /repo
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps ./apps
+# React Native and Metro out of the runtime image. It starts from the build stage on purpose:
+# BuildKit runs independent stages at once, and two pnpm installs plus Metro in parallel ran
+# the 8 GB server out of memory (SIGKILL) while other projects' CI was running.
+FROM build AS mobile-web
+ENV EXPO_NO_TELEMETRY=1
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @brygadzista/mobile...
 RUN pnpm --filter @brygadzista/mobile export:web
