@@ -4,7 +4,9 @@ import type { CandidatePage, DiaryEntry } from "./diary-entry.js";
 import { agentLanguageModel, callModel } from "./llm.js";
 
 // The voice note goes to the chat model (Gemini hears audio), pinned to the EU and to zero data retention like every call.
-export const transcribeAudio = async (audio: Uint8Array, mediaType: string): Promise<string> => {
+const DIARY_CONTEXT = "To nagranie brygadzisty z budowy, podsumowanie dnia pracy.";
+
+export const transcribeAudio = async (audio: Uint8Array, mediaType: string, context = DIARY_CONTEXT): Promise<string> => {
   const { text } = await callModel("diary transcript", (abortSignal) =>
     generateText({
       model: agentLanguageModel(),
@@ -18,7 +20,7 @@ export const transcribeAudio = async (audio: Uint8Array, mediaType: string): Pro
             {
               type: "text",
               text:
-                "To nagranie brygadzisty z budowy, podsumowanie dnia pracy. Przepisz dokładnie, co mówi, po polsku, " +
+                `${context} Przepisz dokładnie, co mówi, po polsku, ` +
                 "z interpunkcją. Liczby zapisuj cyframi. Nie dodawaj komentarzy ani nagłówków. " +
                 "Jeśli nagranie jest ciche albo nie ma w nim mowy, zwróć pusty tekst.",
             },

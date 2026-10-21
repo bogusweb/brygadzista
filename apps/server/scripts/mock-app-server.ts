@@ -9,9 +9,11 @@ import { simulateReadableStream } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import PDFDocument from "pdfkit";
 import { z } from "zod";
 import { A2UI_CATALOG_ID } from "../src/a2ui-catalog.js";
 import { a2uiCatalogSchema } from "../src/a2ui-schema.js";
@@ -156,7 +158,7 @@ const SURFACE = (() => {
 const SURFACE_SUMMARY = "Zestawienie dla ocieplenia ścian poniżej: parametry, materiały, kolejność prac i warstwy.\n\nŹródło: str. 3 – Opis techniczny, str. 18 – Detal D-3";
 
 // Pins with photos (#70) live in memory: enough to try placing, syncing and finding photos without a database.
-type MockPhoto = { id: string; width: number; height: number; takenAt: string };
+type MockPhoto = { id: string; width: number; height: number; takenAt: string; stage: string };
 type MockPinFields = { pageNo: number; createdAt: string; updatedAt: string; [field: string]: unknown };
 type MockPin = MockPinFields & { id: string; photos: MockPhoto[] };
 const pins = new Map<string, MockPin>();
@@ -307,6 +309,8 @@ app.put("/api/projects/:id/pins/:pinId", async (c) => {
   const existing = pins.get(c.req.param("pinId"));
   if (existing && existing.updatedAt > body.updatedAt) return c.json(existing);
   const pin: MockPin = { kind: "photo", authorName: "Demo", ...body, id: c.req.param("pinId"), photos: existing?.photos ?? [] };
+  // Defects (#74) get a fixed "what the project says", the way the server adds it after looking the note up.
+  if (pin.kind === "defect" && pin.note) pin.spec = MOCK_SPEC;
   pins.set(pin.id, pin);
   return c.json(pin);
 });
@@ -318,7 +322,13 @@ app.delete("/api/projects/:id/pins/:pinId", (c) => {
 app.put("/api/projects/:id/pins/:pinId/photos/:photoId", async (c) => {
   const pin = pins.get(c.req.param("pinId"));
   if (!pin) return c.json({ error: "Nie ma takiej pinezki" }, 404);
-  const photo = { id: c.req.param("photoId"), width: 0, height: 0, takenAt: c.req.query("takenAt") ?? new Date().toISOString() };
+  const photo = {
+    id: c.req.param("photoId"),
+    width: 0,
+    height: 0,
+    takenAt: c.req.query("takenAt") ?? new Date().toISOString(),
+    stage: c.req.query("stage") ?? "before",
+  };
   if (!photoFiles.has(photo.id)) pin.photos.push(photo);
   photoFiles.set(photo.id, Buffer.from(await c.req.arrayBuffer()));
   return c.json(photo, 201);
@@ -333,6 +343,32 @@ app.get("/api/projects/:id/photos/:photoId/image", (c) => {
   if (!file) return c.json({ error: "Nie ma takiego zdjęcia" }, 404);
   c.header("Content-Type", "image/jpeg");
   return c.body(new Uint8Array(file));
+});
+const MOCK_SPEC = {
+  found: true,
+  statement: "Wg rys. A-02 wejście główne od strony północnej",
+  quote: "wejście główne od strony północnej",
+  source: { documentId: DOCUMENT_ID, pageNo: 12, title: "Rzut parteru" },
+};
+app.post("/api/projects/:id/transcribe", async (c) => {
+  await pause(800);
+  return c.json({ text: "Parapet okna w salonie osadzony za nisko, około 80 cm od podłogi." });
+});
+// The protocol (#74) as a plain list: the real layout with drawings and photos needs the server.
+app.get("/api/projects/:id/defects/protocol.pdf", async (c) => {
+  const doc = new PDFDocument({ size: "A4", margin: 40 });
+  const font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+  if (existsSync(font)) doc.font(font);
+  const chunks: Buffer[] = [];
+  doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+  const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
+  doc.fontSize(18).text("Protokół odbioru – lista usterek (demo)").moveDown();
+  const statuses = (c.req.query("status") ?? "").split(",").filter(Boolean);
+  const defects = [...pins.values()].filter((pin) => pin.kind === "defect" && (!statuses.length || statuses.includes(String(pin.status))));
+  defects.forEach((pin, index) => doc.fontSize(11).text(`${index + 1}. ${pin.room || "Bez pomieszczenia"} · ${pin.status} · ${pin.assignee || "-"}\n${pin.note}`).moveDown(0.5));
+  doc.end();
+  c.header("Content-Type", "application/pdf");
+  return c.body(new Uint8Array(await done));
 });
 // Daily log (#69): kept in memory, sorted by the same keyword stand-in as FAKE_AGENT=1 after a short delay.
 // A typed note with "awaria" fails once, to exercise the error and retry path.

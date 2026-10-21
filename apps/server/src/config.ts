@@ -47,6 +47,8 @@ export const config = {
   maxPages: Number(process.env.MAX_PAGES ?? 3000),
   // Site photos (#70): the upload limit, and the size they are stored at (long edge, px) next to a small thumbnail.
   maxPhotoBytes: Number(process.env.MAX_PHOTO_MB ?? 25) * 1024 * 1024,
+  // Fonts with Polish letters for the defect protocol PDF (#74); the image installs fonts-dejavu-core.
+  pdfFontDir: path.resolve(process.env.PDF_FONT_DIR ?? "/usr/share/fonts/truetype/dejavu"),
   photoMaxEdge: Number(process.env.PHOTO_MAX_EDGE ?? 2560),
   photoThumbEdge: 480,
   // Estimate shown before indexing starts. A page is one image embedding plus a few text embeddings;
