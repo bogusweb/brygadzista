@@ -45,6 +45,10 @@ export const config = {
   // Upload limits: the PDF is streamed to disk and cut off as soon as it passes the size limit.
   maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 1024) * 1024 * 1024,
   maxPages: Number(process.env.MAX_PAGES ?? 3000),
+  // Site photos (#70): the upload limit, and the size they are stored at (long edge, px) next to a small thumbnail.
+  maxPhotoBytes: Number(process.env.MAX_PHOTO_MB ?? 25) * 1024 * 1024,
+  photoMaxEdge: Number(process.env.PHOTO_MAX_EDGE ?? 2560),
+  photoThumbEdge: 480,
   // Estimate shown before indexing starts. A page is one image embedding plus a few text embeddings;
   // tune both from real runs.
   indexCostPerPageUsd: Number(process.env.INDEX_COST_PER_PAGE_USD ?? 0.002),

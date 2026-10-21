@@ -28,6 +28,13 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Brygadzista dołącza wybrane zdjęcia z budowy do miejsc na rysunkach projektu.",
+          "cameraPermission": "Brygadzista robi zdjęcia z budowy i przypina je do miejsc na rysunkach projektu."
+        }
+      ],
+      [
         "expo-audio",
         {
           "microphonePermission": "Brygadzista nagrywa podsumowanie dnia na budowie, żeby zrobić z niego wpis do dziennika."

@@ -175,8 +175,10 @@ diary.post("/api/projects/:id/diary", requireRole("app", "admin"), requireProjec
     const [row] = await sql<{ id: string }[]>`
       insert into diary_entries (project_id, client_id, entry_date, source, transcript, author_id, author_name)
       values (${projectId}, ${clientId}, ${date}, 'text', ${text}, ${user?.id ?? null}, ${author}) returning id`;
+    // Read the row before processing starts, so the response shows the entry as queued.
+    const created = publicEntry((await entryById(row!.id))!);
     void processDiaryEntry(row!.id);
-    return c.json(publicEntry((await entryById(row!.id))!), 201);
+    return c.json(created, 201);
   }
 
   const type = audioType(contentType);
@@ -196,8 +198,10 @@ diary.post("/api/projects/:id/diary", requireRole("app", "admin"), requireProjec
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, audio);
   await sql`update diary_entries set audio_file = ${file} where id = ${row!.id}`;
+  // Read the row before processing starts, so the response shows the entry as queued.
+  const created = publicEntry((await entryById(row!.id))!);
   void processDiaryEntry(row!.id);
-  return c.json(publicEntry((await entryById(row!.id))!), 201);
+  return c.json(created, 201);
 });
 
 // Corrections by hand: the date, the transcript or the sorted entry. A corrected entry is not overwritten by the model

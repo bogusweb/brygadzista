@@ -3,6 +3,7 @@ import { z } from "zod";
 import { sql } from "./db.js";
 import { inspectionImages } from "./drawing.js";
 import { agentLanguageModel, askAboutPage } from "./llm.js";
+import { photoImagePath, searchPins } from "./pins.js";
 import { searchPages } from "./search.js";
 
 const SYSTEM_PROMPT = `Jesteś Brygadzistą: asystentem wykonawcy na budowie. Odpowiadasz wyłącznie na podstawie projektu technicznego,
@@ -14,6 +15,9 @@ do którego masz dostęp przez narzędzia. Zasady:
 - Gdy wykonawcy przyda się zobaczyć rysunek, wywołaj show_page, żeby wyświetlić mu stronę.
 - search_project zwraca tylko strony, które naprawdę pasują. Gdy zwróci noMatch, spróbuj raz innymi słowami (np. nazwą materiału
   albo oznaczeniem z rysunku); jeśli dalej nic, nie zgaduj.
+- Zdjęcia z budowy są przypięte przez ekipę do miejsc na stronach projektu, z datą, pomieszczeniem i notatką. Gdy pytanie
+  dotyczy zdjęć („pokaż zdjęcia instalacji w łazience przed zakryciem”), użyj search_photos; aplikacja sama pokaże miniatury.
+  Napisz krótko, co znalazłeś (data, pomieszczenie, notatka, strona).
 - Jeśli projekt czegoś nie określa, powiedz to wprost i zaproponuj, kogo zapytać (projektant, kierownik budowy).
 - Pisz krótko, konkretnie, po polsku, jak do fachowca.`;
 
@@ -88,6 +92,28 @@ export const createProjectAgent = (projectId: string) =>
         execute: async ({ documentId, pageNo, question }) => {
           await assertPageInProject(projectId, documentId, pageNo);
           return { answer: await askAboutPage(await inspectionImages(documentId, pageNo), question) };
+        },
+      }),
+      defineTool({
+        name: "search_photos",
+        description:
+          "Szuka zdjęć z budowy przypiętych do stron projektu: po słowach z notatki, pomieszczenia i tytułu strony, po stronie i po dacie.",
+        parameters: z.object({
+          query: z.string().optional().describe("Słowa z notatki lub pomieszczenia, np. 'instalacja łazienka'; puste = wszystkie"),
+          documentId: z.string().optional(),
+          pageNo: z.number().int().min(1).optional().describe("Tylko zdjęcia z tej strony"),
+          from: z.string().optional().describe("Od daty (YYYY-MM-DD)"),
+          to: z.string().optional().describe("Do daty włącznie (YYYY-MM-DD)"),
+        }),
+        execute: async (search) => {
+          const found = await searchPins(projectId, { ...search, limit: 12 });
+          return {
+            photos: found.map(({ matched: _matched, updatedAt: _updatedAt, ...pin }) => ({
+              ...pin,
+              photos: pin.photos.map((photo) => ({ ...photo, thumbPath: photoImagePath(projectId, photo.id, "thumb") })),
+            })),
+            ...(found.length ? {} : { noMatch: true }),
+          };
         },
       }),
       defineTool({

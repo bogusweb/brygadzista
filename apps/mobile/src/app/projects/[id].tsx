@@ -7,6 +7,7 @@ import { ProjectChat } from "../../components/chat/ProjectChat";
 import { ProjectDiary } from "../../components/diary/ProjectDiary";
 import { ProjectPages } from "../../components/pages/ProjectPages";
 import { ProjectSearch } from "../../components/pages/ProjectSearch";
+import { PinsProvider } from "../../components/pins/PinsProvider";
 import { ProjectCopilot } from "../../components/ProjectCopilot";
 import { useSettings } from "../../lib/settings";
 import { colors, radius, spacing } from "../../lib/theme";
@@ -48,24 +49,26 @@ const ProjectScreen = () => {
   return (
     <ProjectCopilot projectId={id}>
       <Stack.Screen options={{ title: name ?? "Projekt" }} />
-      <PageViewerProvider>
-        <View style={styles.top}>
-          <TabBar tab={tab} onChange={setTab} />
-          {tab === "chat" ? <AgentStatus /> : null}
-        </View>
-        {/* All tabs stay mounted: switching to the drawings must not drop the conversation, a running download or a recording. */}
-        <View style={[styles.pane, tab !== "chat" && styles.hidden]}>
-          <ProjectChat projectId={id} />
-        </View>
-        <View style={[styles.pane, tab !== "pages" && styles.hidden]}>
-          <ProjectSearch projectId={id}>
-            <ProjectPages projectId={id} />
-          </ProjectSearch>
-        </View>
-        <View style={[styles.pane, tab !== "diary" && styles.hidden]}>
-          <ProjectDiary projectId={id} />
-        </View>
-      </PageViewerProvider>
+      <PinsProvider projectId={id}>
+        <PageViewerProvider>
+          <View style={styles.top}>
+            <TabBar tab={tab} onChange={setTab} />
+            {tab === "chat" ? <AgentStatus /> : null}
+          </View>
+          {/* All tabs stay mounted: switching to the drawings must not drop the conversation, a running download or a recording. */}
+          <View style={[styles.pane, tab !== "chat" && styles.hidden]}>
+            <ProjectChat projectId={id} />
+          </View>
+          <View style={[styles.pane, tab !== "pages" && styles.hidden]}>
+            <ProjectSearch projectId={id}>
+              <ProjectPages projectId={id} />
+            </ProjectSearch>
+          </View>
+          <View style={[styles.pane, tab !== "diary" && styles.hidden]}>
+            <ProjectDiary projectId={id} />
+          </View>
+        </PageViewerProvider>
+      </PinsProvider>
     </ProjectCopilot>
   );
 };

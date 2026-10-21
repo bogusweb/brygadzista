@@ -85,6 +85,38 @@ export const migrate = async () => {
     )`;
   // Exact codes and symbols of each page (#50); null = not extracted yet, filled in by backfillCodes.
   await sql`alter table pages add column if not exists codes text[]`;
+  // Pins on a page of the project (#70): a point in page-relative coordinates (0..1) with a note and photos.
+  // Ids come from the phone, so a sync retried after a dropped connection never creates a pin twice.
+  // `kind` leaves room for defects (#74), which are pins with a status and a person on top.
+  await sql`
+    create table if not exists pins (
+      id uuid primary key,
+      project_id uuid not null references projects(id) on delete cascade,
+      document_id uuid not null references documents(id) on delete cascade,
+      page_no int not null check (page_no >= 1),
+      x real not null check (x >= 0 and x <= 1),
+      y real not null check (y >= 0 and y <= 1),
+      kind text not null default 'photo',
+      note text not null default '',
+      room text not null default '',
+      created_by uuid references users(id) on delete set null,
+      author_name text not null default '',
+      created_at timestamptz not null,
+      updated_at timestamptz not null
+    )`;
+  await sql`
+    create table if not exists pin_photos (
+      id uuid primary key,
+      pin_id uuid not null references pins(id) on delete cascade,
+      project_id uuid not null references projects(id) on delete cascade,
+      width int not null,
+      height int not null,
+      bytes int not null,
+      taken_at timestamptz not null,
+      created_at timestamptz not null default now()
+    )`;
+  await sql`create index if not exists pins_page on pins (project_id, document_id, page_no)`;
+  await sql`create index if not exists pin_photos_pin on pin_photos (pin_id)`;
   // Daily site log (#69). client_id makes an upload from the phone's offline queue safe to repeat.
   await sql`
     create table if not exists diary_entries (

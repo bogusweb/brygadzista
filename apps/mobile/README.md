@@ -24,6 +24,19 @@ Renderer A2UI z CopilotKit jest tylko webowy, więc aplikacja ma własny, natywn
 - „Usuń zapisane strony z telefonu” zwalnia miejsce.
 - W przeglądarce obrazy stron nie są zapisywane (`offlineCache.web.ts`), zawsze idą z serwera. Listy i tekst do wyszukiwania trafiają do `localStorage`.
 
+## Zdjęcia przypięte do rzutu (#70)
+
+- Na pełnym ekranie strony przycisk „Przypnij zdjęcie”, potem stuknięcie w miejsce na rysunku (także po powiększeniu). Pinezka zapisuje punkt we współrzędnych strony (0..1), więc trzyma się rysunku przy każdym powiększeniu i na każdym ekranie.
+- Do pinezki: zdjęcia z aparatu albo galerii (`expo-image-picker`, w Expo Go bez development builda), pomieszczenie i notatka. Notatkę głosową dyktuje się mikrofonem klawiatury telefonu.
+- Stuknięcie pinezki pokazuje jej zdjęcia, datę, autora i notatkę; można dodać kolejne zdjęcia, poprawić opis, usunąć zdjęcie albo całą pinezkę. Na kafelkach w zakładce „Projekt” widać, ile pinezek ma strona.
+- Bez zasięgu wszystko działa: zmiany trafiają do kolejki na telefonie (`src/lib/pins.ts`, zapis jak inne dane offline), a zdjęcia są od razu kopiowane do katalogu dokumentów aplikacji. Kolejka wysyła się po każdej zmianie, po powrocie aplikacji na pierwszy plan i co minutę, dopóki coś czeka. Pinezka niewysłana jest półprzezroczysta i ma dopisek „Zapisane na telefonie”. Zmiana, której serwer nie przyjmie (np. za duże zdjęcie), wypada z kolejki zamiast blokować resztę.
+- Asystent znajduje zdjęcia (`search_photos`), np. „pokaż zdjęcia instalacji w łazience przed zakryciem”; w czacie pokazują się miniatury, a dotknięcie otwiera rysunek z tą pinezką.
+- W przeglądarce (/app) zdjęcie zrobione bez zasięgu czeka w pamięci karty: po odświeżeniu strony przepada (pinezka i notatka zostają).
+
+<img src="docs/screenshots/pins-1-new.png" width="240" alt="Nowa pinezka"> <img src="docs/screenshots/pins-2-details.png" width="240" alt="Pinezka ze zdjęciem"> <img src="docs/screenshots/pins-3-chat.png" width="240" alt="Zdjęcia znalezione przez asystenta">
+
+Test na serwerze testowym: pinezki i zdjęcia trzyma w pamięci, pytanie ze słowem „zdjęcia” wywołuje `search_photos`.
+
 ## Wyszukiwanie bez zasięgu (#54)
 
 - Pole „Szukaj w projekcie” nad stronami w zakładce „Projekt”. Szuka w tekście wszystkich stron projektu (`GET /api/projects/:id/search-index`: tytuł, słowa kluczowe, streszczenie, tekst PDF), który aplikacja pobiera i zapisuje przy każdym otwarciu projektu z zasięgiem.
@@ -92,6 +105,9 @@ src/components/chat/       czat na useAgent, statusy narzędzi, karta show_page,
 src/components/pages/      zakładka „Projekt”: siatka stron, pobieranie na telefon, obraz strony z telefonu lub serwera
 src/lib/offline*.ts        zapis stron i danych na telefonie (expo-file-system; wersja .web: dane w localStorage)
 src/lib/search.ts          wyszukiwanie w tekście projektu na telefonie, bez zasięgu
+src/lib/pins.ts            pinezki ze zdjęciami: kolejka offline, synchronizacja, przeliczanie stuknięcia na punkt strony
+src/lib/photoStore*.ts     kopie zdjęć na telefonie i wysyłanie (wersja .web: pamięć karty)
+src/components/pins/       stan pinezek projektu, panel pinezki, wybór zdjęć, wyniki search_photos w czacie
 ```
 
 ## CopilotKit a Expo Go
