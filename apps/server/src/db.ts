@@ -85,6 +85,66 @@ export const migrate = async () => {
     )`;
   // Exact codes and symbols of each page (#50); null = not extracted yet, filled in by backfillCodes.
   await sql`alter table pages add column if not exists codes text[]`;
+  // Stage checklists (#68): items filled from the project, ticked on site (also offline) and synced later.
+  await sql`
+    create table if not exists checklists (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references projects(id) on delete cascade,
+      stage text not null,
+      title text not null,
+      status text not null default 'generating',
+      error text,
+      created_by uuid references users(id) on delete set null,
+      created_by_name text not null default '',
+      created_at timestamptz not null default now(),
+      generated_at timestamptz
+    )`;
+  await sql`
+    create table if not exists checklist_items (
+      id uuid primary key default gen_random_uuid(),
+      checklist_id uuid not null references checklists(id) on delete cascade,
+      position int not null,
+      label text not null,
+      ask text not null,
+      value text,
+      status text not null default 'to_confirm' check (status in ('found', 'to_confirm')),
+      document_id uuid references documents(id) on delete set null,
+      page_no int,
+      quote text,
+      checked boolean not null default false,
+      note text,
+      checked_at timestamptz,
+      checked_by uuid references users(id) on delete set null,
+      checked_by_name text,
+      unique (checklist_id, position)
+    )`;
+  // Every change sent from the app, keyed by an id the app generates, so a batch resent after a lost response
+  // is applied once.
+  await sql`
+    create table if not exists checklist_events (
+      id uuid primary key,
+      checklist_id uuid not null references checklists(id) on delete cascade,
+      item_id uuid references checklist_items(id) on delete cascade,
+      type text not null check (type in ('check', 'complete')),
+      checked boolean,
+      note text,
+      happened_at timestamptz not null,
+      user_id uuid references users(id) on delete set null,
+      user_name text not null,
+      received_at timestamptz not null default now()
+    )`;
+  // A finished checklist: who closed it, when, and the state of every item at that moment.
+  await sql`
+    create table if not exists checklist_results (
+      id uuid primary key,
+      checklist_id uuid not null references checklists(id) on delete cascade,
+      completed_at timestamptz not null,
+      completed_by uuid references users(id) on delete set null,
+      completed_by_name text not null,
+      items jsonb not null
+    )`;
+  await sql`create index if not exists checklists_project on checklists (project_id)`;
+  await sql`create index if not exists checklist_items_checklist on checklist_items (checklist_id)`;
   await sql`alter table pages add column if not exists codes_version int`;
   await sql`create index if not exists sessions_user on sessions (user_id)`;
   await sql`create index if not exists project_members_user on project_members (user_id)`;

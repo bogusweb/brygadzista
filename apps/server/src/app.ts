@@ -20,6 +20,7 @@ import {
   type AuthEnv,
   type Role,
 } from "./auth.js";
+import { checklists } from "./checklists.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
@@ -51,6 +52,7 @@ app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-t
 // `llm` tells an operator at a glance whether the OpenRouter key reached the server.
 app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterApiKey) }));
 app.route("/", users);
+app.route("/", checklists);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun));
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));
