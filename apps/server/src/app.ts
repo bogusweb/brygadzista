@@ -24,6 +24,7 @@ import { checklists } from "./checklists.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
+import { defects } from "./defects.js";
 import { diary } from "./diary.js";
 import { FakeProjectAgent } from "./fake-agent.js";
 import { pdfPageCount } from "./pdf.js";
@@ -55,6 +56,7 @@ app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-t
 app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterApiKey) }));
 app.route("/", users);
 app.route("/", pins);
+app.route("/", defects);
 app.route("/", diary);
 app.route("/", checklists);
 

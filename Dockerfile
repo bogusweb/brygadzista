@@ -32,7 +32,7 @@ RUN pnpm --filter @brygadzista/mobile export:web
 
 FROM node:22-bookworm-slim AS runtime
 RUN apt-get update \
- && apt-get install -y --no-install-recommends poppler-utils \
+ && apt-get install -y --no-install-recommends poppler-utils fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production \
     PORT=3000 \

@@ -18,7 +18,7 @@ export const usePhotoSource = (projectId: string, photo: ViewPhoto, size: PhotoS
   return local ? { uri: local } : serverImageSource(connection, photoImagePath(projectId, photo.id, size));
 };
 
-const PhotoThumb = ({ projectId, photo, onPress }: { projectId: string; photo: ViewPhoto; onPress: () => void }) => {
+export const PhotoThumb = ({ projectId, photo, onPress }: { projectId: string; photo: ViewPhoto; onPress: () => void }) => {
   const source = usePhotoSource(projectId, photo, "thumb");
   const [failed, setFailed] = useState(false);
   return (
@@ -38,7 +38,7 @@ const PhotoThumb = ({ projectId, photo, onPress }: { projectId: string; photo: V
   );
 };
 
-const PickerButtons = ({ onPicked }: { onPicked: (photos: PickedPhoto[]) => void }) => {
+export const PickerButtons = ({ onPicked, labels = ["Zrób zdjęcie", "Z galerii"] }: { onPicked: (photos: PickedPhoto[]) => void; labels?: [string, string] }) => {
   const [busy, setBusy] = useState(false);
   const pick = (picker: () => Promise<PickedPhoto[]>) => async () => {
     setBusy(true);
@@ -52,10 +52,10 @@ const PickerButtons = ({ onPicked }: { onPicked: (photos: PickedPhoto[]) => void
   return (
     <View style={styles.row}>
       <View style={styles.flex}>
-        <Button label="Zrób zdjęcie" onPress={pick(takePhoto)} loading={busy} />
+        <Button label={labels[0]} onPress={pick(takePhoto)} loading={busy} />
       </View>
       <View style={styles.flex}>
-        <Button label="Z galerii" variant="secondary" onPress={pick(choosePhotos)} disabled={busy} />
+        <Button label={labels[1]} variant="secondary" onPress={pick(choosePhotos)} disabled={busy} />
       </View>
     </View>
   );

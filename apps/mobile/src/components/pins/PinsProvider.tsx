@@ -5,7 +5,7 @@ import { deletePhoto, deletePin, fetchPins, putPin } from "../../lib/api";
 import { readJson, writeJson } from "../../lib/offlineCache";
 import { forgetPhoto, keepPhoto, uploadPhoto } from "../../lib/photoStore";
 import { emptyPinState, enqueue, randomId, syncPins, visiblePins } from "../../lib/pins";
-import type { PinFields, PinOp, PinState, PinTransport, ViewPin } from "../../lib/pins";
+import type { PhotoStage, PinFields, PinOp, PinState, PinTransport, ViewPin } from "../../lib/pins";
 import { useConnection } from "../../lib/settings";
 
 export type PickedPhoto = { uri: string; takenAt: string };
@@ -20,7 +20,7 @@ type PinsValue = {
   rejected: string[];
   savePin: (pin: PinFields) => void;
   removePin: (pinId: string) => void;
-  addPhotos: (pinId: string, photos: PickedPhoto[]) => void;
+  addPhotos: (pinId: string, photos: PickedPhoto[], stage?: PhotoStage) => void;
   removePhoto: (pinId: string, photoId: string) => void;
   clearRejected: () => void;
   sync: () => void;
@@ -142,10 +142,10 @@ export const PinsProvider = ({ projectId, children }: { projectId: string; child
       rejected: state.rejected,
       savePin: (pin) => queue({ type: "upsert", pin }),
       removePin: (pinId) => queue({ type: "delete", pinId }),
-      addPhotos: (pinId, photos) =>
+      addPhotos: (pinId, photos, stage = "before") =>
         photos.forEach(({ uri, takenAt }) => {
           const id = randomId();
-          queue({ type: "photo", photo: { id, pinId, takenAt, uri: keepPhoto(connection, id, uri) } });
+          queue({ type: "photo", photo: { id, pinId, takenAt, stage, uri: keepPhoto(connection, id, uri) } });
         }),
       removePhoto: (pinId, photoId) => {
         queue({ type: "deletePhoto", pinId, photoId });

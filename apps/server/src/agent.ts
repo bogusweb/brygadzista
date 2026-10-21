@@ -3,7 +3,8 @@ import { z } from "zod";
 import { sql } from "./db.js";
 import { inspectionImages } from "./drawing.js";
 import { agentLanguageModel, askAboutPage } from "./llm.js";
-import { photoImagePath, searchPins } from "./pins.js";
+import { listDefects } from "./defects.js";
+import { DEFECT_STATUSES, photoImagePath, searchPins } from "./pins.js";
 import { searchPages } from "./search.js";
 
 const SYSTEM_PROMPT = `Jesteś Brygadzistą: asystentem wykonawcy na budowie. Odpowiadasz wyłącznie na podstawie projektu technicznego,
@@ -18,6 +19,9 @@ do którego masz dostęp przez narzędzia. Zasady:
 - Zdjęcia z budowy są przypięte przez ekipę do miejsc na stronach projektu, z datą, pomieszczeniem i notatką. Gdy pytanie
   dotyczy zdjęć („pokaż zdjęcia instalacji w łazience przed zakryciem”), użyj search_photos; aplikacja sama pokaże miniatury.
   Napisz krótko, co znalazłeś (data, pomieszczenie, notatka, strona).
+- Usterki i poprawki to pinezki na rzutach ze statusem (otwarta, do sprawdzenia, zamknięta), osobą odpowiedzialną i terminem.
+  Na pytania w rodzaju „co jeszcze otwarte u Kowalskiego?” albo „usterki na parterze” użyj search_defects i wypisz je krótko
+  (pomieszczenie, opis, osoba, termin, strona). Protokół odbioru w PDF wykonawca pobiera w zakładce Usterki.
 - Jeśli projekt czegoś nie określa, powiedz to wprost i zaproponuj, kogo zapytać (projektant, kierownik budowy).
 - Pisz krótko, konkretnie, po polsku, jak do fachowca.`;
 
@@ -112,6 +116,29 @@ export const createProjectAgent = (projectId: string) =>
               ...pin,
               photos: pin.photos.map((photo) => ({ ...photo, thumbPath: photoImagePath(projectId, photo.id, "thumb") })),
             })),
+            ...(found.length ? {} : { noMatch: true }),
+          };
+        },
+      }),
+      defineTool({
+        name: "search_defects",
+        description: "Lista usterek i poprawek na rzutach: po statusie, osobie odpowiedzialnej, stronie (kondygnacji) i słowach z opisu.",
+        parameters: z.object({
+          status: z.array(z.enum(DEFECT_STATUSES)).optional().describe("open = otwarta, to_check = do sprawdzenia, closed = zamknięta"),
+          assignee: z.string().optional().describe("Osoba odpowiedzialna, dokładnie jak w usterkach"),
+          documentId: z.string().optional(),
+          pageNo: z.number().int().min(1).optional().describe("Tylko usterki z tej strony (np. rzutu kondygnacji)"),
+          query: z.string().optional().describe("Słowa z opisu, pomieszczenia albo tytułu strony"),
+        }),
+        execute: async ({ status, ...filter }) => {
+          const found = await listDefects(projectId, { ...filter, statuses: status });
+          return {
+            defects: found.slice(0, 30).map(({ photos, x: _x, y: _y, kind: _kind, updatedAt: _updatedAt, ...defect }) => ({
+              ...defect,
+              photosBefore: photos.filter((photo) => photo.stage === "before").length,
+              photosAfter: photos.filter((photo) => photo.stage === "after").length,
+            })),
+            total: found.length,
             ...(found.length ? {} : { noMatch: true }),
           };
         },

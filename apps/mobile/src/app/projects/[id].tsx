@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { AgentStatus } from "../../components/AgentStatus";
 import { PageViewerProvider } from "../../components/chat/PageViewer";
 import { ProjectChat } from "../../components/chat/ProjectChat";
+import { ProjectDefects } from "../../components/defects/ProjectDefects";
 import { ProjectDiary } from "../../components/diary/ProjectDiary";
 import { ProjectPages } from "../../components/pages/ProjectPages";
 import { ProjectSearch } from "../../components/pages/ProjectSearch";
@@ -12,11 +13,12 @@ import { ProjectCopilot } from "../../components/ProjectCopilot";
 import { useSettings } from "../../lib/settings";
 import { colors, radius, spacing } from "../../lib/theme";
 
-type Tab = "chat" | "pages" | "diary";
+type Tab = "chat" | "pages" | "defects" | "diary";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "chat", label: "Czat" },
   { id: "pages", label: "Projekt" },
+  { id: "defects", label: "Usterki" },
   { id: "diary", label: "Dziennik" },
 ];
 
@@ -63,6 +65,9 @@ const ProjectScreen = () => {
             <ProjectSearch projectId={id}>
               <ProjectPages projectId={id} />
             </ProjectSearch>
+          </View>
+          <View style={[styles.pane, tab !== "defects" && styles.hidden]}>
+            <ProjectDefects projectId={id} />
           </View>
           <View style={[styles.pane, tab !== "diary" && styles.hidden]}>
             <ProjectDiary projectId={id} />

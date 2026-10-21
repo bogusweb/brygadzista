@@ -1,9 +1,23 @@
-// Photos pinned to a point on a project page (#70), kept on the phone and synced when there is signal.
+// Photos (#70) and defects (#74) pinned to a point on a project page, kept on the phone and synced when there is signal.
 // Pure logic only (merging the outbox, sync, coordinates), so it is tested without React Native.
 
-export type PinKind = "photo";
+export type PinKind = "photo" | "defect";
 
-export type PinPhoto = { id: string; width: number; height: number; takenAt: string };
+// A defect is open, then fixed and waiting for a check, then closed.
+export type DefectStatus = "open" | "to_check" | "closed";
+
+// Defect photos from before and after the fix; photo pins only have "before".
+export type PhotoStage = "before" | "after";
+
+export type PinPhoto = { id: string; width: number; height: number; takenAt: string; stage: PhotoStage };
+
+// What the project says about a defect's spot, written by the server after it syncs; never sent by the phone.
+export type DefectSpec = {
+  found: boolean;
+  statement: string;
+  quote: string;
+  source: { documentId: string; pageNo: number; title: string | null } | null;
+};
 
 export type Pin = {
   id: string;
@@ -15,16 +29,23 @@ export type Pin = {
   kind: PinKind;
   note: string;
   room: string;
+  // Defects only: null and empty on photo pins.
+  status: DefectStatus | null;
+  assignee: string;
+  dueDate: string | null;
+  spec?: DefectSpec | null;
+  // From the server, and set by the phone for a pin it creates, so a list can name the floor without signal.
+  pageTitle?: string | null;
   authorName: string;
   createdAt: string;
   updatedAt: string;
   photos: PinPhoto[];
 };
 
-export type PinFields = Omit<Pin, "photos" | "authorName">;
+export type PinFields = Omit<Pin, "photos" | "authorName" | "spec">;
 
 // A photo taken on site and not uploaded yet; `uri` is its copy on the phone.
-export type PendingPhoto = { id: string; pinId: string; takenAt: string; uri: string };
+export type PendingPhoto = { id: string; pinId: string; takenAt: string; uri: string; stage: PhotoStage };
 
 export type PinOp =
   | { type: "upsert"; pin: PinFields }
@@ -54,8 +75,8 @@ export const visiblePins = ({ server, outbox }: PinState): ViewPin[] => {
     } else if (op.type === "delete") {
       pins.delete(op.pinId);
     } else if (op.type === "photo" && pin && !pin.photos.some((photo) => photo.id === op.photo.id)) {
-      const { id, takenAt, uri } = op.photo;
-      pin.photos = [...pin.photos, { id, takenAt, width: 0, height: 0, localUri: uri, pending: true }];
+      const { id, takenAt, uri, stage = "before" } = op.photo;
+      pin.photos = [...pin.photos, { id, takenAt, stage, width: 0, height: 0, localUri: uri, pending: true }];
       pin.pending = true;
     } else if (op.type === "deletePhoto" && pin) {
       pin.photos = pin.photos.filter((photo) => photo.id !== op.photoId);

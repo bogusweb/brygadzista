@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 import type { ImageSourcePropType } from "react-native";
-import type { Pin, PinFields } from "./pins";
+import type { PendingPhoto, Pin, PinFields } from "./pins";
 import type { SearchIndex } from "./search";
 import type { Connection } from "./settings";
 
@@ -101,8 +101,35 @@ export const deletePin = (connection: Connection, projectId: string, pinId: stri
 export const deletePhoto = (connection: Connection, projectId: string, photoId: string) =>
   request(connection, `${projectPath(projectId)}/photos/${photoId}`, { method: "DELETE" });
 
-export const photoUploadUrl = ({ serverUrl }: Connection, projectId: string, pinId: string, photoId: string, takenAt: string) =>
-  `${serverUrl}${projectPath(projectId)}/pins/${pinId}/photos/${photoId}?takenAt=${encodeURIComponent(takenAt)}`;
+// Photos queued before defects existed (#74) carry no stage; they were all taken "before".
+export const photoUploadUrl = ({ serverUrl }: Connection, projectId: string, { pinId, id, takenAt, stage }: PendingPhoto) =>
+  `${serverUrl}${projectPath(projectId)}/pins/${pinId}/photos/${id}?takenAt=${encodeURIComponent(takenAt)}&stage=${stage ?? "before"}`;
+
+// Speech to text for a defect reported by voice; needs signal, the typed description works without it.
+export const transcribe = async (connection: Connection, projectId: string, audio: Blob | Uint8Array, mediaType: string) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const response = await fetch(`${connection.serverUrl}${projectPath(projectId)}/transcribe`, {
+      method: "POST",
+      headers: { ...authHeaders(connection), "content-type": mediaType },
+      body: audio as BodyInit,
+      signal: controller.signal,
+    });
+    const body = (await response.json().catch(() => null)) as { text?: string; error?: string } | null;
+    if (!response.ok) throw new ApiError(body?.error ?? messageForStatus(response.status), response.status);
+    return body?.text ?? "";
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError("Bez zasięgu nie przepiszę nagrania. Wpisz opis albo podyktuj go klawiaturą.");
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+// Opened in the browser, which cannot send the header, so the token goes in the query like for images.
+export const protocolUrl = (connection: Connection, projectId: string, query: string) =>
+  `${connection.serverUrl}${projectPath(projectId)}/defects/protocol.pdf?${query}${query ? "&" : ""}token=${encodeURIComponent(connection.token)}`;
 
 export type PhotoSize = "full" | "thumb";
 

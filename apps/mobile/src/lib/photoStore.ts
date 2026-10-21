@@ -33,7 +33,7 @@ export const uploadPhoto = async (connection: Connection, projectId: string, pho
   if (!file.exists) throw new ApiError("Nie ma już pliku zdjęcia na telefonie", 410);
   let result;
   try {
-    result = await file.upload(photoUploadUrl(connection, projectId, photo.pinId, photo.id, photo.takenAt), {
+    result = await file.upload(photoUploadUrl(connection, projectId, photo), {
       httpMethod: "PUT",
       headers: authHeaders(connection),
       mimeType: "image/jpeg",

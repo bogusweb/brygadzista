@@ -119,7 +119,7 @@ export const resumeDiaryEntries = async () => {
 };
 
 // Reads the request body up to `maxBytes`; null when it is longer.
-const readLimited = async (body: ReadableStream<Uint8Array>, maxBytes: number) => {
+export const readLimited = async (body: ReadableStream<Uint8Array>, maxBytes: number) => {
   const chunks: Uint8Array[] = [];
   let size = 0;
   for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {

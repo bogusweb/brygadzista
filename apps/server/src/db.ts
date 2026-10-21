@@ -117,6 +117,15 @@ export const migrate = async () => {
     )`;
   await sql`create index if not exists pins_page on pins (project_id, document_id, page_no)`;
   await sql`create index if not exists pin_photos_pin on pin_photos (pin_id)`;
+  // Defects (#74) are pins of kind 'defect' with a status, a person and a deadline. `spec` is what the project says about
+  // the spot, written by the server from the note (never sent by the phone), and `spec_note` the note it was written for.
+  await sql`alter table pins add column if not exists status text check (status in ('open', 'to_check', 'closed'))`;
+  await sql`alter table pins add column if not exists assignee text not null default ''`;
+  await sql`alter table pins add column if not exists due_date date`;
+  await sql`alter table pins add column if not exists spec jsonb`;
+  await sql`alter table pins add column if not exists spec_note text`;
+  // Photos of a defect from before and after the fix; photo pins only use 'before'.
+  await sql`alter table pin_photos add column if not exists stage text not null default 'before' check (stage in ('before', 'after'))`;
   // Daily site log (#69). client_id makes an upload from the phone's offline queue safe to repeat.
   await sql`
     create table if not exists diary_entries (

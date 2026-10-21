@@ -15,7 +15,7 @@ export const uploadPhoto = async (connection: Connection, projectId: string, pho
   if (!blob) throw new ApiError("Zdjęcie przepadło po odświeżeniu strony", 410);
   let response: Response;
   try {
-    response = await fetch(photoUploadUrl(connection, projectId, photo.pinId, photo.id, photo.takenAt), {
+    response = await fetch(photoUploadUrl(connection, projectId, photo), {
       method: "PUT",
       headers: { ...authHeaders(connection), "content-type": blob.type || "image/jpeg" },
       body: blob,

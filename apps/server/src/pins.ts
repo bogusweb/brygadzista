@@ -9,19 +9,36 @@ import { isUuid, requireProjectAccess, requireRole, requireRoleOrQueryToken, typ
 import { config } from "./config.js";
 import { sql } from "./db.js";
 import { queryTerms } from "./search.js";
+import { describeDefect } from "./defect-spec.js";
 import { photoFile, projectDir } from "./storage.js";
 
 // The server runs in 768 MB next to indexing, so photos are processed one at a time without libvips' cache.
 sharp.cache(false);
 sharp.concurrency(1);
 
-export const PIN_KINDS = ["photo"] as const;
+export const PIN_KINDS = ["photo", "defect"] as const;
 export type PinKind = (typeof PIN_KINDS)[number];
+
+// A defect is open, then fixed and waiting for a check, then closed (#74).
+export const DEFECT_STATUSES = ["open", "to_check", "closed"] as const;
+export type DefectStatus = (typeof DEFECT_STATUSES)[number];
+
+export const PHOTO_STAGES = ["before", "after"] as const;
+export type PhotoStage = (typeof PHOTO_STAGES)[number];
 
 const MAX_NOTE_CHARS = 4000;
 const MAX_ROOM_CHARS = 200;
+const MAX_ASSIGNEE_CHARS = 200;
 
-export type PinPhoto = { id: string; width: number; height: number; takenAt: Date };
+export type PinPhoto = { id: string; width: number; height: number; takenAt: Date; stage: PhotoStage };
+
+// What the project says about a defect's spot, with a quote from the page it comes from.
+export type DefectSpec = {
+  found: boolean;
+  statement: string;
+  quote: string;
+  source: { documentId: string; pageNo: number; title: string | null } | null;
+};
 
 export type Pin = {
   id: string;
@@ -32,20 +49,33 @@ export type Pin = {
   kind: PinKind;
   note: string;
   room: string;
+  status: DefectStatus | null;
+  assignee: string;
+  dueDate: string | null;
+  spec: DefectSpec | null;
   authorName: string;
   createdAt: Date;
   updatedAt: Date;
   photos: PinPhoto[];
 };
 
-const pinRows = (where: ReturnType<typeof sql>, limit = 10_000) => sql<Pin[]>`
-  select p.id, p.document_id as "documentId", p.page_no as "pageNo", p.x, p.y, p.kind, p.note, p.room,
-    p.author_name as "authorName", p.created_at as "createdAt", p.updated_at as "updatedAt",
-    coalesce((select json_agg(json_build_object('id', ph.id, 'width', ph.width, 'height', ph.height, 'takenAt', ph.taken_at)
-      order by ph.taken_at) from pin_photos ph where ph.pin_id = p.id), '[]') as photos
-  from pins p where ${where} order by p.created_at desc limit ${limit}`;
+export const pinColumns = sql`
+  p.id, p.document_id as "documentId", p.page_no as "pageNo", p.x, p.y, p.kind, p.note, p.room, p.status, p.assignee,
+  p.due_date::text as "dueDate", p.spec, p.author_name as "authorName", p.created_at as "createdAt", p.updated_at as "updatedAt"`;
+
+export const pinPhotosJson = sql`
+  coalesce((select json_agg(json_build_object('id', ph.id, 'width', ph.width, 'height', ph.height, 'takenAt', ph.taken_at, 'stage', ph.stage)
+    order by ph.taken_at) from pin_photos ph where ph.pin_id = p.id), '[]')`;
+
+// The page title comes along, so the phone can name the floor of a defect without signal.
+const pinRows = (where: ReturnType<typeof sql>, limit = 10_000) => sql<(Pin & { pageTitle: string | null })[]>`
+  select ${pinColumns}, pg.title as "pageTitle", ${pinPhotosJson} as photos
+  from pins p left join pages pg on pg.document_id = p.document_id and pg.page_no = p.page_no
+  where ${where} order by p.created_at desc limit ${limit}`;
 
 const isDate = (value: unknown): value is string => typeof value === "string" && !Number.isNaN(Date.parse(value));
+const isDay = (value: unknown): value is string =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
 const isUnit = (value: unknown): value is number => typeof value === "number" && value >= 0 && value <= 1;
 
 type PinInput = {
@@ -56,6 +86,9 @@ type PinInput = {
   kind: PinKind;
   note: string;
   room: string;
+  status: DefectStatus | null;
+  assignee: string;
+  dueDate: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -71,6 +104,14 @@ const parsePin = (body: Record<string, unknown>): PinInput | string => {
   if (typeof note !== "string" || note.length > MAX_NOTE_CHARS) return `Notatka może mieć najwyżej ${MAX_NOTE_CHARS} znaków`;
   if (typeof room !== "string" || room.length > MAX_ROOM_CHARS) return "Za długa nazwa pomieszczenia";
   if (!isDate(body.createdAt) || !isDate(body.updatedAt)) return "Brak daty";
+  // Status, person and deadline belong to defects only; a photo pin keeps none of them.
+  const defect = kind === "defect";
+  const status = defect ? (body.status ?? "open") : null;
+  if (defect && !DEFECT_STATUSES.includes(status as DefectStatus)) return "Nieznany status usterki";
+  const assignee = defect ? (body.assignee ?? "") : "";
+  if (typeof assignee !== "string" || assignee.length > MAX_ASSIGNEE_CHARS) return "Za długie nazwisko osoby odpowiedzialnej";
+  const dueDate = defect ? (body.dueDate ?? null) : null;
+  if (dueDate !== null && !isDay(dueDate)) return "Zły termin (RRRR-MM-DD)";
   return {
     documentId: body.documentId,
     pageNo: body.pageNo as number,
@@ -79,6 +120,9 @@ const parsePin = (body: Record<string, unknown>): PinInput | string => {
     kind: kind as PinKind,
     note: note.trim(),
     room: room.trim(),
+    status: status as DefectStatus | null,
+    assignee: assignee.trim(),
+    dueDate,
     createdAt: body.createdAt,
     updatedAt: body.updatedAt,
   };
@@ -147,12 +191,17 @@ pins.put("/api/projects/:id/pins/:pinId", requireRole("app", "admin"), requirePr
 
   const { user } = c.get("principal");
   await sql`
-    insert into pins (id, project_id, document_id, page_no, x, y, kind, note, room, created_by, author_name, created_at, updated_at)
+    insert into pins (id, project_id, document_id, page_no, x, y, kind, note, room, status, assignee, due_date, created_by, author_name,
+      created_at, updated_at)
     values (${pinId}, ${projectId}, ${input.documentId}, ${input.pageNo}, ${input.x}, ${input.y}, ${input.kind}, ${input.note},
-      ${input.room}, ${user?.id ?? null}, ${user?.name || user?.email || ""}, ${input.createdAt}, ${input.updatedAt})
+      ${input.room}, ${input.status}, ${input.assignee}, ${input.dueDate}, ${user?.id ?? null}, ${user?.name || user?.email || ""},
+      ${input.createdAt}, ${input.updatedAt})
     on conflict (id) do update set document_id = excluded.document_id, page_no = excluded.page_no, x = excluded.x, y = excluded.y,
-      kind = excluded.kind, note = excluded.note, room = excluded.room, updated_at = excluded.updated_at
+      kind = excluded.kind, note = excluded.note, room = excluded.room, status = excluded.status, assignee = excluded.assignee,
+      due_date = excluded.due_date, updated_at = excluded.updated_at
     where pins.updated_at <= excluded.updated_at`;
+  // A new or changed defect description is looked up in the project in the background; the phone sees it on its next sync.
+  if (input.kind === "defect") void describeDefect(pinId);
   const [pin] = await pinRows(sql`p.id = ${pinId}`);
   return c.json(pin);
 });
@@ -183,8 +232,10 @@ pins.put(
     if (!(await projectPin(projectId, pinId))) return c.json({ error: "Nie ma takiej pinezki" }, 404);
     const takenAt = c.req.query("takenAt") ?? new Date().toISOString();
     if (!isDate(takenAt)) return c.json({ error: "Zła data zdjęcia" }, 400);
+    const stage = c.req.query("stage") ?? "before";
+    if (!PHOTO_STAGES.includes(stage as PhotoStage)) return c.json({ error: "Zły etap zdjęcia" }, 400);
     const [existing] = await sql<PinPhoto[]>`
-      select id, width, height, taken_at as "takenAt" from pin_photos where id = ${photoId} and pin_id = ${pinId}`;
+      select id, width, height, taken_at as "takenAt", stage from pin_photos where id = ${photoId} and pin_id = ${pinId}`;
     if (existing) return c.json(existing);
 
     const body = Buffer.from(await c.req.arrayBuffer());
@@ -193,10 +244,10 @@ pins.put(
     await writeAtomically(photoFile(projectId, photoId, "full"), processed.full);
     await writeAtomically(photoFile(projectId, photoId, "thumb"), processed.thumb);
     const [photo] = await sql<PinPhoto[]>`
-      insert into pin_photos (id, pin_id, project_id, width, height, bytes, taken_at)
-      values (${photoId}, ${pinId}, ${projectId}, ${processed.width}, ${processed.height}, ${processed.full.length}, ${takenAt})
+      insert into pin_photos (id, pin_id, project_id, width, height, bytes, taken_at, stage)
+      values (${photoId}, ${pinId}, ${projectId}, ${processed.width}, ${processed.height}, ${processed.full.length}, ${takenAt}, ${stage})
       on conflict (id) do nothing
-      returning id, width, height, taken_at as "takenAt"`;
+      returning id, width, height, taken_at as "takenAt", stage`;
     if (!photo) return c.json({ error: "To zdjęcie należy do innej pinezki" }, 409);
     return c.json(photo, 201);
   },
@@ -256,12 +307,9 @@ export const searchPins = async (projectId: string, { query = "", documentId, pa
   const matched = terms.length
     ? sql`(select count(*) from unnest(${terms}::text[]) term where ${text} @@ to_tsquery('simple', term))`
     : sql`0`;
-  return sql<(Omit<Pin, "photos"> & { pageTitle: string | null; photos: PinPhoto[]; matched: number })[]>`
+  return sql<(Pin & { pageTitle: string | null; matched: number })[]>`
     select * from (
-      select p.id, p.document_id as "documentId", p.page_no as "pageNo", pg.title as "pageTitle", p.x, p.y, p.kind, p.note,
-        p.room, p.author_name as "authorName", p.created_at as "createdAt", p.updated_at as "updatedAt", ${matched}::int as matched,
-        coalesce((select json_agg(json_build_object('id', ph.id, 'width', ph.width, 'height', ph.height, 'takenAt', ph.taken_at)
-          order by ph.taken_at) from pin_photos ph where ph.pin_id = p.id), '[]') as photos
+      select ${pinColumns}, pg.title as "pageTitle", ${matched}::int as matched, ${pinPhotosJson} as photos
       from pins p left join pages pg on pg.document_id = p.document_id and pg.page_no = p.page_no
       where ${where}
     ) found
