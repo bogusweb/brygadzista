@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { A2UI_CATALOG_ID } from "../src/a2ui-catalog.js";
 import { a2uiCatalogSchema } from "../src/a2ui-schema.js";
+import { audioType, fakeOrganize, fakeTranscript, type DiaryEntry } from "../src/diary-entry.js";
 import { STAGE_TEMPLATES, stageTemplate } from "../src/checklist-templates.js";
 
 const PORT = Number(process.env.PORT ?? 3100);
@@ -270,6 +271,88 @@ app.get("/api/documents/:id/pages/:pageNo/image", async (c) => {
   return c.body(await readFile(PAGE_IMAGE));
 });
 
+// Daily log (#69): kept in memory, sorted by the same keyword stand-in as FAKE_AGENT=1 after a short delay.
+// A typed note with "awaria" fails once, to exercise the error and retry path.
+type MockDiaryEntry = {
+  id: string;
+  clientId: string | null;
+  entryDate: string;
+  source: "audio" | "text";
+  transcript: string;
+  entry: DiaryEntry | null;
+  status: "queued" | "processing" | "ready" | "error";
+  error: string | null;
+  edited: boolean;
+  authorName: string;
+  createdAt: string;
+  updatedAt: string;
+};
+const diaryEntries: MockDiaryEntry[] = [];
+const diaryPages = PAGES.slice(1).map((page) => ({ documentId: DOCUMENT_ID, pageNo: page.pageNo, title: page.title }));
+const sortDiaryEntry = (entry: MockDiaryEntry) => {
+  entry.status = "processing";
+  setTimeout(() => {
+    if (!entry.transcript) entry.transcript = fakeTranscript();
+    if (/awaria/i.test(entry.transcript) && !failedOnce.has(entry.id)) {
+      failedOnce.add(entry.id);
+      Object.assign(entry, { status: "error", error: "Symulowana awaria modelu. Spróbuj ponownie." });
+      return;
+    }
+    Object.assign(entry, { entry: fakeOrganize(entry.transcript, diaryPages), status: "ready", error: null, edited: false, updatedAt: new Date().toISOString() });
+  }, 2500);
+};
+const findDiaryEntry = (id: string) => diaryEntries.find((entry) => entry.id === id);
+app.get("/api/projects/:id/diary", (c) =>
+  c.json([...diaryEntries].sort((a, b) => b.entryDate.localeCompare(a.entryDate) || b.createdAt.localeCompare(a.createdAt))),
+);
+app.post("/api/projects/:id/diary", async (c) => {
+  const isJson = c.req.header("content-type")?.startsWith("application/json") ?? false;
+  const fields = isJson ? await c.req.json<{ text?: string; date?: string; clientId?: string }>() : { date: c.req.query("date"), clientId: c.req.query("clientId") };
+  const existing = fields.clientId ? diaryEntries.find((entry) => entry.clientId === fields.clientId) : undefined;
+  if (existing) return c.json(existing, 200);
+  if (!isJson && !audioType(c.req.header("content-type"))) return c.json({ error: "Nieobsługiwany format nagrania. Nagraj w aplikacji albo wpisz tekst." }, 415);
+  if (isJson && !fields.text?.trim()) return c.json({ error: "Wpis jest pusty" }, 400);
+  if (!isJson) await c.req.arrayBuffer();
+  const now = new Date().toISOString();
+  const entry: MockDiaryEntry = {
+    id: `diary-${Date.now()}`,
+    clientId: fields.clientId ?? null,
+    entryDate: fields.date ?? now.slice(0, 10),
+    source: isJson ? "text" : "audio",
+    transcript: isJson ? fields.text!.trim() : "",
+    entry: null,
+    status: "queued",
+    error: null,
+    edited: false,
+    authorName: "demo",
+    createdAt: now,
+    updatedAt: now,
+  };
+  diaryEntries.push(entry);
+  sortDiaryEntry(entry);
+  return c.json(entry, 201);
+});
+app.patch("/api/diary/:id", async (c) => {
+  const entry = findDiaryEntry(c.req.param("id"));
+  if (!entry) return c.json({ error: "Nie ma takiego wpisu" }, 404);
+  const body = await c.req.json<{ entryDate?: string; transcript?: string; entry?: DiaryEntry }>();
+  if (body.entryDate) entry.entryDate = body.entryDate;
+  if (body.transcript !== undefined) entry.transcript = body.transcript;
+  if (body.entry) Object.assign(entry, { entry: body.entry, edited: true, status: "ready", error: null });
+  entry.updatedAt = new Date().toISOString();
+  return c.json(entry);
+});
+app.post("/api/diary/:id/retry", (c) => {
+  const entry = findDiaryEntry(c.req.param("id"));
+  if (!entry) return c.json({ error: "Nie ma takiego wpisu" }, 404);
+  sortDiaryEntry(entry);
+  return c.json(entry, 202);
+});
+app.delete("/api/diary/:id", (c) => {
+  const index = diaryEntries.findIndex((entry) => entry.id === c.req.param("id"));
+  if (index >= 0) diaryEntries.splice(index, 1);
+  return c.body(null, 204);
+});
 // Stage checklists (#68), kept in memory: the first item of each stage is found on page 3, the rest are "do potwierdzenia".
 type MockItem = { id: string; position: number; label: string; ask: string; value: string | null; status: string; checked: boolean;
   note: string | null; checkedAt: string | null; checkedBy: string | null; source: object | null };

@@ -26,7 +26,13 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Brygadzista nagrywa podsumowanie dnia na budowie, żeby zrobić z niego wpis do dziennika."
+        }
+      ]
     ],
     "scheme": "brygadzista"
   }

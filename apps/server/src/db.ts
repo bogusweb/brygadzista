@@ -85,6 +85,28 @@ export const migrate = async () => {
     )`;
   // Exact codes and symbols of each page (#50); null = not extracted yet, filled in by backfillCodes.
   await sql`alter table pages add column if not exists codes text[]`;
+  // Daily site log (#69). client_id makes an upload from the phone's offline queue safe to repeat.
+  await sql`
+    create table if not exists diary_entries (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references projects(id) on delete cascade,
+      client_id text,
+      entry_date date not null,
+      source text not null check (source in ('audio', 'text')),
+      audio_file text,
+      audio_type text,
+      transcript text not null default '',
+      entry jsonb,
+      status text not null default 'queued',
+      error text,
+      edited boolean not null default false,
+      author_id uuid references users(id) on delete set null,
+      author_name text not null default '',
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      unique (project_id, client_id)
+    )`;
+  await sql`create index if not exists diary_entries_project on diary_entries (project_id, entry_date desc)`;
   // Stage checklists (#68): items filled from the project, ticked on site (also offline) and synced later.
   await sql`
     create table if not exists checklists (
