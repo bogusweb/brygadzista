@@ -1,5 +1,5 @@
 import { access } from "node:fs/promises";
-import { extractCodes } from "./codes.js";
+import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
 import { pdfPageCount, pdfPageText, pdfRenderPage } from "./pdf.js";
@@ -78,6 +78,7 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
         keywords = ${[]},
         search_text = ${searchText},
         codes = ${extractCodes(`${title ?? ""}\n${raw}`)},
+        codes_version = ${CODES_VERSION},
         indexed = ${chunks !== null}
       where document_id = ${doc.id} and page_no = ${pageNo}
       returning id`;

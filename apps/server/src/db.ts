@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import { extractCodes } from "./codes.js";
+import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
 
 export const sql = postgres(config.databaseUrl, { max: 10, onnotice: () => {} });
@@ -85,6 +85,7 @@ export const migrate = async () => {
     )`;
   // Exact codes and symbols of each page (#50); null = not extracted yet, filled in by backfillCodes.
   await sql`alter table pages add column if not exists codes text[]`;
+  await sql`alter table pages add column if not exists codes_version int`;
   await sql`create index if not exists sessions_user on sessions (user_id)`;
   await sql`create index if not exists project_members_user on project_members (user_id)`;
   await sql`create index if not exists chunks_embedding on chunks using hnsw (embedding vector_cosine_ops)`;
@@ -97,14 +98,16 @@ export const migrate = async () => {
 
 const BACKFILL_BATCH = 200;
 
-// Pages indexed before codes existed get them from their stored text, without reindexing the document.
+// Pages indexed before codes existed, or with an older extraction, get them from their stored text without reindexing.
 const backfillCodes = async () => {
   for (;;) {
     const pages = await sql<{ id: string; title: string | null; raw_text: string }[]>`
-      select id, title, raw_text from pages where codes is null and search_text <> '' limit ${BACKFILL_BATCH}`;
+      select id, title, raw_text from pages where codes_version is distinct from ${CODES_VERSION} and search_text <> '' limit ${BACKFILL_BATCH}`;
     if (pages.length === 0) return;
     for (const page of pages) {
-      await sql`update pages set codes = ${extractCodes(`${page.title ?? ""}\n${page.raw_text}`)} where id = ${page.id}`;
+      await sql`
+        update pages set codes = ${extractCodes(`${page.title ?? ""}\n${page.raw_text}`)}, codes_version = ${CODES_VERSION}
+        where id = ${page.id}`;
     }
   }
 };
