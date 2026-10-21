@@ -41,6 +41,7 @@
     { "id": "pir120", "kind": "oznaczenie", "question": "PIR120", "pages": [5, 19, 20, 21, 22] },
     { "id": "detal-3", "kind": "oznaczenie", "question": "detal 3 docieplenie cokołu", "pages": [30] },
     { "id": "symbol-d1", "kind": "oznaczenie", "question": "drzwi D1", "pages": [17, 27] },
+    { "id": "szczegol-a04", "kind": "oznaczenie", "question": "rys. a04", "pages": [24, 25] },
 
     { "id": "skrot-mw", "kind": "skrót", "question": "grubość MW na ścianach", "pages": [4, 8] },
     { "id": "skrot-xps", "kind": "skrót", "question": "XPS na cokół", "pages": [4, 8, 30] },
