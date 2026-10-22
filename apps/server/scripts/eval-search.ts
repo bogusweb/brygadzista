@@ -7,7 +7,7 @@ import { copyFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { config } from "../src/config.js";
-import { migrate, sql } from "../src/db.js";
+import { defaultTenantId, migrate, sql } from "../src/db.js";
 import { processNextDocument } from "../src/ingest.js";
 import { codeSearch, lexicalSearch, searchPages, semanticSearch } from "../src/search.js";
 import { documentDir, documentPdf } from "../src/storage.js";
@@ -53,7 +53,7 @@ const indexPdf = async (file: string) => {
   if (existing?.status === "ready") return existing.id;
   if (existing) await sql`delete from projects where id = ${existing.id}`;
 
-  const [project] = await sql<{ id: string }[]>`insert into projects (name) values (${name}) returning id`;
+  const [project] = await sql<{ id: string }[]>`insert into projects (name, tenant_id) values (${name}, ${await defaultTenantId()}) returning id`;
   const [doc] = await sql<{ id: string }[]>`
     insert into documents (project_id, filename, status) values (${project!.id}, ${path.basename(file)}, 'queued') returning id`;
   await mkdir(documentDir(doc!.id), { recursive: true });

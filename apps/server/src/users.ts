@@ -13,7 +13,7 @@ import {
   type AuthEnv,
   type UserRole,
 } from "./auth.js";
-import { sql } from "./db.js";
+import { defaultTenantId, sql } from "./db.js";
 import { limiters, tooManyRequests } from "./rate-limit.js";
 
 const MIN_PASSWORD_LENGTH = 10;
@@ -97,11 +97,16 @@ users.post("/api/users", requireRole("admin"), async (c) => {
   const problem = passwordProblem(body.password);
   if (problem) return c.json({ error: problem }, 400);
   const name = typeof body.name === "string" ? body.name.trim() : "";
-  const [user] = await sql`
+  const [user] = await sql<{ id: string }[]>`
     insert into users (email, name, password_hash, role)
     values (${normalizeEmail(body.email)}, ${name}, ${await hashPassword(body.password as string)}, ${body.role})
     on conflict (email) do nothing
     returning id, email, name, role, false as disabled, created_at as "createdAt"`;
+  if (user) {
+    await sql`
+      insert into tenant_members (tenant_id, user_id, role)
+      values (${await defaultTenantId()}, ${user.id}, ${body.role === "owner" ? "owner" : "worker"})`;
+  }
   return user ? c.json(user, 201) : c.json({ error: "Konto z tym e-mailem już istnieje" }, 409);
 });
 

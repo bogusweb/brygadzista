@@ -216,7 +216,115 @@ export const migrate = async () => {
   await sql`create index if not exists pages_fts on pages using gin (to_tsvector('simple', search_text))`;
   await sql`create index if not exists pages_trgm on pages using gin (search_text gin_trgm_ops)`;
   await sql`create index if not exists pages_codes on pages using gin (codes)`;
+  await migrateTenants();
   await backfillCodes();
+};
+
+// Tables that hang off a project: their firm always comes from the project, through a composite key.
+const PROJECT_TABLES = ["project_members", "documents", "pages", "chunks", "pins", "pin_photos", "diary_entries", "checklists"];
+// Tables that hang off a checklist and take the firm from it.
+const CHECKLIST_TABLES = ["checklist_items", "checklist_events", "checklist_results"];
+
+export const STARTER_TENANT_NAME = "Brygadzista (Paweł)";
+
+const addConstraint = async (table: string, name: string, definition: string) => {
+  const [exists] = await sql`select 1 from pg_constraint where conname = ${name}`;
+  if (!exists) await sql.unsafe(`alter table ${table} add constraint ${name} ${definition}`);
+};
+
+// Firms (#87): every project and every row of its data belongs to one firm. Data from before firms existed goes
+// to a starter firm, owners become its owners and contractors its workers.
+const migrateTenants = async () => {
+  await sql`
+    create table if not exists tenants (
+      id uuid primary key default gen_random_uuid(),
+      name text not null,
+      created_at timestamptz not null default now(),
+      disabled_at timestamptz
+    )`;
+  await sql`
+    create table if not exists tenant_members (
+      tenant_id uuid not null references tenants(id) on delete cascade,
+      user_id uuid not null references users(id) on delete cascade,
+      role text not null check (role in ('owner', 'manager', 'worker')),
+      created_at timestamptz not null default now(),
+      primary key (tenant_id, user_id)
+    )`;
+  await sql`create index if not exists tenant_members_user on tenant_members (user_id)`;
+  // The firm a session is working in; a user can belong to several.
+  await sql`alter table sessions add column if not exists tenant_id uuid references tenants(id) on delete cascade`;
+  await sql`alter table projects add column if not exists tenant_id uuid references tenants(id) on delete cascade`;
+
+  const [orphans] = await sql`
+    select 1 where exists (select 1 from projects where tenant_id is null)
+      or exists (select 1 from users u where not exists (select 1 from tenant_members m where m.user_id = u.id))`;
+  if (orphans) {
+    const starterId = await starterTenantId();
+    await sql`update projects set tenant_id = ${starterId} where tenant_id is null`;
+    await sql`
+      insert into tenant_members (tenant_id, user_id, role)
+      select ${starterId}, u.id, case when u.role = 'contractor' then 'worker' else 'owner' end
+      from users u where not exists (select 1 from tenant_members m where m.user_id = u.id)`;
+  }
+  await sql`alter table projects alter column tenant_id set not null`;
+  await addConstraint("projects", "projects_id_tenant_key", "unique (id, tenant_id)");
+  await sql`create index if not exists projects_tenant on projects (tenant_id)`;
+
+  // A row written without a firm takes the firm of its project; a row with another firm's id is rejected by the key.
+  await sql`
+    create or replace function tenant_from_project() returns trigger language plpgsql as $$
+    begin
+      if new.tenant_id is null then
+        select tenant_id into new.tenant_id from projects where id = new.project_id;
+      end if;
+      return new;
+    end $$`;
+  await sql`
+    create or replace function tenant_from_checklist() returns trigger language plpgsql as $$
+    begin
+      if new.tenant_id is null then
+        select tenant_id into new.tenant_id from checklists where id = new.checklist_id;
+      end if;
+      return new;
+    end $$`;
+
+  for (const table of PROJECT_TABLES) {
+    await sql.unsafe(`alter table ${table} add column if not exists tenant_id uuid`);
+    await sql.unsafe(`update ${table} t set tenant_id = p.tenant_id from projects p where p.id = t.project_id and t.tenant_id is null`);
+    await sql.unsafe(`alter table ${table} alter column tenant_id set not null`);
+    await sql.unsafe(`create or replace trigger ${table}_tenant before insert on ${table} for each row execute function tenant_from_project()`);
+    await addConstraint(
+      table,
+      `${table}_project_tenant_fkey`,
+      "foreign key (project_id, tenant_id) references projects (id, tenant_id) on delete cascade on update cascade",
+    );
+    await sql.unsafe(`create index if not exists ${table}_tenant on ${table} (tenant_id)`);
+  }
+  await addConstraint("checklists", "checklists_id_tenant_key", "unique (id, tenant_id)");
+  for (const table of CHECKLIST_TABLES) {
+    await sql.unsafe(`alter table ${table} add column if not exists tenant_id uuid`);
+    await sql.unsafe(`update ${table} t set tenant_id = c.tenant_id from checklists c where c.id = t.checklist_id and t.tenant_id is null`);
+    await sql.unsafe(`alter table ${table} alter column tenant_id set not null`);
+    await sql.unsafe(`create or replace trigger ${table}_tenant before insert on ${table} for each row execute function tenant_from_checklist()`);
+    await addConstraint(
+      table,
+      `${table}_checklist_tenant_fkey`,
+      "foreign key (checklist_id, tenant_id) references checklists (id, tenant_id) on delete cascade on update cascade",
+    );
+  }
+};
+
+const starterTenantId = async () => {
+  const [existing] = await sql<{ id: string }[]>`select id from tenants where name = ${STARTER_TENANT_NAME} order by created_at limit 1`;
+  if (existing) return existing.id;
+  const [created] = await sql<{ id: string }[]>`insert into tenants (name) values (${STARTER_TENANT_NAME}) returning id`;
+  return created!.id;
+};
+
+// Until sessions pick a firm (#88), new projects and accounts go to the oldest firm.
+export const defaultTenantId = async () => {
+  const [oldest] = await sql<{ id: string }[]>`select id from tenants order by created_at limit 1`;
+  return oldest?.id ?? starterTenantId();
 };
 
 const BACKFILL_BATCH = 200;
