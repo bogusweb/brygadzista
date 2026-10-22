@@ -59,10 +59,14 @@ const assertPageInProject = async (projectId: string, documentId: string, pageNo
 
 export const pageImagePath = (documentId: string, pageNo: number) => `/api/documents/${documentId}/pages/${pageNo}/image`;
 
-export const createProjectAgent = (projectId: string) =>
+// The kind of building (#85) tells the agent what work it is; the project itself stays the only source of values.
+const buildingPrompt = (building: { label: string; context: string } | undefined) =>
+  building ? `\n\nTyp budowy: ${building.label}. ${building.context}` : "";
+
+export const createProjectAgent = (projectId: string, building?: { label: string; context: string }) =>
   new BuiltInAgent({
     model: agentLanguageModel(),
-    prompt: SYSTEM_PROMPT + A2UI_PROMPT,
+    prompt: SYSTEM_PROMPT + buildingPrompt(building) + A2UI_PROMPT,
     maxSteps: 12,
     tools: [
       defineTool({

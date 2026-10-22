@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEv
 import { ApiError, type Api, type Project, type ProjectDocument } from "./api";
 import { dateFormat, errorMessage, formatBytes, formatDuration, formatUsd, pluralize } from "./format";
 import { routeHref } from "./route";
+import { BuildingTypeCard } from "./BuildingTypeCard";
 import { SiteCard } from "./SiteCard";
 
 type Props = { api: Api; projectId: string; onUnauthorized: () => void };
@@ -300,6 +301,7 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
         </ul>
       )}
 
+      <BuildingTypeCard api={api} projectId={projectId} />
       <SiteCard api={api} projectId={projectId} />
     </section>
   );
