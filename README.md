@@ -75,6 +75,11 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | GET | `/api/checklists/:id` (pozycje, źródła, wyniki) | app/admin |
 | POST | `/api/checklists/:id/sync` (`{events}` zebrane offline) | app/admin |
 | DELETE | `/api/checklists/:id` | admin |
+| GET | `/api/documents/:id/outline` (spis treści: części projektu z zakresami stron, #44) | app/admin |
+| GET/POST | `/api/projects/:id/questions` (pytania do projektanta, #73; POST `{question, documentId?, pageNo?, region?, reason?}`) | app/admin |
+| PATCH/DELETE | `/api/projects/:id/questions/:questionId` (`{answer}` zamyka pytanie, pusta odpowiedź otwiera je ponownie) | app/admin |
+| GET | `/api/documents/:id/pages/:n/crop?x=&y=&w=&h=` (wycinek rysunku, ułamki arkusza; także `?token=`) | app/admin |
+| POST | `/mcp` (serwer MCP tylko do odczytu, #47; token w nagłówku albo `?token=`) | app/admin |
 | * | `/api/copilotkit/*` (nagłówek `x-project-id`) | app/admin |
 | * | `/api/admin/copilotkit/*` (z A2UI) | admin |
 
@@ -94,6 +99,8 @@ Obca budowa, dokument, strona, zdjęcie czy wpis odpowiada 404, także przez age
 - Limity (w pamięci procesu): uruchomienia agenta `RATE_LIMIT_CHAT_PER_MINUTE` na użytkownika, upload `RATE_LIMIT_UPLOADS_PER_HOUR`, notatki do dziennika `RATE_LIMIT_DIARY_PER_HOUR`, logowanie `RATE_LIMIT_LOGIN_PER_15_MIN` na e-mail (i 5× tyle na IP). Po przekroczeniu 429 z `Retry-After`.
 
 **Dziennik dnia** (#69): nagranie (m4a z telefonu, mp4 lub ogg z przeglądarki, do `MAX_DIARY_AUDIO_MB`) jest zapisywane w `DATA_DIR/diary` i porządkowane w tle: transkrypcja i wpis (prace, ludzie, dostawy, pogoda, problemy, odniesienia do stron projektu) robi model czatu (`AGENT_MODEL`, region EU, bez retencji). Strony do odniesień szuka wyszukiwanie słowne i kodów, bez embeddingów. Nieudany wpis zostaje z nagraniem, `retry` porządkuje go ponownie; wpis przerwany restartem serwer bierze po starcie. `clientId` z kolejki offline sprawia, że powtórzone wysłanie nie tworzy drugiego wpisu. Z `FAKE_AGENT=1` transkrypcja i wpis są skryptowane.
+
+**Serwer MCP** (#47): projekt można podłączyć do Claude Desktop albo claude.ai jako własny konektor (Ustawienia → Konektory → Dodaj własny konektor) pod adresem `https://<serwer>/mcp?token=<token>`. Token to sesja konta (`bs_…` z `POST /api/auth/login`), więc konektor widzi tylko budowy tego konta, a wylogowanie albo zmiana hasła go odcina. Narzędzia tylko czytają: `list_projects`, `search_project`, `get_project_outline`, `get_pages`, `get_page_image`. Transport to Streamable HTTP bez sesji (każdy POST to jedno żądanie JSON-RPC z odpowiedzią JSON). Limit `RATE_LIMIT_MCP_PER_MINUTE` wywołań narzędzi na konto (domyślnie 60). Token w adresie trafia do historii i logów proxy, dlatego na później zostaje OAuth.
 
 ## Lokalnie
 

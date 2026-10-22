@@ -37,6 +37,7 @@ import { FakeProjectAgent } from "./fake-agent.js";
 import { pdfPageCount } from "./pdf.js";
 import { projectOutline } from "./project-outline.js";
 import { designerAnswersPrompt, questions } from "./questions.js";
+import { mcp } from "./mcp.js";
 import { pins, removeDocumentPhotos, removeProjectFiles } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { documentDir, documentPdf, pageImage } from "./storage.js";
@@ -78,6 +79,7 @@ app.route("/", site);
 app.route("/", checklists);
 app.route("/", questions);
 app.route("/", cards);
+app.route("/", mcp);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun));
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));
