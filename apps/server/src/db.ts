@@ -339,6 +339,24 @@ const migrateTenants = async () => {
       foreign key (project_id, tenant_id) references projects (id, tenant_id) on delete cascade on update cascade
     )`;
   await sql`create or replace trigger share_links_tenant before insert on share_links for each row execute function tenant_from_project()`;
+  // A firm can block one of its people without touching the account, which may belong to other firms too (#90).
+  await sql`alter table tenant_members add column if not exists blocked_at timestamptz`;
+  // Invitations to a firm (#90): a one-time link with an expiry. Only a hash of the token is stored.
+  await sql`
+    create table if not exists tenant_invites (
+      id uuid primary key default gen_random_uuid(),
+      token_hash text not null unique,
+      tenant_id uuid not null references tenants(id) on delete cascade,
+      email text,
+      role text not null check (role in ('owner', 'manager', 'worker')),
+      project_ids uuid[] not null default '{}',
+      created_by uuid references users(id) on delete set null,
+      created_at timestamptz not null default now(),
+      expires_at timestamptz not null,
+      accepted_at timestamptz,
+      accepted_by uuid references users(id) on delete set null
+    )`;
+  await sql`create index if not exists tenant_invites_tenant on tenant_invites (tenant_id)`;
 };
 
 const starterTenantId = async () => {

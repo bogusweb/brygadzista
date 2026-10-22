@@ -834,3 +834,200 @@ section.a2ui-block {
 .a2ui-source {
   padding: 0;
 }
+
+/* Header with firm switcher (#90). */
+
+.topnav,
+.topbar-side {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.topbar {
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.navlink {
+  color: var(--muted);
+  text-decoration: none;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.navlink[aria-current="page"] {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 6px;
+}
+
+.user-name,
+.firm-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+select {
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 12px;
+  min-height: 44px;
+  max-width: 100%;
+}
+
+:is(select, summary, input[type="checkbox"]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.firm-switch select {
+  max-width: 240px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.firm-choice {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+}
+
+/* Firm screen. */
+
+.people {
+  gap: 0;
+}
+
+.person {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.person:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.person-projects summary {
+  cursor: pointer;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.checks {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px 16px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  cursor: pointer;
+}
+
+.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px 12px;
+  margin: 0;
+}
+
+.invite-fields {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.invite-link {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.invite-link input {
+  background: var(--surface);
+}
+
+.invite-row {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 560px) {
+  .topbar-side {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .firm-switch {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .firm-switch select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .invite-fields,
+  .invite-link {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .user-name {
+    display: none;
+  }
+
+  .person .actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .person .select-field {
+    grid-column: 1 / -1;
+  }
+
+  .person .select-field select {
+    width: 100%;
+  }
+}

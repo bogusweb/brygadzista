@@ -24,28 +24,28 @@ import { limiters, tooManyRequests } from "./rate-limit.js";
 
 const MIN_PASSWORD_LENGTH = 10;
 const TENANT_ROLES: TenantRole[] = ["owner", "manager", "worker"];
-const ROLE_ERROR = "Rola to owner, manager albo worker";
+export const ROLE_ERROR = "Rola to owner, manager albo worker";
 
-const passwordProblem = (password: unknown) =>
+export const passwordProblem = (password: unknown) =>
   typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH
     ? `Hasło musi mieć co najmniej ${MIN_PASSWORD_LENGTH} znaków`
     : null;
 
 // "contractor" is the role from before firms; it means a worker.
-const tenantRole = (role: unknown): TenantRole | null =>
+export const tenantRole = (role: unknown): TenantRole | null =>
   role === "contractor" ? "worker" : TENANT_ROLES.includes(role as TenantRole) ? (role as TenantRole) : null;
 
 // Behind Openship's proxy the client address is the first entry of X-Forwarded-For.
-const clientIp = (request: Request) => request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+export const clientIp = (request: Request) => request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 
 const userColumns = sql`u.id, u.email, u.name, u.disabled_at is not null as disabled, u.created_at as "createdAt"`;
 
 // The firm whose people a request manages: the session's firm, or for an operator outside a firm the one in ?tenantId=.
-const scopeTenant = (principal: Principal, requested: string | undefined) =>
+export const scopeTenant = (principal: Principal, requested: string | undefined) =>
   principal.tenant?.id ?? (principal.operator && requested && isUuid(requested) ? requested : null);
 
 const memberRow = (tenantId: string, userId: string) => sql`
-  select ${userColumns}, m.role,
+  select ${userColumns}, m.role, m.blocked_at is not null as blocked,
     coalesce((select array_agg(pm.project_id order by pm.created_at) from project_members pm
       where pm.user_id = u.id and pm.tenant_id = m.tenant_id), '{}') as "projectIds"
   from tenant_members m join users u on u.id = m.user_id
@@ -131,7 +131,7 @@ users.get("/api/users", requireRole("admin"), requireTenantOwner, async (c) => {
   const tenantId = scopeTenant(c.get("principal"), c.req.query("tenantId"));
   if (tenantId) {
     return c.json(await sql`
-      select ${userColumns}, m.role,
+      select ${userColumns}, m.role, m.blocked_at is not null as blocked,
         coalesce((select array_agg(pm.project_id order by pm.created_at) from project_members pm
           where pm.user_id = u.id and pm.tenant_id = m.tenant_id), '{}') as "projectIds"
       from tenant_members m join users u on u.id = m.user_id
@@ -167,20 +167,22 @@ users.post("/api/users", requireRole("admin"), requireTenantOwner, async (c) => 
   return c.json(created, 201);
 });
 
-// Name, password and blocking change the whole account, so a firm may change them only for its own people who
+// Name, password and disabling change the whole account, so a firm may change them only for its own people who
 // belong to no other firm. Disabling an account or setting a new password logs the user out everywhere.
+// `blocked` shuts the person out of this firm only.
 users.patch("/api/users/:id", requireRole("admin"), requireTenantOwner, async (c) => {
   const id = c.req.param("id");
   const principal = c.get("principal");
   const self = principal.user?.id === id;
-  const body = await c.req.json<{ name?: unknown; role?: unknown; password?: unknown; disabled?: unknown }>().catch(() => ({}) as Record<string, unknown>);
+  const body = await c.req.json<{ name?: unknown; role?: unknown; password?: unknown; disabled?: unknown; blocked?: unknown }>()
+    .catch(() => ({}) as Record<string, unknown>);
   const role = body.role === undefined ? undefined : tenantRole(body.role);
   if (role === null) return c.json({ error: ROLE_ERROR }, 400);
   if (body.password !== undefined) {
     const problem = passwordProblem(body.password);
     if (problem) return c.json({ error: problem }, 400);
   }
-  if (self && (body.disabled === true || (role && role !== "owner"))) {
+  if (self && (body.disabled === true || body.blocked === true || (role && role !== "owner"))) {
     return c.json({ error: "Nie możesz wyłączyć ani zdegradować własnego konta" }, 400);
   }
   const tenantId = scopeTenant(principal, c.req.query("tenantId"));
@@ -195,13 +197,20 @@ users.patch("/api/users/:id", requireRole("admin"), requireTenantOwner, async (c
   if (accountWide && !principal.operator && target.elsewhere) {
     return c.json({ error: "Konto należy też do innej firmy, zmienia je tylko jego właściciel" }, 403);
   }
-  if (role && !target.inTenant) return c.json({ error: "Ta osoba nie należy do firmy" }, 400);
+  if ((role || typeof body.blocked === "boolean") && !target.inTenant) return c.json({ error: "Ta osoba nie należy do firmy" }, 400);
 
   if (typeof body.name === "string") await sql`update users set name = ${body.name.trim()} where id = ${id}`;
   if (role) await sql`update tenant_members set role = ${role} where tenant_id = ${tenantId} and user_id = ${id}`;
   if (typeof body.password === "string") await sql`update users set password_hash = ${await hashPassword(body.password)} where id = ${id}`;
   if (typeof body.disabled === "boolean") {
     await sql`update users set disabled_at = ${body.disabled ? sql`coalesce(disabled_at, now())` : null} where id = ${id}`;
+  }
+  // Blocking works in this firm only: the account keeps its other firms, its sessions in this one end.
+  if (typeof body.blocked === "boolean") {
+    await sql`
+      update tenant_members set blocked_at = ${body.blocked ? sql`coalesce(blocked_at, now())` : null}
+      where tenant_id = ${tenantId} and user_id = ${id}`;
+    if (body.blocked) await sql`delete from sessions where user_id = ${id} and tenant_id = ${tenantId}`;
   }
   if (body.disabled === true || typeof body.password === "string") await revokeUserSessions(id);
   const [user] = tenantId && target.inTenant ? await memberRow(tenantId, id) : await sql`select ${userColumns} from users u where u.id = ${id}`;

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 export type Route =
   | { screen: "projects" }
+  | { screen: "firm" }
+  | { screen: "invite"; token: string }
   | { screen: "project"; projectId: string }
   | { screen: "chat"; projectId: string }
   | { screen: "document"; projectId: string; documentId: string };
@@ -9,6 +11,8 @@ export type Route =
 // Hash routes keep the browser back button working without a router or server rewrites.
 const parse = (hash: string): Route => {
   const [, projects, projectId, documents, documentId] = hash.replace(/^#/, "").split("/");
+  if (projects === "firma") return { screen: "firm" };
+  if (projects === "zaproszenie" && projectId) return { screen: "invite", token: projectId };
   if (projects !== "projects" || !projectId) return { screen: "projects" };
   if (documents === "documents" && documentId) return { screen: "document", projectId, documentId };
   if (documents === "chat") return { screen: "chat", projectId };
@@ -17,6 +21,8 @@ const parse = (hash: string): Route => {
 
 export const routeHref = (route: Route) => {
   if (route.screen === "projects") return "#/";
+  if (route.screen === "firm") return "#/firma";
+  if (route.screen === "invite") return `#/zaproszenie/${route.token}`;
   if (route.screen === "project") return `#/projects/${route.projectId}`;
   if (route.screen === "chat") return `#/projects/${route.projectId}/chat`;
   return `#/projects/${route.projectId}/documents/${route.documentId}`;

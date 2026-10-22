@@ -34,6 +34,7 @@ import { projectOutline } from "./project-outline.js";
 import { pins, removeDocumentPhotos, removeProjectFiles } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { documentDir, documentPdf, pageImage } from "./storage.js";
+import { tenants } from "./tenants.js";
 import { users } from "./users.js";
 
 // Chat is limited per user on agent runs only; the runtime's info and connect calls are free.
@@ -58,6 +59,7 @@ app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-t
 // `llm` tells an operator at a glance whether the OpenRouter key reached the server.
 app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterApiKey) }));
 app.route("/", users);
+app.route("/", tenants);
 app.route("/", pins);
 app.route("/", defects);
 app.route("/", diary);
