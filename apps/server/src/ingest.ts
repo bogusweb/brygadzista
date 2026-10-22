@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { sql } from "./db.js";
 import { titleFromText } from "./outline.js";
 import { saveOutline } from "./project-outline.js";
+import { META_VERSION, displayTitle, extractPageMeta } from "./page-meta.js";
 import { pdfPageCount, pdfPageText, pdfRenderPage } from "./pdf.js";
 import { documentPdf, pageImage, pageImagePrefix } from "./storage.js";
 import { embed, embedImage } from "./llm.js";
@@ -46,7 +47,8 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
     ? pageImage(doc.id, pageNo)
     : await pdfRenderPage(pdf, pageNo, pageImagePrefix(doc.id, pageNo));
   const raw = await pdfPageText(pdf, pageNo);
-  const title = titleFromText(raw);
+  const meta = extractPageMeta(raw, pageNo);
+  const title = displayTitle(meta, titleFromText(raw));
   // A page with no text layer still needs a non-empty search text, or it would count as never indexed.
   const searchText = raw.trim() ? raw : `Strona ${pageNo}`;
 
@@ -57,8 +59,14 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
   await sql.begin(async (tx) => {
     const [page] = await tx<{ id: string }[]>`
       update pages set
-        kind = null,
+        kind = ${meta.kind},
         title = ${title},
+        drawing_no = ${meta.drawingNo},
+        scale = ${meta.scale},
+        revision = ${meta.revision},
+        branch = ${meta.branch},
+        level = ${meta.level},
+        meta_version = ${META_VERSION},
         raw_text = ${raw},
         summary = null,
         facts = ${tx.json([])},

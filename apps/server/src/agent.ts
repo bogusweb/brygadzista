@@ -6,6 +6,7 @@ import { agentLanguageModel, askAboutPage } from "./llm.js";
 import { listDefects } from "./defects.js";
 import { DEFECT_STATUSES, photoImagePath, searchPins } from "./pins.js";
 import { MAX_PAGES_PER_CALL, projectOutline, readPages } from "./project-outline.js";
+import { PAGE_BRANCHES, PAGE_KINDS } from "./page-meta.js";
 import { searchPages } from "./search.js";
 
 const SYSTEM_PROMPT = `Jesteś Brygadzistą: asystentem wykonawcy na budowie. Odpowiadasz wyłącznie na podstawie projektu technicznego,
@@ -66,10 +67,18 @@ export const createProjectAgent = (projectId: string) =>
     tools: [
       defineTool({
         name: "search_project",
-        description: "Wyszukuje w projekcie technicznym strony pasujące do pytania (po znaczeniu i po słowach).",
-        parameters: z.object({ query: z.string().describe("Czego szukasz, np. 'grubość ocieplenia ścian'") }),
-        execute: async ({ query }) => {
-          const results = await searchPages(projectId, query);
+        description:
+          "Wyszukuje w projekcie technicznym strony pasujące do pytania (po znaczeniu i po słowach). Numer rysunku w pytaniu " +
+          "(„rys. nr 5”) od razu wskazuje ten arkusz. Filtry są opcjonalne: używaj ich, gdy pytanie wyraźnie dotyczy rysunku, " +
+          "branży albo kondygnacji.",
+        parameters: z.object({
+          query: z.string().describe("Czego szukasz, np. 'grubość ocieplenia ścian'"),
+          kind: z.enum(PAGE_KINDS).optional().describe("Rodzaj strony: opis, rysunek (także detale), detal, zestawienie, formalne"),
+          branch: z.enum(PAGE_BRANCHES).optional().describe("Branża rysunku"),
+          level: z.string().optional().describe("Kondygnacja rzutu, np. 'parter', 'piętro 1', 'piwnica', 'poddasze', 'dach'"),
+        }),
+        execute: async ({ query, ...filter }) => {
+          const results = await searchPages(projectId, query, 6, filter);
           return results.length ? { results } : { results, noMatch: true };
         },
       }),
@@ -97,11 +106,14 @@ export const createProjectAgent = (projectId: string) =>
       }),
       defineTool({
         name: "list_pages",
-        description: "Zwraca spis wszystkich stron projektu z tytułami (pierwsza linia tekstu strony, puste dla stron bez tekstu).",
+        description:
+          "Zwraca spis wszystkich stron projektu: tytuł (z tabliczki rysunkowej albo pierwszy nagłówek), rodzaj, numer rysunku, " +
+          "skalę, branżę i kondygnację.",
         parameters: z.object({}),
         execute: async () => ({
           pages: await sql`
-            select p.document_id as "documentId", d.filename, p.page_no as "pageNo", p.title, p.kind
+            select p.document_id as "documentId", d.filename, p.page_no as "pageNo", p.title, p.kind,
+              p.drawing_no as "drawingNo", p.scale, p.branch, p.level
             from pages p join documents d on d.id = p.document_id
             where p.project_id = ${projectId} order by d.created_at, p.page_no`,
         }),
