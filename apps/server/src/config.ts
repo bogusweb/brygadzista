@@ -13,9 +13,9 @@ export const config = {
   dashboardDir: path.resolve(process.env.DASHBOARD_DIR ?? "../dashboard/dist"),
   // Web export of the Expo app (pnpm --filter @brygadzista/mobile export:web), served under /app.
   mobileWebDir: path.resolve(process.env.MOBILE_WEB_DIR ?? "../mobile/dist-web"),
-  // Shared tokens from before user accounts (#10). ADMIN_TOKEN stays as emergency admin access (e.g. to create
-  // the first owner account); APP_TOKEN is the old app token with access to every project. It is off when set
-  // to "", and in production unless set explicitly.
+  // Shared tokens from before user accounts (#10). ADMIN_TOKEN is the operator: every firm, e.g. to create the
+  // first accounts. APP_TOKEN is the old app token, now limited to the oldest firm until the app logs in with
+  // accounts (#91). It is off when set to "", and in production unless set explicitly.
   adminToken: requireEnv("ADMIN_TOKEN", "dev-admin"),
   appToken: process.env.APP_TOKEN ?? (process.env.NODE_ENV === "production" ? "" : "dev-app"),
   sessionTtlDays: Number(process.env.SESSION_TTL_DAYS ?? 30),

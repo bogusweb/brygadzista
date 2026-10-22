@@ -13,10 +13,12 @@ import { A2UI_CATALOG_ID } from "./a2ui-catalog.js";
 import { a2uiCatalogSchema } from "./a2ui-schema.js";
 import {
   agentProjectId,
+  isUuid,
   requireDocumentAccess,
   requireProjectAccess,
   requireRole,
   requireRoleOrQueryToken,
+  visibleProjects,
   type AuthEnv,
   type Role,
 } from "./auth.js";
@@ -65,24 +67,28 @@ app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copi
 app.use("/api/admin/copilotkit/*", requireRole("admin"), rateLimit(limiters.chat, isAgentRun));
 app.route("/", createCopilotEndpoint({ runtime: adminRuntime, basePath: "/api/admin/copilotkit" }));
 
-// A contractor account lists only the projects it is a member of.
-app.get("/api/projects", requireRole("app", "admin"), async (c) => {
-  const { role, user } = c.get("principal");
-  const memberOnly = role === "app" && user ? sql`where exists (select 1 from project_members m where m.project_id = p.id and m.user_id = ${user.id})` : sql``;
-  return c.json(await sql`
-    select p.id, p.name, p.created_at as "createdAt",
+// Projects of the session's firm; a worker sees only the ones they are a member of, an operator every firm's.
+app.get("/api/projects", requireRole("app", "admin"), async (c) =>
+  c.json(await sql`
+    select p.id, p.name, p.tenant_id as "tenantId", p.created_at as "createdAt",
       (select count(*)::int from documents d where d.project_id = p.id) as "documentCount"
-    from projects p ${memberOnly} order by p.created_at desc`);
-});
+    from projects p where ${visibleProjects(c.get("principal"))} order by p.created_at desc`),
+);
 
+// A new project belongs to the session's firm. An operator outside a firm names one, or it goes to the oldest.
 app.post("/api/projects", requireRole("admin"), async (c) => {
-  const { name } = await c.req.json<{ name?: string }>();
+  const { name, tenantId } = await c.req.json<{ name?: string; tenantId?: unknown }>();
   if (!name?.trim()) return c.json({ error: "Podaj nazwę projektu" }, 400);
-  const [project] = await sql`insert into projects (name, tenant_id) values (${name.trim()}, ${await defaultTenantId()}) returning id, name`;
-  return c.json(project, 201);
+  const principal = c.get("principal");
+  const requested = principal.operator && typeof tenantId === "string" && isUuid(tenantId) ? tenantId : null;
+  const tenant = principal.tenant?.id ?? requested ?? (principal.operator ? await defaultTenantId() : null);
+  if (!tenant) return c.json({ error: "Brak firmy" }, 403);
+  const [project] = await sql`
+    insert into projects (name, tenant_id) select ${name.trim()}, id from tenants where id = ${tenant} returning id, name`;
+  return project ? c.json(project, 201) : c.json({ error: "Nie ma takiej firmy" }, 404);
 });
 
-app.delete("/api/projects/:id", requireRole("admin"), async (c) => {
+app.delete("/api/projects/:id", requireRole("admin"), requireProjectAccess(), async (c) => {
   const documents = await sql<{ id: string }[]>`select id from documents where project_id = ${c.req.param("id")}`;
   const notes = await sql<{ audioFile: string }[]>`
     select audio_file as "audioFile" from diary_entries where project_id = ${c.req.param("id")} and audio_file is not null`;
@@ -185,13 +191,13 @@ app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAcces
   return c.json({ id, status, pageCount, estimate: estimateIndexing(pageCount) }, 201);
 });
 
-app.post("/api/documents/:id/start", requireRole("admin"), async (c) => {
+app.post("/api/documents/:id/start", requireRole("admin"), requireDocumentAccess(), async (c) => {
   const [doc] = await sql`
     update documents set status = 'queued' where id = ${c.req.param("id")} and status = 'awaiting_start' returning id`;
   return doc ? c.json({ ok: true }) : c.json({ error: "Dokument nie czeka na start" }, 409);
 });
 
-app.post("/api/documents/:id/reindex", requireRole("admin"), async (c) => {
+app.post("/api/documents/:id/reindex", requireRole("admin"), requireDocumentAccess(), async (c) => {
   await sql`update pages set indexed = false where document_id = ${c.req.param("id")}`;
   await sql`update documents set status = 'queued', error = null where id = ${c.req.param("id")}`;
   return c.json({ ok: true });
@@ -199,14 +205,14 @@ app.post("/api/documents/:id/reindex", requireRole("admin"), async (c) => {
 
 // Unlike reindex, resume keeps finished pages and only takes those not done yet (missing, failed, or interrupted
 // by a pause), so nothing already paid for is embedded again.
-app.post("/api/documents/:id/resume", requireRole("admin"), async (c) => {
+app.post("/api/documents/:id/resume", requireRole("admin"), requireDocumentAccess(), async (c) => {
   const [doc] = await sql`
     update documents set status = 'queued', error = null
     where id = ${c.req.param("id")} and status in ('paused', 'error', 'ready') returning id`;
   return doc ? c.json({ ok: true }) : c.json({ error: "Tego dokumentu nie da się teraz wznowić" }, 409);
 });
 
-app.delete("/api/documents/:id", requireRole("admin"), async (c) => {
+app.delete("/api/documents/:id", requireRole("admin"), requireDocumentAccess(), async (c) => {
   await removeDocumentPhotos(c.req.param("id"));
   await sql`delete from documents where id = ${c.req.param("id")}`;
   await rm(documentDir(c.req.param("id")), { recursive: true, force: true });

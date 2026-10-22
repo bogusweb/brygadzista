@@ -41,7 +41,7 @@ describe("login", () => {
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as { token: string; role: string; user: { email: string; role: string } };
-    expect(body).toMatchObject({ role: "app", user: { email: "jan@budowa.pl", role: "contractor" } });
+    expect(body).toMatchObject({ role: "app", user: { email: "jan@budowa.pl", role: "user" }, tenant: { role: "worker" } });
     expect(body.token).toMatch(/^bs_/);
 
     const me = await app.request("/api/auth/me", { headers: { authorization: `Bearer ${body.token}` } });
@@ -59,7 +59,7 @@ describe("login", () => {
 
   it("rejects a wrong password, an unknown e-mail and a disabled account with the same message", async () => {
     await sql`insert into users (email, password_hash, role, disabled_at)
-      select 'stary@budowa.pl', password_hash, 'contractor', now() from users where id = ${contractorId}`;
+      select 'stary@budowa.pl', password_hash, 'user', now() from users where id = ${contractorId}`;
 
     for (const attempt of [
       { email: "jan@budowa.pl", password: "zle-haslo-123" },
@@ -117,7 +117,7 @@ describe("login", () => {
 describe("shared tokens from env", () => {
   it("keep ADMIN_TOKEN as emergency admin access with no user", async () => {
     const me = await app.request("/api/auth/me", { headers: ADMIN });
-    expect(await me.json()).toEqual({ role: "admin", user: null });
+    expect(await me.json()).toEqual({ role: "admin", user: null, operator: true, tenant: null, tenants: [] });
   });
 
   it("keep the legacy APP_TOKEN working for every project until it is switched off", async () => {

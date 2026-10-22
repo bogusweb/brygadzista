@@ -78,9 +78,16 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 
 Autoryzacja: `Authorization: Bearer <token>`.
 
-**Konta** (#10): właściciel (`owner`, rola API `admin`) widzi wszystkie projekty i zarządza kontami; wykonawca (`contractor`, rola API `app`) widzi tylko projekty, do których go dodano (lista projektów, dokumenty, strony, obrazy stron i fabryka agenta; cudzy projekt odpowiada 404). Hasła to argon2id, sesja to losowy token `bs_…` (w bazie tylko jego SHA-256), ważny `SESSION_TTL_DAYS` dni i przedłużany przy użyciu. Wyłączenie konta lub nowe hasło kończy jego sesje.
-- `ADMIN_TOKEN` z env działa dalej jako awaryjny dostęp administratora; nim zakłada się pierwsze konto właściciela (`POST /api/users` z `role: "owner"`).
-- `APP_TOKEN` to stary wspólny token aplikacji (wszystkie projekty). Jest wyłączony, gdy pusty, a w produkcji (`NODE_ENV=production`) także gdy nieustawiony.
+**Firmy i konta** (#10, #86): każda budowa należy do jednej firmy (`tenants`), a każdy wiersz danych budowy ma `tenant_id` z kluczem złożonym `(project_id, tenant_id)`, więc nie da się go przypiąć do cudzej firmy. Osoba może należeć do kilku firm (`tenant_members`), w każdej z rolą:
+- `owner` (rola API `admin`): wszystkie budowy firmy i ludzie firmy (`/api/users` pokazuje i zakłada tylko osoby tej firmy);
+- `manager` (rola API `admin`): wszystkie budowy firmy, bez zarządzania ludźmi;
+- `worker` (rola API `app`): tylko budowy, do których go dodano.
+
+Obca budowa, dokument, strona, zdjęcie czy wpis odpowiada 404, także przez agenta (`x-project-id`). Sesja pamięta aktywną firmę: logowanie zwraca `tenant` i `tenants`, a `POST /api/auth/tenant` (`{tenantId}`) ją przełącza. Rola globalna to tylko `operator` (widzi wszystkie firmy) albo `user`. Hasła to argon2id, sesja to losowy token `bs_…` (w bazie tylko jego SHA-256), ważny `SESSION_TTL_DAYS` dni i przedłużany przy użyciu. Wyłączenie konta lub nowe hasło kończy jego sesje; konto należące też do innej firmy zmienia tylko operator.
+- `ADMIN_TOKEN` z env to operator: widzi wszystkie firmy, zakłada konta (`POST /api/users` z `role` i opcjonalnym `tenantId`) i budowy (`POST /api/projects` z opcjonalnym `tenantId`; bez niego najstarsza firma).
+- `APP_TOKEN` to stary wspólny token aplikacji, działa już tylko w najstarszej firmie i zniknie, gdy aplikacja zacznie logować się kontem (#91). Jest wyłączony, gdy pusty, a w produkcji (`NODE_ENV=production`) także gdy nieustawiony.
+- Linki tylko do odczytu: `POST /api/projects/:id/share-links` (`{days}`, domyślnie 7, max 90) zwraca token `bl_…` przypisany do budowy i firmy; `GET /api/share/:token` działa do terminu ważności.
+- Istniejące dane przy pierwszym starcie trafiają do firmy „Brygadzista (Paweł)” (owner → owner, contractor → worker).
 - Limity (w pamięci procesu): uruchomienia agenta `RATE_LIMIT_CHAT_PER_MINUTE` na użytkownika, upload `RATE_LIMIT_UPLOADS_PER_HOUR`, notatki do dziennika `RATE_LIMIT_DIARY_PER_HOUR`, logowanie `RATE_LIMIT_LOGIN_PER_15_MIN` na e-mail (i 5× tyle na IP). Po przekroczeniu 429 z `Retry-After`.
 
 **Dziennik dnia** (#69): nagranie (m4a z telefonu, mp4 lub ogg z przeglądarki, do `MAX_DIARY_AUDIO_MB`) jest zapisywane w `DATA_DIR/diary` i porządkowane w tle: transkrypcja i wpis (prace, ludzie, dostawy, pogoda, problemy, odniesienia do stron projektu) robi model czatu (`AGENT_MODEL`, region EU, bez retencji). Strony do odniesień szuka wyszukiwanie słowne i kodów, bez embeddingów. Nieudany wpis zostaje z nagraniem, `retry` porządkuje go ponownie; wpis przerwany restartem serwer bierze po starcie. `clientId` z kolejki offline sprawia, że powtórzone wysłanie nie tworzy drugiego wpisu. Z `FAKE_AGENT=1` transkrypcja i wpis są skryptowane.
