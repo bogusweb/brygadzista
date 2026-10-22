@@ -29,6 +29,11 @@ describe("prefixQuery", () => {
   });
 });
 
+afterAll(async () => {
+  config.openrouterApiKey = "";
+  await sql.end();
+});
+
 describe("searchPages", () => {
   let projectId: string;
   let documentId: string;
@@ -39,11 +44,6 @@ describe("searchPages", () => {
     config.openrouterApiKey = "";
     projectId = await createProject();
     documentId = await createDocument(projectId, "ready");
-  });
-
-  afterAll(async () => {
-    config.openrouterApiKey = "";
-    await sql.end();
   });
 
   it("finds a page by an inflected form of the word", async () => {
@@ -142,5 +142,60 @@ describe("searchPages", () => {
     }
 
     expect(await searchPages(projectId, "rzut", 3)).toHaveLength(3);
+  });
+});
+
+describe("searchPages with page metadata (#55)", () => {
+  let projectId: string;
+  let documentId: string;
+
+  const setMeta = (pageId: string, meta: { kind?: string; drawingNo?: string; branch?: string; level?: string }) =>
+    sql`update pages set kind = ${meta.kind ?? null}, drawing_no = ${meta.drawingNo ?? null}, branch = ${meta.branch ?? null},
+      level = ${meta.level ?? null} where id = ${pageId}`;
+
+  beforeEach(async () => {
+    await resetDatabase();
+    config.openrouterApiKey = "";
+    projectId = await createProject();
+    documentId = await createDocument(projectId, "ready");
+  });
+
+  it("puts the sheet carrying a drawing number before the table of contents that lists it", async () => {
+    const toc = await insertPage(projectId, documentId, 2, { searchText: "SPIS ZAWARTOŚCI PROJEKTU RZUT DACHU rys. nr 5 str. 17" });
+    const roof = await insertPage(projectId, documentId, 18, { searchText: "Rynna Ø150 RYSUNEK: RZUT DACHU NR RYS.: 5." });
+    await setMeta(toc, { kind: "formalne" });
+    await setMeta(roof, { kind: "rysunek", drawingNo: "5" });
+
+    expect((await searchPages(projectId, "Co jest na rys. nr 5?")).map((hit) => hit.pageNo)[0]).toBe(18);
+  });
+
+  it("filters by kind, trade and storey", async () => {
+    const description = await insertPage(projectId, documentId, 4, { searchText: "Rzut parteru opisano w punkcie 3, instalacja wodna" });
+    const plan = await insertPage(projectId, documentId, 16, { searchText: "Rzut parteru, instalacja wodna" });
+    const upstairs = await insertPage(projectId, documentId, 17, { searchText: "Rzut piętra, instalacja wodna" });
+    await setMeta(description, { kind: "opis" });
+    await setMeta(plan, { kind: "rysunek", branch: "instalacje", level: "parter" });
+    await setMeta(upstairs, { kind: "detal", branch: "instalacje", level: "piętro 1" });
+
+    const pages = async (filter: Parameters<typeof searchPages>[3]) =>
+      (await searchPages(projectId, "instalacja wodna", 6, filter)).map((hit) => hit.pageNo).sort((a, b) => a - b);
+
+    expect(await pages({})).toEqual([4, 16, 17]);
+    expect(await pages({ kind: "rysunek" })).toEqual([16, 17]);
+    expect(await pages({ kind: "opis" })).toEqual([4]);
+    expect(await pages({ branch: "instalacje", level: "przyziemie" })).toEqual([16]);
+    expect(await pages({ level: "I piętro" })).toEqual([17]);
+  });
+
+  it("fills in metadata of pages indexed before it existed at startup", async () => {
+    const pageId = await insertPage(projectId, documentId, 18, {
+      title: "BIALINVES",
+      searchText: "RYSUNEK:\nRZUT DACHU\nOBIEKT:\nHala\nDATA:   SKALA:   NR RYS.:\n2023    1:100    5.",
+    });
+
+    await migrate();
+
+    const [page] = await sql`select kind, title, drawing_no, scale, level from pages where id = ${pageId}`;
+    expect(page).toEqual({ kind: "rysunek", title: "RZUT DACHU (rys. 5)", drawing_no: "5", scale: "1:100", level: "dach" });
   });
 });
