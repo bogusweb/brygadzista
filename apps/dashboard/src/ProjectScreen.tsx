@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { ApiError, type Api, type Project, type ProjectDocument } from "./api";
 import { dateFormat, errorMessage, formatBytes, formatDuration, formatUsd, pluralize } from "./format";
+import { PageViewerProvider } from "./pageViewer";
+import { QuestionsPanel } from "./questions";
 import { routeHref } from "./route";
 
 type Props = { api: Api; projectId: string; onUnauthorized: () => void };
@@ -298,6 +300,10 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
           })}
         </ul>
       )}
+
+      <PageViewerProvider api={api}>
+        <QuestionsPanel api={api} projectId={projectId} onUnauthorized={onUnauthorized} />
+      </PageViewerProvider>
     </section>
   );
 };
