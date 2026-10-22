@@ -46,8 +46,8 @@ describe("ingest", () => {
 
     expect(await processNextDocument()).toBe(true);
 
-    const [doc] = await sql`select status, page_count, indexed_pages, error from documents where id = ${documentId}`;
-    expect(doc).toMatchObject({ status: "ready", page_count: 4, indexed_pages: 4 });
+    const [doc] = await sql`select status, page_count, indexed_pages, error, outline from documents where id = ${documentId}`;
+    expect(doc).toMatchObject({ status: "ready", page_count: 4, indexed_pages: 4, outline: { source: "pages" } });
     expect(doc!.error).toContain("OPENROUTER_API_KEY");
     const pages = await pageRows(documentId);
     expect(pages.map((page) => page.raw_text)).toEqual(PAGES);

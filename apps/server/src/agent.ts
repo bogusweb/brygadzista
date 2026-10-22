@@ -5,11 +5,15 @@ import { inspectionImages } from "./drawing.js";
 import { agentLanguageModel, askAboutPage } from "./llm.js";
 import { listDefects } from "./defects.js";
 import { DEFECT_STATUSES, photoImagePath, searchPins } from "./pins.js";
+import { MAX_PAGES_PER_CALL, projectOutline, readPages } from "./project-outline.js";
 import { searchPages } from "./search.js";
 
 const SYSTEM_PROMPT = `Jesteś Brygadzistą: asystentem wykonawcy na budowie. Odpowiadasz wyłącznie na podstawie projektu technicznego,
 do którego masz dostęp przez narzędzia. Zasady:
 - Zanim odpowiesz, wyszukaj informacje w projekcie (search_project, list_pages, read_page). Nie odpowiadaj z pamięci.
+- Pytanie o cały dział albo rodzaj rysunków („co jest na rysunkach konstrukcji?”, „jakie są detale ocieplenia?”, „co mówi
+  opis o dachu?”) zacznij od get_project_outline: to spis treści z zakresami stron. Potem pobierz właściwe strony get_pages
+  (najwyżej ${MAX_PAGES_PER_CALL} na raz) albo obejrzyj rysunek inspect_drawing. Numery stron ze spisu to numery stron w PDF.
 - Wymiary, grubości, materiały i oznaczenia podawaj dokładnie tak, jak w projekcie, z jednostkami.
 - Każdą odpowiedź kończ źródłem w formacie "Źródło: str. N – tytuł".
 - Strony mają tylko tekst z PDF, a rysunki często nie mają go wcale: gdy pytanie dotyczy rysunku, użyj inspect_drawing, żeby go obejrzeć.
@@ -67,6 +71,28 @@ export const createProjectAgent = (projectId: string) =>
         execute: async ({ query }) => {
           const results = await searchPages(projectId, query);
           return results.length ? { results } : { results, noMatch: true };
+        },
+      }),
+      defineTool({
+        name: "get_project_outline",
+        description:
+          "Spis treści projektu: części (opis techniczny z rozdziałami, rzuty, przekroje, elewacje, detale, zestawienia) " +
+          "z zakresami stron w PDF. verified=false: strony wyliczone ze spisu w projekcie, nie potwierdzone na samej stronie.",
+        parameters: z.object({}),
+        execute: async () => ({ documents: await projectOutline(projectId) }),
+      }),
+      defineTool({
+        name: "get_pages",
+        description: `Pobiera tekst z PDF i podsumowanie kolejnych stron dokumentu, od from do to (najwyżej ${MAX_PAGES_PER_CALL} stron na wywołanie).`,
+        parameters: z.object({
+          documentId: z.string().describe("Id dokumentu ze spisu treści lub wyników wyszukiwania"),
+          from: z.number().int().min(1).describe("Pierwsza strona"),
+          to: z.number().int().min(1).describe("Ostatnia strona (włącznie)"),
+        }),
+        execute: async ({ documentId, from, to }) => {
+          const result = await readPages(projectId, documentId, from, Math.max(from, to));
+          if (!result.pages.length) throw new Error(`Nie ma stron ${from}–${to} w tym dokumencie`);
+          return { documentId, ...result };
         },
       }),
       defineTool({
