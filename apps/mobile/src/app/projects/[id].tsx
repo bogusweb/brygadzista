@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { AgentStatus } from "../../components/AgentStatus";
 import { ProjectCards } from "../../components/cards/ProjectCards";
+import { ProjectSchedules } from "../../components/schedules/ProjectSchedules";
 import { PageViewerProvider } from "../../components/chat/PageViewer";
 import { ProjectChat } from "../../components/chat/ProjectChat";
 import { ProjectChecklists } from "../../components/checklists/ProjectChecklists";
@@ -27,11 +28,12 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "questions", label: "Pytania" },
 ];
 
-type PagesView = "drawings" | "cards";
+type PagesView = "drawings" | "cards" | "schedules";
 
 const PAGES_VIEWS: { id: PagesView; label: string }[] = [
   { id: "drawings", label: "Strony" },
   { id: "cards", label: "Karty" },
+  { id: "schedules", label: "Zestawienia" },
 ];
 
 const TabBar = <T extends string>({ tabs, tab, onChange }: { tabs: { id: T; label: string }[]; tab: T; onChange: (tab: T) => void }) => (
@@ -84,6 +86,9 @@ const ProjectScreen = () => {
           </View>
           <View style={[styles.pane, (tab !== "pages" || pagesView !== "cards") && styles.hidden]}>
             <ProjectCards projectId={id} />
+          </View>
+          <View style={[styles.pane, (tab !== "pages" || pagesView !== "schedules") && styles.hidden]}>
+            <ProjectSchedules projectId={id} />
           </View>
           <View style={[styles.pane, tab !== "defects" && styles.hidden]}>
             <ProjectDefects projectId={id} />
