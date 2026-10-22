@@ -53,10 +53,10 @@ export const revokeSession = (token: string) => sql`delete from sessions where t
 export const revokeUserSessions = (userId: string, exceptToken?: string) =>
   sql`delete from sessions where user_id = ${userId} and token_hash <> ${exceptToken ? sha256(exceptToken).toString("hex") : ""}`;
 
-// The firms an account belongs to, oldest membership first. A disabled firm is left out.
+// The firms an account belongs to, oldest membership first. A disabled firm, or one that blocked the person, is left out.
 export const tenantsOf = (userId: string) => sql<Tenant[]>`
   select t.id, t.name, m.role from tenant_members m join tenants t on t.id = m.tenant_id
-  where m.user_id = ${userId} and t.disabled_at is null order by m.created_at, t.created_at`;
+  where m.user_id = ${userId} and t.disabled_at is null and m.blocked_at is null order by m.created_at, t.created_at`;
 
 // A session in use is extended, so a worker who opens the app regularly never gets logged out.
 const sessionOf = async (token: string) => {

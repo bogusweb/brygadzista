@@ -43,6 +43,7 @@ import { mcp } from "./mcp.js";
 import { pins, removeDocumentPhotos, removeProjectFiles } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { documentDir, documentPdf, pageImage } from "./storage.js";
+import { tenants } from "./tenants.js";
 import { users } from "./users.js";
 
 // Chat is limited per user on agent runs only; the runtime's info and connect calls are free.
@@ -74,6 +75,7 @@ app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterA
 // The embedding model search uses, and the progress of a change to a new one (#46).
 app.get("/api/admin/embeddings", requireRole("admin"), async (c) => c.json(await embeddingStatus()));
 app.route("/", users);
+app.route("/", tenants);
 app.route("/", pins);
 app.route("/", defects);
 app.route("/", diary);

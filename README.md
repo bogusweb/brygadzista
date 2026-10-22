@@ -6,7 +6,7 @@ Asystent AI dla wykonawcy: agent, który zna projekt techniczny budynku (PDF) i 
 
 ```
 apps/server     Node 22 + Hono: API, upload i indeksowanie PDF, agent CopilotKit (AG-UI), serwuje dashboard
-apps/dashboard  panel operatora: Vite + React 19, czat CopilotKit z A2UI, upload PDF
+apps/dashboard  panel firmy: Vite + React 19, czat CopilotKit z A2UI, upload PDF, ludzie i zaproszenia
 apps/mobile     aplikacja Expo (expo-router, @copilotkit/react-native), zob. apps/mobile/README.md
 openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowania to katalog główny repo)
 ```
@@ -94,6 +94,8 @@ Obca budowa, dokument, strona, zdjęcie czy wpis odpowiada 404, także przez age
 - `ADMIN_TOKEN` z env to operator: widzi wszystkie firmy, zakłada konta (`POST /api/users` z `role` i opcjonalnym `tenantId`) i budowy (`POST /api/projects` z opcjonalnym `tenantId`; bez niego najstarsza firma).
 - Aplikacja loguje się kontem (#91). Stary wspólny `APP_TOKEN` nie działa w produkcji (`NODE_ENV=production`); zostaje tylko w testach i lokalnie jako szybki klucz do najstarszej firmy. Pierwsze konto w firmie zakłada operator:
   `curl -X POST https://<serwer>/api/users -H "authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' -d '{"email":"jan@firma.pl","name":"Jan","password":"…","role":"owner"}'`
+- Zaproszenia (#90): właściciel (albo operator z `?tenantId=`) tworzy `POST /api/invites` (`{role, email?, days?, projectIds?}`, domyślnie 7 dni, max 30) i dostaje jednorazowy token `bi_…` (w bazie tylko hash). `GET /api/invites/token/:token` pokazuje firmę i rolę bez logowania, `POST /api/invites/token/:token/accept` (`{email, name, password}`) zakłada konto tylko w tej firmie albo, po haśle istniejącego konta, dodaje do niego firmę. `GET /api/invites` listuje, `DELETE /api/invites/:id` odwołuje. `PATCH /api/users/:id` z `{blocked}` blokuje osobę tylko w tej firmie (kończy jej sesje w niej), `PATCH /api/tenant` (`{name}`) zmienia nazwę firmy. Operator ma `GET/POST /api/tenants` (lista firm, nowa firma).
+- Dashboard: logowanie kontem (właściciel lub kierownik; pracownik dostaje informację, że korzysta z aplikacji), przy kilku firmach wybór firmy i przełącznik w nagłówku; `ADMIN_TOKEN` zostaje jako awaryjne logowanie operatora, który wybiera firmę w nagłówku albo widzi wszystkie. Ekran „Firma” (tylko właściciel i operator): nazwa, ludzie z rolami, blokada, usunięcie z firmy, przypisanie pracownika do budów i zaproszenia z linkiem do skopiowania (`#/zaproszenie/<token>`).
 - Linki tylko do odczytu: `POST /api/projects/:id/share-links` (`{days}`, domyślnie 7, max 90) zwraca token `bl_…` przypisany do budowy i firmy; `GET /api/share/:token` działa do terminu ważności.
 - Istniejące dane przy pierwszym starcie trafiają do firmy „Brygadzista (Paweł)” (owner → owner, contractor → worker).
 - Limity (w pamięci procesu): uruchomienia agenta `RATE_LIMIT_CHAT_PER_MINUTE` na użytkownika, upload `RATE_LIMIT_UPLOADS_PER_HOUR`, notatki do dziennika `RATE_LIMIT_DIARY_PER_HOUR`, logowanie `RATE_LIMIT_LOGIN_PER_15_MIN` na e-mail (i 5× tyle na IP). Po przekroczeniu 429 z `Retry-After`.
