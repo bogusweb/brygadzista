@@ -1,4 +1,4 @@
-import type { Checklist, ChecklistEvent, ChecklistSummary, StageTemplate } from "./checklists";
+import type { Checklist, ChecklistEvent, ChecklistSummary, ProjectTemplates } from "./checklists";
 import { toSyncEvent } from "./checklists";
 import { request } from "./http";
 import type { Connection } from "./settings";
@@ -6,7 +6,8 @@ import type { Connection } from "./settings";
 const projectPath = (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}/checklists`;
 const checklistPath = (id: string) => `/api/checklists/${encodeURIComponent(id)}`;
 
-export const fetchTemplates = (connection: Connection) => request<StageTemplate[]>(connection, "/api/checklist-templates");
+export const fetchTemplates = (connection: Connection, projectId: string) =>
+  request<ProjectTemplates>(connection, `/api/projects/${encodeURIComponent(projectId)}/checklist-templates`);
 
 export const fetchChecklists = (connection: Connection, projectId: string) =>
   request<ChecklistSummary[]>(connection, projectPath(projectId));

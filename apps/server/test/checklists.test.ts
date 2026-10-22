@@ -71,7 +71,7 @@ describe("checklist templates", () => {
 
     expect(response.status).toBe(200);
     const stages = ((await response.json()) as { stage: string }[]).map((template) => template.stage);
-    expect(stages).toEqual(["fundamenty", "sciany", "strop", "dach", "instalacje", "tynki", "wylewki"]);
+    expect(stages).toEqual(["fundamenty", "sciany", "strop", "dach", "instalacje", "tynki", "wylewki", "szkielet", "ocieplenie", "stolarka"]);
   });
 });
 

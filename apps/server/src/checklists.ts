@@ -2,6 +2,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { pageImagePath } from "./agent.js";
 import { canAccessProject, isUuid, requireProjectAccess, requireRole, type AuthEnv, type Principal } from "./auth.js";
+import { buildingType, DEFAULT_BUILDING_TYPE, projectTemplates } from "./building-types.js";
 import { stageTemplate, STAGE_TEMPLATES, type ChecklistItemTemplate } from "./checklist-templates.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
@@ -213,6 +214,12 @@ export const checklists = new Hono<AuthEnv>();
 checklists.get("/api/checklist-templates", requireRole("app", "admin"), (c) =>
   c.json(STAGE_TEMPLATES.map(({ stage, title, when, items }) => ({ stage, title, when, items: items.map((item) => item.label) }))),
 );
+
+checklists.get("/api/projects/:id/checklist-templates", requireRole("app", "admin"), requireProjectAccess(), async (c) => {
+  const [project] = await sql<{ buildingType: string }[]>`select building_type as "buildingType" from projects where id = ${c.req.param("id")}`;
+  const type = buildingType(project!.buildingType) ?? buildingType(DEFAULT_BUILDING_TYPE)!;
+  return c.json({ buildingType: type.type, label: type.label, templates: projectTemplates(type.type) });
+});
 
 checklists.get("/api/projects/:id/checklists", requireRole("app", "admin"), requireProjectAccess(), async (c) =>
   c.json(await sql`

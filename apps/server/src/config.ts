@@ -24,6 +24,8 @@ export const config = {
   sessionTtlDays: Number(process.env.SESSION_TTL_DAYS ?? 30),
   // Rate limits per user (or per shared token); login attempts per e-mail and per IP.
   chatRequestsPerMinute: Number(process.env.RATE_LIMIT_CHAT_PER_MINUTE ?? 10),
+  // Tool calls through the MCP endpoint (#47); a client reads several pages per question, so the limit is higher.
+  mcpCallsPerMinute: Number(process.env.RATE_LIMIT_MCP_PER_MINUTE ?? 60),
   uploadsPerHour: Number(process.env.RATE_LIMIT_UPLOADS_PER_HOUR ?? 30),
   diaryNotesPerHour: Number(process.env.RATE_LIMIT_DIARY_PER_HOUR ?? 60),
   loginAttemptsPer15Min: Number(process.env.RATE_LIMIT_LOGIN_PER_15_MIN ?? 10),
