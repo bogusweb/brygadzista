@@ -57,14 +57,14 @@ export const migrate = async () => {
   // A page that keeps failing is recorded and skipped instead of stopping the whole document.
   await sql`alter table pages add column if not exists error text`;
   await sql`alter table pages add column if not exists attempts int not null default 0`;
-  // User accounts (#10): owners see every project, contractors only the ones they are members of.
+  // User accounts (#10). Roles in a firm live in tenant_members (#88); the global role is only operator or user.
   await sql`
     create table if not exists users (
       id uuid primary key default gen_random_uuid(),
       email text not null unique,
       name text not null default '',
       password_hash text not null,
-      role text not null check (role in ('owner', 'contractor')),
+      role text not null default 'user',
       disabled_at timestamptz,
       created_at timestamptz not null default now()
     )`;
@@ -267,15 +267,20 @@ const migrateTenants = async () => {
 
   const [orphans] = await sql`
     select 1 where exists (select 1 from projects where tenant_id is null)
-      or exists (select 1 from users u where not exists (select 1 from tenant_members m where m.user_id = u.id))`;
+      or exists (select 1 from users u where u.role <> 'operator' and not exists (select 1 from tenant_members m where m.user_id = u.id))`;
   if (orphans) {
     const starterId = await starterTenantId();
     await sql`update projects set tenant_id = ${starterId} where tenant_id is null`;
     await sql`
       insert into tenant_members (tenant_id, user_id, role)
       select ${starterId}, u.id, case when u.role = 'contractor' then 'worker' else 'owner' end
-      from users u where not exists (select 1 from tenant_members m where m.user_id = u.id)`;
+      from users u where u.role <> 'operator' and not exists (select 1 from tenant_members m where m.user_id = u.id)`;
   }
+  // Owners and contractors from before firms are plain users now; their role lives in the firm (#88).
+  await sql`alter table users drop constraint if exists users_role_check`;
+  await sql`update users set role = 'user' where role not in ('operator', 'user')`;
+  await addConstraint("users", "users_global_role_check", "check (role in ('operator', 'user'))");
+  await sql`alter table users alter column role set default 'user'`;
   await sql`alter table projects alter column tenant_id set not null`;
   await addConstraint("projects", "projects_id_tenant_key", "unique (id, tenant_id)");
   await sql`create index if not exists projects_tenant on projects (tenant_id)`;
@@ -322,6 +327,18 @@ const migrateTenants = async () => {
       "foreign key (checklist_id, tenant_id) references checklists (id, tenant_id) on delete cascade on update cascade",
     );
   }
+  // Read-only links (#88, used by #82 and #84): a token bound to one project and its firm, valid until it expires.
+  await sql`
+    create table if not exists share_links (
+      token_hash text primary key,
+      project_id uuid not null,
+      tenant_id uuid not null,
+      created_by uuid references users(id) on delete set null,
+      created_at timestamptz not null default now(),
+      expires_at timestamptz not null,
+      foreign key (project_id, tenant_id) references projects (id, tenant_id) on delete cascade on update cascade
+    )`;
+  await sql`create or replace trigger share_links_tenant before insert on share_links for each row execute function tenant_from_project()`;
 };
 
 const starterTenantId = async () => {
@@ -331,7 +348,7 @@ const starterTenantId = async () => {
   return created!.id;
 };
 
-// Until sessions pick a firm (#88), new projects and accounts go to the oldest firm.
+// Where the operator's new projects go when no firm is named: the oldest firm.
 export const defaultTenantId = async () => {
   const [oldest] = await sql<{ id: string }[]>`select id from tenants order by created_at limit 1`;
   return oldest?.id ?? starterTenantId();

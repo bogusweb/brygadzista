@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { app } from "../src/app.js";
-import { hashPassword, type UserRole } from "../src/auth.js";
+import { hashPassword, type TenantRole } from "../src/auth.js";
 import { CODES_VERSION, extractCodes } from "../src/codes.js";
 import { config } from "../src/config.js";
 import { defaultTenantId, migrate, sql } from "../src/db.js";
@@ -23,13 +23,21 @@ export const createTenant = async (name = "Firma testowa") => {
   return tenant!.id;
 };
 
-export const createUser = async (email: string, role: UserRole, password = PASSWORD, tenantId?: string) => {
+// "contractor" is the pre-firm name of a worker, kept so older tests read the same.
+export const createUser = async (email: string, role: TenantRole | "contractor", password = PASSWORD, tenantId?: string) => {
   const [user] = await sql<{ id: string }[]>`
-    insert into users (email, name, password_hash, role) values (${email}, ${email.split("@")[0]!}, ${await hashPassword(password)}, ${role})
+    insert into users (email, name, password_hash) values (${email}, ${email.split("@")[0]!}, ${await hashPassword(password)})
     returning id`;
   await sql`
     insert into tenant_members (tenant_id, user_id, role)
-    values (${tenantId ?? (await defaultTenantId())}, ${user!.id}, ${role === "owner" ? "owner" : "worker"})`;
+    values (${tenantId ?? (await defaultTenantId())}, ${user!.id}, ${role === "contractor" ? "worker" : role})`;
+  return user!.id;
+};
+
+export const createOperator = async (email: string, password = PASSWORD) => {
+  const [user] = await sql<{ id: string }[]>`
+    insert into users (email, name, password_hash, role) values (${email}, 'Operator', ${await hashPassword(password)}, 'operator')
+    returning id`;
   return user!.id;
 };
 
