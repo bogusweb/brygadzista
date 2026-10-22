@@ -22,6 +22,7 @@ import {
   type AuthEnv,
   type Role,
 } from "./auth.js";
+import { cards } from "./cards.js";
 import { checklists } from "./checklists.js";
 import { citationCheck } from "./citations.js";
 import { config } from "./config.js";
@@ -74,6 +75,7 @@ app.route("/", diary);
 app.route("/", site);
 app.route("/", checklists);
 app.route("/", questions);
+app.route("/", cards);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun));
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));
