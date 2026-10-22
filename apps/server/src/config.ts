@@ -47,6 +47,9 @@ export const config = {
   // Search: cosine distance above which a page does not count as an answer by meaning. A loose start, to tune with
   // the retrieval eval (recall and the share of empty results for "brak" questions) once it has run with a key.
   searchMaxDistance: Number(process.env.SEARCH_MAX_DISTANCE ?? 0.5),
+  // From this many pages in a project, search goes through the indexes (HNSW with iterative scan, full-text GIN) instead
+  // of comparing every page: exact below it, fast above it (#58).
+  searchIndexedFromPages: Number(process.env.SEARCH_INDEXED_FROM_PAGES ?? 1000),
   indexConcurrency: Number(process.env.INDEX_CONCURRENCY ?? 2),
   // Upload limits: the PDF is streamed to disk and cut off as soon as it passes the size limit.
   maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 1024) * 1024 * 1024,
