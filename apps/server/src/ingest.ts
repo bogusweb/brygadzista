@@ -2,10 +2,15 @@ import { access } from "node:fs/promises";
 import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
+import { titleFromText } from "./outline.js";
+import { saveOutline } from "./project-outline.js";
+import { META_VERSION, displayTitle, extractPageMeta } from "./page-meta.js";
 import { pdfPageCount, pdfPageText, pdfRenderPage } from "./pdf.js";
 import { documentPdf, pageImage, pageImagePrefix } from "./storage.js";
 import { embed, embedImage } from "./llm.js";
 import { statusOf } from "./retry.js";
+
+export { titleFromText };
 
 const POLL_MS = 3000;
 
@@ -14,23 +19,6 @@ const exists = (file: string) =>
     () => true,
     () => false,
   );
-
-const TITLE_CHARS = 120;
-
-const HEADING_SEARCH_LINES = 30;
-
-// Without a reading model the title comes from the PDF text: the first heading in capitals near the top
-// (e.g. "IV. OGÓLNA CHARAKTERYSTYKA BUDYNKU"), else the first line.
-const isHeading = (line: string) => {
-  const letters = line.replace(/[^\p{L}]/gu, "");
-  return letters.length >= 4 && letters === letters.toLocaleUpperCase("pl") && line.length <= TITLE_CHARS;
-};
-
-export const titleFromText = (raw: string) => {
-  const lines = raw.split("\n").map((text) => text.replace(/\s+/g, " ").trim()).filter(Boolean);
-  const line = lines.slice(0, HEADING_SEARCH_LINES).find(isHeading) ?? lines[0];
-  return line ? line.slice(0, TITLE_CHARS) : null;
-};
 
 const CHUNK_CHARS = 2000;
 
@@ -59,7 +47,8 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
     ? pageImage(doc.id, pageNo)
     : await pdfRenderPage(pdf, pageNo, pageImagePrefix(doc.id, pageNo));
   const raw = await pdfPageText(pdf, pageNo);
-  const title = titleFromText(raw);
+  const meta = extractPageMeta(raw, pageNo);
+  const title = displayTitle(meta, titleFromText(raw));
   // A page with no text layer still needs a non-empty search text, or it would count as never indexed.
   const searchText = raw.trim() ? raw : `Strona ${pageNo}`;
 
@@ -70,8 +59,14 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
   await sql.begin(async (tx) => {
     const [page] = await tx<{ id: string }[]>`
       update pages set
-        kind = null,
+        kind = ${meta.kind},
         title = ${title},
+        drawing_no = ${meta.drawingNo},
+        scale = ${meta.scale},
+        revision = ${meta.revision},
+        branch = ${meta.branch},
+        level = ${meta.level},
+        meta_version = ${META_VERSION},
         raw_text = ${raw},
         summary = null,
         facts = ${tx.json([])},
@@ -178,6 +173,7 @@ const processDocument = async (doc: { id: string; project_id: string }) => {
     : config.openrouterApiKey
       ? null
       : NO_API_KEY_MESSAGE;
+  await saveOutline(doc.id);
   await sql`update documents set status = 'ready', error = ${error} where id = ${doc.id}`;
 };
 

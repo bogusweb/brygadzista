@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
+import { META_VERSION, displayTitle, extractPageMeta, titleFromText } from "./page-meta.js";
 
 export const sql = postgres(config.databaseUrl, { max: 10, onnotice: () => {} });
 
@@ -209,6 +210,13 @@ export const migrate = async () => {
   await sql`create index if not exists checklists_project on checklists (project_id)`;
   await sql`create index if not exists checklist_items_checklist on checklist_items (checklist_id)`;
   await sql`alter table pages add column if not exists codes_version int`;
+  // Page metadata from the PDF text (#55): the drawing's title block, trade and storey; null = not extracted yet.
+  await sql`alter table pages add column if not exists drawing_no text`;
+  await sql`alter table pages add column if not exists scale text`;
+  await sql`alter table pages add column if not exists revision text`;
+  await sql`alter table pages add column if not exists branch text`;
+  await sql`alter table pages add column if not exists level text`;
+  await sql`alter table pages add column if not exists meta_version int`;
   await sql`create index if not exists sessions_user on sessions (user_id)`;
   await sql`create index if not exists project_members_user on project_members (user_id)`;
   await sql`create index if not exists chunks_embedding on chunks using hnsw (embedding vector_cosine_ops)`;
@@ -216,8 +224,10 @@ export const migrate = async () => {
   await sql`create index if not exists pages_fts on pages using gin (to_tsvector('simple', search_text))`;
   await sql`create index if not exists pages_trgm on pages using gin (search_text gin_trgm_ops)`;
   await sql`create index if not exists pages_codes on pages using gin (codes)`;
+  await sql`create index if not exists pages_drawing_no on pages (project_id, drawing_no) where drawing_no is not null`;
   await migrateTenants();
   await backfillCodes();
+  await backfillMeta();
 };
 
 // Tables that hang off a project: their firm always comes from the project, through a composite key.
@@ -355,6 +365,23 @@ const backfillCodes = async () => {
     for (const page of pages) {
       await sql`
         update pages set codes = ${extractCodes(`${page.title ?? ""}\n${page.raw_text}`)}, codes_version = ${CODES_VERSION}
+        where id = ${page.id}`;
+    }
+  }
+};
+
+// Pages indexed before metadata existed, or with an older extraction, get it from their stored text without reindexing.
+const backfillMeta = async () => {
+  for (;;) {
+    const pages = await sql<{ id: string; page_no: number; raw_text: string }[]>`
+      select id, page_no, raw_text from pages where meta_version is distinct from ${META_VERSION} and search_text <> '' limit ${BACKFILL_BATCH}`;
+    if (pages.length === 0) return;
+    for (const page of pages) {
+      const meta = extractPageMeta(page.raw_text, page.page_no);
+      await sql`
+        update pages set kind = ${meta.kind}, title = ${displayTitle(meta, titleFromText(page.raw_text))},
+          drawing_no = ${meta.drawingNo}, scale = ${meta.scale}, revision = ${meta.revision}, branch = ${meta.branch},
+          level = ${meta.level}, meta_version = ${META_VERSION}
         where id = ${page.id}`;
     }
   }

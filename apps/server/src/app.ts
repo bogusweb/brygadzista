@@ -30,6 +30,7 @@ import { defects } from "./defects.js";
 import { diary } from "./diary.js";
 import { FakeProjectAgent } from "./fake-agent.js";
 import { pdfPageCount } from "./pdf.js";
+import { projectOutline } from "./project-outline.js";
 import { pins, removeDocumentPhotos, removeProjectFiles } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { documentDir, documentPdf, pageImage } from "./storage.js";
@@ -136,6 +137,14 @@ app.get("/api/projects/:id/documents", requireRole("app", "admin"), requireProje
 app.get("/api/documents/:id", requireRole("app", "admin"), requireDocumentAccess(), async (c) => {
   const [doc] = await documentRows(sql`d.id = ${c.req.param("id")}`);
   return doc ? c.json(withProgress(doc)) : c.json({ error: "Nie ma takiego dokumentu" }, 404);
+});
+
+// Table of contents of the document (#44): parts of the project with their pages, also what the agent browses by.
+app.get("/api/documents/:id/outline", requireRole("app", "admin"), requireDocumentAccess(), async (c) => {
+  const [doc] = await sql<{ projectId: string }[]>`select project_id as "projectId" from documents where id = ${c.req.param("id")}`;
+  if (!doc) return c.json({ error: "Nie ma takiego dokumentu" }, 404);
+  const found = (await projectOutline(doc.projectId)).find((document) => document.documentId === c.req.param("id"));
+  return c.json(found);
 });
 
 class UploadTooLarge extends Error {}
