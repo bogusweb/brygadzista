@@ -11,6 +11,8 @@ export const sql = postgres(config.databaseUrl, { max: 10, onnotice: () => {} })
 export const migrate = async () => {
   await sql`create extension if not exists pg_trgm`;
   await sql`create extension if not exists vector`;
+  // A newer image ships a newer pgvector; the database keeps the old version until updated (iterative scan needs 0.8).
+  await sql`alter extension vector update`.catch((error) => console.warn("db: pgvector not updated", String(error)));
   await sql`
     create table if not exists projects (
       id uuid primary key default gen_random_uuid(),
