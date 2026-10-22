@@ -1,5 +1,6 @@
 import { BuiltInAgent, defineTool } from "@copilotkit/runtime/v2";
 import { z } from "zod";
+import { CARD_KINDS, cardSettled, cardView, requestCard } from "./cards.js";
 import { sql } from "./db.js";
 import { inspectionImages } from "./drawing.js";
 import { agentLanguageModel, askAboutPage } from "./llm.js";
@@ -27,6 +28,10 @@ do którego masz dostęp przez narzędzia. Zasady:
 - Usterki i poprawki to pinezki na rzutach ze statusem (otwarta, do sprawdzenia, zamknięta), osobą odpowiedzialną i terminem.
   Na pytania w rodzaju „co jeszcze otwarte u Kowalskiego?” albo „usterki na parterze” użyj search_defects i wypisz je krótko
   (pomieszczenie, opis, osoba, termin, strona). Protokół odbioru w PDF wykonawca pobiera w zakładce Usterki.
+- Gdy wykonawca prosi o kartę pomieszczenia („karta łazienki 1.04”) albo przegrody („co jest w ścianie SZ1”, „warstwy dachu”),
+  wywołaj build_element_card: karta zbiera wymiary, wysokość, powierzchnię, rzędną, okna, drzwi i instalacje albo warstwy
+  z grubościami i współczynnik U, każdą wartość ze stroną, i zapisuje się w telefonie do pracy bez zasięgu. Aplikacja sama ją
+  pokaże: napisz tylko krótko, co jest na karcie, i wymień wprost, czego projekt nie podaje (missing).
 - Jeśli projekt czegoś nie określa, powiedz to wprost i zaproponuj, kogo zapytać (projektant, kierownik budowy).
 - Pisz krótko, konkretnie, po polsku, jak do fachowca.`;
 
@@ -180,6 +185,25 @@ export const createProjectAgent = (projectId: string) =>
             total: found.length,
             ...(found.length ? {} : { noMatch: true }),
           };
+        },
+      }),
+      defineTool({
+        name: "build_element_card",
+        description:
+          "Buduje kartę pomieszczenia (kind=room, np. 'Łazienka 1.04') albo przegrody (kind=partition, np. 'Ściana zewnętrzna SZ1', " +
+          "'Dach') z wartościami z projektu i stronami źródłowymi; karta zapisuje się w aplikacji do pracy offline. Ta sama nazwa " +
+          "zwraca istniejącą kartę; refresh=true zbiera dane od nowa.",
+        parameters: z.object({
+          kind: z.enum(CARD_KINDS).describe("room = pomieszczenie, partition = przegroda (ściana, strop, dach, podłoga)"),
+          name: z.string().min(1).max(120).describe("Nazwa jak w projekcie, z numerem pomieszczenia albo symbolem przegrody"),
+          refresh: z.boolean().optional(),
+        }),
+        execute: async (request) => {
+          const id = await requestCard(projectId, request, { id: null, name: "Asystent" });
+          await cardSettled(id);
+          const card = await cardView(id);
+          if (!card || card.status !== "ready") throw new Error(card?.error ?? "Nie udało się zbudować karty");
+          return card;
         },
       }),
       defineTool({
