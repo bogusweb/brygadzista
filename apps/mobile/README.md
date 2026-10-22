@@ -20,7 +20,7 @@ Renderer A2UI z CopilotKit jest tylko webowy, więc aplikacja ma własny, natywn
 - Zakładka „Projekt” (`GET /api/documents/:id/pages`): miniatury wszystkich stron, dotknięcie otwiera pełny ekran z powiększaniem i przyciskami „Poprzednia” / „Następna”.
 - „Pobierz N stron na telefon” zapisuje obrazy stron w katalogu dokumentów aplikacji (`expo-file-system`, `Paths.document/offline/<serwer>/pages/<dokument>/<nr>.jpg`), po 3 naraz, z paskiem postępu i przerwaniem. Katalog dokumentów, a nie cache, bo system może opróżnić cache akurat wtedy, gdy telefon jest na budowie.
 - Każda strona obejrzana z zasięgiem (w czacie albo w zakładce) też trafia na telefon.
-- Lista projektów, dokumentów i spis stron są zapisywane przy każdym udanym pobraniu. Bez zasięgu aplikacja pokazuje ostatnią zapisaną wersję z informacją „Brak połączenia z serwerem”. Błędy serwera (np. zły kod dostępu) nie są ukrywane.
+- Lista projektów, dokumentów i spis stron są zapisywane przy każdym udanym pobraniu. Bez zasięgu aplikacja pokazuje ostatnią zapisaną wersję z informacją „Brak połączenia z serwerem”. Błędy serwera (np. wygasła sesja) nie są ukrywane.
 - „Usuń zapisane strony z telefonu” zwalnia miejsce.
 - W przeglądarce obrazy stron nie są zapisywane (`offlineCache.web.ts`), zawsze idą z serwera. Listy i tekst do wyszukiwania trafiają do `localStorage`.
 
@@ -67,24 +67,26 @@ cd apps/mobile
 pnpm start                # zeskanuj kod QR w Expo Go
 ```
 
-Przy pierwszym starcie aplikacja pyta o adres serwera (np. `https://brygadzista.example.pl`) i kod dostępu (`APP_TOKEN` z serwera). Oba są zapisywane w `expo-secure-store`; zapis następuje dopiero, gdy `GET /api/projects` z tymi danymi się powiedzie.
+Przy pierwszym starcie aplikacja pyta o adres serwera (np. `https://brygadzista.example.pl`), e-mail i hasło konta (#91). Konto zakłada właściciel firmy albo operator. Adres, token sesji i dane konta (firmy, aktywna firma) są w `expo-secure-store`. Sesja pracuje w jednej firmie; gdy konto należy do kilku, firmę zmienia się w „Konto” (`POST /api/auth/tenant`).
+
+Dane zapisane na telefonie (listy, rysunki, zdjęcia, kolejki dziennika, usterek i checklist) leżą w katalogu `serwer/user-<id>/firm-<id>` (w przeglądarce: prefiks klucza `localStorage`), więc inne konto ani inna firma ich nie zobaczy. Zmiana firmy niczego nie kasuje, bo niewysłane zmiany każdej firmy czekają osobno. Wylogowanie usuwa wszystko z tego serwera, a logowanie innym kontem usuwa dane poprzednich kont i dane sprzed kont.
 
 Podgląd w przeglądarce (`pnpm web`) służy do szybkiego sprawdzenia ekranów: na webie dane zapisują się w `localStorage`.
 
 ## Wersja w przeglądarce
 
-Serwer serwuje aplikację pod `/app`, np. https://brygadzista.smieci.online/app. Wykonawca otwiera ten adres w przeglądarce telefonu i podaje tylko kod dostępu, bo adres serwera to ten sam host. Można ją dodać do ekranu głównego („Dodaj do ekranu początkowego”).
+Serwer serwuje aplikację pod `/app`, np. https://brygadzista.smieci.online/app. Wykonawca otwiera ten adres w przeglądarce telefonu i loguje się e-mailem i hasłem, bo adres serwera to ten sam host. Można ją dodać do ekranu głównego („Dodaj do ekranu początkowego”).
 
 - Eksport: `pnpm export:web` (`expo export --platform web` z `EXPO_BASE_URL=/app`, wynik w `dist-web/`). Robi go Dockerfile, w osobnym etapie, więc obraz serwera nie zawiera React Native.
-- Serwer czyta eksport z `MOBILE_WEB_DIR` (domyślnie `../mobile/dist-web`). Mock też go serwuje: `pnpm export:web`, potem `pnpm --filter @brygadzista/server mock` i http://localhost:3100/app/ (kod `demo`).
-- Różnice względem Expo Go: brak zapisu obrazów stron offline (wyszukiwanie działa z kopii w `localStorage`), kod dostępu w `localStorage` przeglądarki, Enter wysyła pytanie (Shift+Enter to nowa linia).
+- Serwer czyta eksport z `MOBILE_WEB_DIR` (domyślnie `../mobile/dist-web`). Mock też go serwuje: `pnpm export:web`, potem `pnpm --filter @brygadzista/server mock` i http://localhost:3100/app/ (dowolny e-mail, hasło `demo`).
+- Różnice względem Expo Go: brak zapisu obrazów stron offline (wyszukiwanie działa z kopii w `localStorage`), token sesji w `localStorage` przeglądarki, Enter wysyła pytanie (Shift+Enter to nowa linia).
 
 ## Test bez klucza OpenRouter
 
 Serwer testowy udaje backend: prawdziwy runtime CopilotKit i pętla narzędzi, tylko model i dane są zaskryptowane (wyszukanie, `show_page` ze str. 12, odpowiedź ze źródłami). Spis stron ma 42 strony, każda z tym samym przykładowym rysunkiem.
 
 ```bash
-pnpm --filter @brygadzista/server mock    # http://localhost:3100, kod dostępu: demo
+pnpm --filter @brygadzista/server mock    # http://localhost:3100, dowolny e-mail, hasło: demo
 ```
 
 W aplikacji podaj adres komputera w sieci lokalnej (np. `http://192.168.1.20:3100`; telefon musi być w tej samej sieci). Pytanie ze słowem „awaria” za pierwszym razem kończy się błędem, żeby sprawdzić komunikat i przycisk „Ponów”. Pytanie o „zestawienie” (albo materiały, warstwy, kolejność prac) zwraca powierzchnię A2UI ze wszystkimi czterema komponentami katalogu.
@@ -96,7 +98,7 @@ Testy logiki czatu: `pnpm test` (vitest).
 ```
 src/app/_layout.tsx        polyfille CopilotKit, gesty, nawigacja (Stack)
 src/app/index.tsx          lista projektów (GET /api/projects), przekierowanie do ustawień
-src/app/settings.tsx       adres serwera + kod dostępu
+src/app/settings.tsx       logowanie kontem, wybór firmy, wylogowanie
 src/app/projects/[id].tsx  ekran projektu: CopilotKitProvider (nagłówki Authorization i x-project-id) + czat
 src/lib/                   ustawienia, klient API, motyw, logika czatu (chat.ts) i A2UI (a2ui.ts), z testami
 src/components/            przycisk, provider CopilotKit, status połączenia z agentem
