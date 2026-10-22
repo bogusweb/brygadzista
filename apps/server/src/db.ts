@@ -278,6 +278,8 @@ export const migrate = async () => {
   await sql`create index if not exists schedule_items_page on schedule_items (page_id)`;
   await sql`alter table pages add column if not exists schedule_version int`;
   await sql`alter table pages add column if not exists schedule_error text`;
+  // A new version of a document (#72) points at the one it replaces; the old one stays for reference.
+  await sql`alter table documents add column if not exists revision_of uuid references documents(id) on delete set null`;
   await sql`create index if not exists sessions_user on sessions (user_id)`;
   await sql`create index if not exists project_members_user on project_members (user_id)`;
   await sql`create index if not exists chunks_project on chunks (project_id)`;

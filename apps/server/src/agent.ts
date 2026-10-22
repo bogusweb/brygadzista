@@ -11,6 +11,7 @@ import { DEFECT_STATUSES, photoImagePath, searchPins } from "./pins.js";
 import { MAX_PAGES_PER_CALL, projectOutline, readPages } from "./project-outline.js";
 import { PAGE_BRANCHES, PAGE_KINDS } from "./page-meta.js";
 import { cropPath, listQuestions, QUESTION_STATUSES, regionSchema } from "./questions.js";
+import { changesOnPages, projectRevisions } from "./revisions.js";
 import { searchPages } from "./search.js";
 
 const SYSTEM_PROMPT = `Jesteś Brygadzistą: asystentem wykonawcy na budowie. Odpowiadasz wyłącznie na podstawie projektu technicznego,
@@ -39,6 +40,9 @@ do którego masz dostęp przez narzędzia. Zasady:
   sprawdzaj w zestawieniach narzędziem get_material_schedule. Sumy (totals) liczy serwer tylko z pozycji, których liczby są
   na stronie; pozycje verified=false wymień osobno jako do sprawdzenia. Przy każdej pozycji podaj stronę. Gdy zestawienia
   nie ma (noSchedule), powiedz to wprost i nie licz niczego na oko z rysunków.
+- Projekt może mieć kilka wersji: wyszukiwanie zwraca strony najnowszej. Gdy wynik ma changedSincePreviousVersion, a pytanie
+  dotyczy tej wartości, powiedz wprost, że w nowej wersji się zmieniła („było 12 cm, teraz 15 cm”). Na pytania „co się
+  zmieniło w nowej wersji?” odpowiadaj z get_project_changes, ze stronami obu wersji.
 - Jeśli projekt czegoś nie określa, powiedz to wprost i zaproponuj, kogo zapytać (projektant, kierownik budowy).
 - Gdy po sprawdzeniu projektu brakuje danych, których wykonawca potrzebuje do pracy, albo dwie strony sobie przeczą
   (np. inna grubość w opisie i na detalu), przygotuj pytanie do projektanta narzędziem draft_designer_question: konkretne,
@@ -100,7 +104,13 @@ export const createProjectAgent = (projectId: string, extraPrompt = "") =>
           level: z.string().optional().describe("Kondygnacja rzutu, np. 'parter', 'piętro 1', 'piwnica', 'poddasze', 'dach'"),
         }),
         execute: async ({ query, ...filter }) => {
-          const results = await searchPages(projectId, query, 6, filter);
+          const found = await searchPages(projectId, query, 6, filter);
+          // A page of a newer version says what changed on it since the previous one (#72).
+          const changes = await changesOnPages(found);
+          const results = found.map((hit) => {
+            const changed = changes.get(`${hit.documentId}:${hit.pageNo}`);
+            return changed ? { ...hit, changedSincePreviousVersion: changed } : hit;
+          });
           return results.length ? { results } : { results, noMatch: true };
         },
       }),
@@ -229,6 +239,24 @@ export const createProjectAgent = (projectId: string, extraPrompt = "") =>
             ...(schedule.pages.length ? {} : { noSchedule: true }),
             ...(schedule.status === "no_model" ? { note: "Zestawienia nie są odczytane: brak klucza modelu na serwerze" } : {}),
           };
+        },
+      }),
+      defineTool({
+        name: "get_project_changes",
+        description:
+          "Lista zmian między wersjami projektu (nowy PDF wgrany jako wersja dokumentu): strony zmienione, dodane i usunięte, " +
+          "parametry przed i po oraz zmienione wiersze tekstu, z numerami stron obu wersji. Najnowsza wersja pierwsza.",
+        parameters: z.object({}),
+        execute: async () => {
+          const found = await projectRevisions(projectId);
+          return found.length
+            ? {
+                revisions: found.map(({ changes, ...revision }) => ({
+                  ...revision,
+                  changes: changes.slice(0, 40).map(({ imagePath: _image, previousImagePath: _previous, ...change }) => change),
+                })),
+              }
+            : { revisions: [], noMatch: true };
         },
       }),
       defineTool({
