@@ -260,9 +260,36 @@ const requireToken: MiddlewareHandler = async (c, next) => {
   await next();
 };
 
+// Accounts (#91): any e-mail with the password "demo" logs in; the session token is the same demo token. The account
+// belongs to two firms so the app's firm switch can be tried; the projects do not change with the firm.
+const MOCK_TENANTS = [
+  { id: "00000000-0000-4000-8000-000000000001", name: "Budmax (dane testowe)", role: "manager" },
+  { id: "00000000-0000-4000-8000-000000000002", name: "Druga firma (dane testowe)", role: "worker" },
+];
+let mockTenant = MOCK_TENANTS[0]!;
+const mockAccount = (email = "demo@example.com") => ({
+  user: { id: "00000000-0000-4000-8000-0000000000aa", email, name: email.split("@")[0], role: "user" },
+  tenant: mockTenant,
+  tenants: MOCK_TENANTS,
+});
+
 const app = new Hono();
 app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-type", "x-project-id"] }));
+app.post("/api/auth/login", async (c) => {
+  const { email, password } = await c.req.json<{ email?: string; password?: string }>();
+  if (!email || password !== TOKEN) return c.json({ error: "Nieprawidłowy e-mail lub hasło" }, 401);
+  return c.json({ token: TOKEN, ...mockAccount(email) });
+});
 app.use("/api/*", requireToken);
+app.get("/api/auth/me", (c) => c.json(mockAccount()));
+app.post("/api/auth/tenant", async (c) => {
+  const { tenantId } = await c.req.json<{ tenantId?: string }>();
+  const tenant = MOCK_TENANTS.find((candidate) => candidate.id === tenantId);
+  if (!tenant) return c.json({ error: "Nie ma takiej firmy" }, 404);
+  mockTenant = tenant;
+  return c.json(mockAccount());
+});
+app.post("/api/auth/logout", (c) => c.body(null, 204));
 app.route("/", createCopilotEndpoint({ runtime, basePath: "/api/copilotkit" }));
 app.get("/api/projects", (c) => c.json([PROJECT]));
 app.get("/api/projects/:id/documents", (c) =>
@@ -519,5 +546,5 @@ app.use("/app/*", serveStatic({ root: mobileWebRoot, rewriteRequestPath: (reques
 app.get("/app/*", serveStatic({ root: mobileWebRoot, path: "index.html" }));
 
 serve({ fetch: app.fetch, port: PORT }, () =>
-  console.log(`Mock Brygadzisty: http://localhost:${PORT} (kod dostępu "${TOKEN}"). Słowo "awaria" w pytaniu symuluje błąd przy pierwszej próbie, "zestawienie" pokazuje powierzchnię A2UI, "zdjęcia" szuka przypiętych zdjęć.`),
+  console.log(`Mock Brygadzisty: http://localhost:${PORT} (dowolny e-mail, hasło "${TOKEN}"). Słowo "awaria" w pytaniu symuluje błąd przy pierwszej próbie, "zestawienie" pokazuje powierzchnię A2UI, "zdjęcia" szuka przypiętych zdjęć.`),
 );

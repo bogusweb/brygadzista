@@ -102,10 +102,10 @@ tenants.post("/api/invites", requireRole("admin"), requireTenantOwner, async (c)
 
 tenants.delete("/api/invites/:id", requireRole("admin"), requireTenantOwner, async (c) => {
   const tenantId = scopeTenant(c.get("principal"), c.req.query("tenantId"));
-  if (tenantId && isUuid(c.req.param("id"))) {
-    await sql`delete from tenant_invites where id = ${c.req.param("id")} and tenant_id = ${tenantId} and accepted_at is null`;
-  }
-  return c.body(null, 204);
+  const revoked = tenantId && isUuid(c.req.param("id"))
+    ? await sql`delete from tenant_invites where id = ${c.req.param("id")} and tenant_id = ${tenantId} and accepted_at is null returning 1`
+    : [];
+  return revoked.length > 0 ? c.body(null, 204) : c.json({ error: "Nie ma takiego zaproszenia" }, 404);
 });
 
 type OpenInvite = { id: string; tenantId: string; tenantName: string; email: string | null; role: TenantRole; projectIds: string[]; expiresAt: Date };

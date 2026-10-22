@@ -2,9 +2,24 @@ import type { Message, ToolCall, ToolMessage } from "@copilotkit/react-native/he
 import { A2UI_ACTIVITY_TYPE, A2UI_TOOL_NAMES, parseSurfaceActivity } from "./a2ui";
 import type { SurfaceActivity } from "./a2ui";
 
+// The server checks the pages an answer cites against the pages its tools returned (#57) and sends the result as
+// an activity after the answer.
+export const CITATION_ACTIVITY_TYPE = "citation-check";
+
+export type Citation = { pageNo: number; documentId?: string; in: "text" | "card" };
+
+const isCitation = (value: unknown): value is Citation =>
+  !!value && typeof value === "object" && typeof (value as Citation).pageNo === "number" && ["text", "card"].includes((value as Citation).in);
+
+export const parseCitationCheck = (content: unknown): Citation[] | null => {
+  const unverified = (content as { unverified?: unknown } | null)?.unverified;
+  return Array.isArray(unverified) ? unverified.filter(isCitation) : null;
+};
+
 export type ChatItem =
   | { kind: "user"; id: string; text: string }
-  | { kind: "assistant"; id: string; text: string }
+  | { kind: "assistant"; id: string; text: string; unverifiedPages?: number[] }
+  | { kind: "citations"; id: string; unverified: Citation[] }
   | { kind: "tool"; id: string; toolCall: ToolCall; result?: ToolMessage }
   | { kind: "surface"; id: string; activity: SurfaceActivity }
   | { kind: "thinking"; id: string };
@@ -29,6 +44,13 @@ export const toChatItems = (messages: readonly Message[], isRunning: boolean): C
       const activity = parseSurfaceActivity(message.content);
       if (activity) items.push({ kind: "surface", id: message.id, activity });
     }
+    if (message.role === "activity" && message.activityType === CITATION_ACTIVITY_TYPE) {
+      const unverified = parseCitationCheck(message.content);
+      if (unverified?.length) {
+        markUnverified(items, unverified);
+        items.push({ kind: "citations", id: message.id, unverified });
+      }
+    }
     if (message.role !== "assistant") continue;
     const text = textOf(message.content);
     if (text.trim()) items.push({ kind: "assistant", id: message.id, text });
@@ -39,6 +61,18 @@ export const toChatItems = (messages: readonly Message[], isRunning: boolean): C
   if (isRunning && items.at(-1)?.kind !== "assistant" && items.at(-1)?.kind !== "surface") items.push({ kind: "thinking", id: "thinking" });
   return items;
 };
+
+// The check covers the answer since the last question, so its text citations are marked there.
+const markUnverified = (items: ChatItem[], unverified: Citation[]) => {
+  const pages = unverified.filter((citation) => citation.in === "text").map((citation) => citation.pageNo);
+  for (let i = items.length - 1; i >= 0 && items[i]!.kind !== "user"; i--) {
+    const item = items[i]!;
+    if (item.kind === "assistant" && pages.length) items[i] = { ...item, unverifiedPages: pages };
+  }
+};
+
+export const describeUnverified = (unverified: Citation[]) =>
+  unverified.map((citation) => `str. ${citation.pageNo}${citation.in === "card" ? " (na karcie)" : ""}`).join(", ");
 
 // After a failed run the history may end with half an answer; drop everything after the last question so a retry starts clean.
 export const trimToLastQuestion = (messages: readonly Message[]): Message[] => {
@@ -62,6 +96,10 @@ export const toolLabel = (name: string, args: ToolArgs, done: boolean) => {
   switch (name) {
     case "search_project":
       return done ? `Przeszukałem projekt${args.query ? `: „${args.query}”` : ""}` : `Szukam w projekcie${args.query ? `: „${args.query}”` : "…"}`;
+    case "get_project_outline":
+      return done ? "Przejrzałem spis treści projektu" : "Przeglądam spis treści projektu…";
+    case "get_pages":
+      return done ? "Przeczytałem strony" : "Czytam strony…";
     case "list_pages":
       return done ? "Przejrzałem spis stron" : "Przeglądam spis stron…";
     case "read_page":

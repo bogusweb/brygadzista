@@ -138,6 +138,8 @@ const uploadDocument = (token: string, projectId: string, file: File, onProgress
   return { done, cancel: () => xhr.abort() };
 };
 
+export type Site = { address: string | null; lat: number | null; lon: number | null; found?: string | null };
+
 const post = (body: unknown, method = "POST"): RequestInit => ({ method, body: JSON.stringify(body) });
 
 // Requests that need no session: signing in and the invitation page.
@@ -177,6 +179,8 @@ export const createApi = (token: string, operatorTenantId: string | null = null)
     createProject: (name: string) =>
       request<Pick<Project, "id" | "name">>(token, "/api/projects", post({ name, tenantId: operatorTenantId ?? undefined })),
     deleteProject: (id: string) => request<void>(token, `/api/projects/${id}`, { method: "DELETE" }),
+    getSite: (projectId: string) => request<Site | null>(token, `/api/projects/${projectId}/site`),
+    putSite: (projectId: string, address: string) => request<Site>(token, `/api/projects/${projectId}/site`, post({ address }, "PUT")),
     listDocuments: (projectId: string) => request<ProjectDocument[]>(token, `/api/projects/${projectId}/documents`),
     uploadDocument: (projectId: string, file: File, onProgress: (fraction: number) => void) =>
       uploadDocument(token, projectId, file, onProgress),

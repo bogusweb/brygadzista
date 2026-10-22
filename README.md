@@ -85,7 +85,8 @@ Autoryzacja: `Authorization: Bearer <token>`.
 
 Obca budowa, dokument, strona, zdjęcie czy wpis odpowiada 404, także przez agenta (`x-project-id`). Sesja pamięta aktywną firmę: logowanie zwraca `tenant` i `tenants`, a `POST /api/auth/tenant` (`{tenantId}`) ją przełącza. Rola globalna to tylko `operator` (widzi wszystkie firmy) albo `user`. Hasła to argon2id, sesja to losowy token `bs_…` (w bazie tylko jego SHA-256), ważny `SESSION_TTL_DAYS` dni i przedłużany przy użyciu. Wyłączenie konta lub nowe hasło kończy jego sesje; konto należące też do innej firmy zmienia tylko operator.
 - `ADMIN_TOKEN` z env to operator: widzi wszystkie firmy, zakłada konta (`POST /api/users` z `role` i opcjonalnym `tenantId`) i budowy (`POST /api/projects` z opcjonalnym `tenantId`; bez niego najstarsza firma).
-- `APP_TOKEN` to stary wspólny token aplikacji, działa już tylko w najstarszej firmie i zniknie, gdy aplikacja zacznie logować się kontem (#91). Jest wyłączony, gdy pusty, a w produkcji (`NODE_ENV=production`) także gdy nieustawiony.
+- Aplikacja loguje się kontem (#91). Stary wspólny `APP_TOKEN` nie działa w produkcji (`NODE_ENV=production`); zostaje tylko w testach i lokalnie jako szybki klucz do najstarszej firmy. Pierwsze konto w firmie zakłada operator:
+  `curl -X POST https://<serwer>/api/users -H "authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' -d '{"email":"jan@firma.pl","name":"Jan","password":"…","role":"owner"}'`
 - Zaproszenia (#90): właściciel (albo operator z `?tenantId=`) tworzy `POST /api/invites` (`{role, email?, days?, projectIds?}`, domyślnie 7 dni, max 30) i dostaje jednorazowy token `bi_…` (w bazie tylko hash). `GET /api/invites/token/:token` pokazuje firmę i rolę bez logowania, `POST /api/invites/token/:token/accept` (`{email, name, password}`) zakłada konto tylko w tej firmie albo, po haśle istniejącego konta, dodaje do niego firmę. `GET /api/invites` listuje, `DELETE /api/invites/:id` odwołuje. `PATCH /api/users/:id` z `{blocked}` blokuje osobę tylko w tej firmie (kończy jej sesje w niej), `PATCH /api/tenant` (`{name}`) zmienia nazwę firmy. Operator ma `GET/POST /api/tenants` (lista firm, nowa firma).
 - Dashboard: logowanie kontem (właściciel lub kierownik; pracownik dostaje informację, że korzysta z aplikacji), przy kilku firmach wybór firmy i przełącznik w nagłówku; `ADMIN_TOKEN` zostaje jako awaryjne logowanie operatora, który wybiera firmę w nagłówku albo widzi wszystkie. Ekran „Firma” (tylko właściciel i operator): nazwa, ludzie z rolami, blokada, usunięcie z firmy, przypisanie pracownika do budów i zaproszenia z linkiem do skopiowania (`#/zaproszenie/<token>`).
 - Linki tylko do odczytu: `POST /api/projects/:id/share-links` (`{days}`, domyślnie 7, max 90) zwraca token `bl_…` przypisany do budowy i firmy; `GET /api/share/:token` działa do terminu ważności.
@@ -145,7 +146,7 @@ Bez `OPENROUTER_API_KEY` działa tylko ranking tekstowy (za darmo); z kluczem do
 `Dockerfile` buduje jeden obraz (serwer + zbudowany dashboard; Node 22, poppler, użytkownik non-root). `openship.yaml` (w katalogu głównym, bo Openship nie przyjmuje kontekstu budowania poza katalogiem pliku compose) to compose dla projektu Openship na ruth154: `app` (port 3000, healthcheck `/api/health`, 768 MB) i `postgres` z pgvector (512 MB), wolumeny `app-data` (`/data`) i `postgres-data`.
 
 ```bash
-ADMIN_TOKEN=... APP_TOKEN=... OPENROUTER_API_KEY=... docker compose -f openship.yaml up --build
+ADMIN_TOKEN=... OPENROUTER_API_KEY=... docker compose -f openship.yaml up --build
 ```
 
-Sekrety (`ADMIN_TOKEN`, `APP_TOKEN`, `OPENROUTER_API_KEY`, opcjonalnie `POSTGRES_PASSWORD`) ustawiamy w zmiennych środowiskowych Openship.
+Sekrety (`ADMIN_TOKEN`, `OPENROUTER_API_KEY`, opcjonalnie `POSTGRES_PASSWORD`) ustawiamy w zmiennych środowiskowych Openship.

@@ -76,7 +76,7 @@ const activeTenant = async (userId: string, tenantId: string | null) => {
   return tenants.find((tenant) => tenant.id === tenantId) ?? tenants[0] ?? null;
 };
 
-// The legacy APP_TOKEN works in the oldest firm only, until the app logs in with accounts (#91).
+// The legacy APP_TOKEN works in the oldest firm only, and only outside production (#91).
 const legacyAppTenant = async (): Promise<Tenant | null> => {
   const [tenant] = await sql<{ id: string; name: string }[]>`
     select id, name from tenants where disabled_at is null order by created_at limit 1`;

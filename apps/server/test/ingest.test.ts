@@ -72,6 +72,16 @@ describe("ingest", () => {
     expect(chunks.filter((chunk) => chunk.content.includes("[obraz strony]"))).toHaveLength(4);
   });
 
+  it("stores the parameters read from the page text, also without an API key", async () => {
+    const documentId = await createDocument(projectId);
+    await writeDocumentPdf(documentId, makePdf(["Kubatura budynku - 6680 m3", "Rzut przyziemia"]));
+
+    await processNextDocument();
+
+    const facts = await sql`select label, value, unit from facts where project_id = ${projectId}`;
+    expect(facts).toEqual([{ label: "Kubatura budynku", value: "6680", unit: "m3" }]);
+  });
+
   it("resumes a document interrupted by a restart without redoing finished pages", async () => {
     config.openrouterApiKey = "test-key";
     const documentId = await createDocument(projectId, "processing");

@@ -6,7 +6,7 @@ import type { ListRenderItemInfo, TextInputKeyPressEvent } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchDocuments } from "../../lib/api";
 import type { ProjectDocument } from "../../lib/api";
-import { pageDocuments, toChatItems, trimToLastQuestion } from "../../lib/chat";
+import { describeUnverified, pageDocuments, toChatItems, trimToLastQuestion } from "../../lib/chat";
 import type { ChatItem } from "../../lib/chat";
 import { colors, radius, spacing } from "../../lib/theme";
 import { useCachedResource } from "../../lib/useCachedResource";
@@ -123,7 +123,16 @@ export const ProjectChat = ({ projectId }: { projectId: string }) => {
       case "assistant":
         return (
           <View style={styles.assistantBlock}>
-            <MessageText text={item.text} onOpenPage={openCitedPage} />
+            <MessageText text={item.text} onOpenPage={openCitedPage} unverifiedPages={item.unverifiedPages} />
+          </View>
+        );
+      case "citations":
+        return (
+          <View style={styles.citationWarning} accessibilityRole="alert">
+            <Text style={styles.citationWarningText}>
+              Nie potwierdzono źródła: {describeUnverified(item.unverified)}. Agent nie dostał tej strony z wyszukiwania ani
+              odczytu, sprawdź ją w projekcie.
+            </Text>
           </View>
         );
       case "tool":
@@ -243,6 +252,8 @@ const styles = StyleSheet.create({
   suggestionText: { fontSize: 15, color: colors.text },
   bubble: { maxWidth: "85%", borderRadius: radius.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2 },
   userBubble: { alignSelf: "flex-end", backgroundColor: colors.text },
+  citationWarning: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.dangerBg },
+  citationWarningText: { fontSize: 14, lineHeight: 20, color: colors.danger },
   userText: { fontSize: 16, lineHeight: 22, color: colors.surface },
   assistantBlock: { paddingRight: spacing.lg },
   toolBlock: { alignSelf: "stretch" },
