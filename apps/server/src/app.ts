@@ -25,6 +25,7 @@ import {
 } from "./auth.js";
 import { cards } from "./cards.js";
 import { chatThreads } from "./chat-threads.js";
+import { revisions } from "./revisions.js";
 import { schedules } from "./schedules.js";
 import { checklists } from "./checklists.js";
 import { citationCheck } from "./citations.js";
@@ -88,6 +89,7 @@ app.route("/", checklists);
 app.route("/", questions);
 app.route("/", cards);
 app.route("/", schedules);
+app.route("/", revisions);
 app.route("/", mcp);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun), chatThreads);
@@ -158,6 +160,8 @@ type DocumentRow = {
   runTotal: number;
   runDone: number;
   failedPages: number;
+  revisionOf: string | null;
+  supersededBy: string | null;
 };
 
 // What the dashboard needs to show before and during indexing: the estimate, progress and time left.
@@ -173,7 +177,9 @@ const withProgress = ({ startedAt, runTotal, runDone, ...doc }: DocumentRow) => 
 const documentRows = (where: ReturnType<typeof sql>) => sql<DocumentRow[]>`
   select d.id, d.filename, d.page_count as "pageCount", d.indexed_pages as "indexedPages", d.status, d.error,
     d.created_at as "createdAt", d.started_at as "startedAt", d.run_total as "runTotal", d.run_done as "runDone",
-    (select count(*)::int from pages p where p.document_id = d.id and p.error is not null) as "failedPages"
+    (select count(*)::int from pages p where p.document_id = d.id and p.error is not null) as "failedPages",
+    d.revision_of as "revisionOf",
+    (select n.id from documents n where n.revision_of = d.id order by n.created_at desc limit 1) as "supersededBy"
   from documents d where ${where} order by d.created_at`;
 
 app.get("/api/projects/:id/documents", requireRole("app", "admin"), requireProjectAccess(), async (c) =>
@@ -212,12 +218,19 @@ const tooLargeMessage = () => `Plik jest za duży (limit ${Math.round(config.max
 // count and a cost and time estimate; with ?autostart=0 indexing waits for POST /api/documents/:id/start.
 app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAccess(), rateLimit(limiters.upload), async (c) => {
   const filename = c.req.query("filename") ?? "projekt.pdf";
+  // ?revisionOf=<document id>: a new version of that document of the same project (#72).
+  const revisionOf = c.req.query("revisionOf") || null;
+  if (revisionOf) {
+    const [previous] = isUuid(revisionOf) ? await sql`select 1 from documents where id = ${revisionOf} and project_id = ${c.req.param("id")}` : [];
+    if (!previous) return c.json({ error: "Nie ma takiego dokumentu w tym projekcie" }, 400);
+  }
   const autostart = c.req.query("autostart") !== "0";
   const body = c.req.raw.body;
   if (!body) return c.json({ error: "Brak pliku" }, 400);
   if (Number(c.req.header("content-length") ?? 0) > config.maxUploadBytes) return c.json({ error: tooLargeMessage() }, 413);
   const [doc] = await sql<{ id: string }[]>`
-    insert into documents (project_id, filename, status) values (${c.req.param("id")}, ${filename}, 'uploading') returning id`;
+    insert into documents (project_id, filename, status, revision_of)
+    values (${c.req.param("id")}, ${filename}, 'uploading', ${revisionOf}) returning id`;
   const id = doc!.id;
   const reject = async (status: 400 | 413, error: string) => {
     await sql`delete from documents where id = ${id}`;
