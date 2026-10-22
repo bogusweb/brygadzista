@@ -41,8 +41,8 @@ const usePrefersDark = () =>
   );
 
 // Tool renderers must be registered under the provider, so they live in a child component.
-const ProjectChat = ({ api, fallbackDocumentId }: { api: Api; fallbackDocumentId: string | null }) => {
-  useChatToolRenderers(api);
+const ProjectChat = ({ api, projectId, fallbackDocumentId }: { api: Api; projectId: string; fallbackDocumentId: string | null }) => {
+  useChatToolRenderers(api, projectId);
   const messageView = useMemo(
     () => ({ assistantMessage: makeAssistantMessage(fallbackDocumentId) }),
     [fallbackDocumentId],
@@ -127,7 +127,7 @@ export const ChatScreen = ({ api, projectId, onUnauthorized }: Props) => {
         <PageViewerProvider api={api}>
           <A2UIDocumentProvider value={indexed[0]?.id ?? null}>
             <div className={`card chat-panel${prefersDark ? " dark" : ""}`}>
-              <ProjectChat key={projectId} api={api} fallbackDocumentId={indexed[0]?.id ?? null} />
+              <ProjectChat key={projectId} api={api} projectId={projectId} fallbackDocumentId={indexed[0]?.id ?? null} />
             </div>
           </A2UIDocumentProvider>
         </PageViewerProvider>

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { ApiError, type Api, type Project, type ProjectDocument } from "./api";
 import { dateFormat, errorMessage, formatBytes, formatDuration, formatUsd, pluralize } from "./format";
+import { PageViewerProvider } from "./pageViewer";
+import { QuestionsPanel } from "./questions";
 import { routeHref } from "./route";
 import { SiteCard } from "./SiteCard";
 
@@ -301,6 +303,10 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
       )}
 
       <SiteCard api={api} projectId={projectId} />
+
+      <PageViewerProvider api={api}>
+        <QuestionsPanel api={api} projectId={projectId} onUnauthorized={onUnauthorized} />
+      </PageViewerProvider>
     </section>
   );
 };

@@ -19,6 +19,7 @@ type FirmData = {
   photoId: string;
   diaryId: string;
   checklistId: string;
+  questionId: string;
   userId: string;
 };
 
@@ -52,7 +53,10 @@ const seedFirm = async (name: string): Promise<FirmData> => {
   const [checklist] = await sql<{ id: string }[]>`
     insert into checklists (project_id, stage, title, status) values (${projectId}, 'strop', 'Strop', 'ready') returning id`;
   await sql`insert into checklist_items (checklist_id, position, label, ask) values (${checklist!.id}, 1, 'Beton', 'Klasa betonu')`;
-  return { tenantId, projectId, documentId, pinId, photoId, diaryId: diary!.id, checklistId: checklist!.id, userId };
+  const [question] = await sql<{ id: string }[]>`
+    insert into designer_questions (project_id, document_id, page_no, question) values (${projectId}, ${documentId}, 1, 'Jaki strop?')
+    returning id`;
+  return { tenantId, projectId, documentId, pinId, photoId, diaryId: diary!.id, checklistId: checklist!.id, questionId: question!.id, userId };
 };
 
 // Fills a route's parameters with firm B's ids; null when the route does not point at data of a firm.
@@ -75,6 +79,7 @@ const pathFor = (routePath: string, b: FirmData) => {
     .replace(":pinId", b.pinId)
     .replace(":photoId", b.photoId)
     .replace(":userId", b.userId)
+    .replace(":questionId", b.questionId)
     .replace(":pageNo", "1");
 };
 
@@ -98,6 +103,7 @@ const countsOf = async (b: FirmData) => {
       (select count(*)::int from pin_photos where tenant_id = ${b.tenantId}) as photos,
       (select count(*)::int from diary_entries where tenant_id = ${b.tenantId}) as diary,
       (select count(*)::int from checklists where tenant_id = ${b.tenantId}) as checklists,
+      (select count(*)::int from designer_questions where tenant_id = ${b.tenantId}) as questions,
       (select count(*)::int from checklist_items where tenant_id = ${b.tenantId}) as items,
       (select count(*)::int from tenant_members where tenant_id = ${b.tenantId}) as people,
       (select disabled_at is null from users where id = ${b.userId}) as "userActive"`;

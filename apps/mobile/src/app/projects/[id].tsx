@@ -11,10 +11,11 @@ import { ProjectPages } from "../../components/pages/ProjectPages";
 import { ProjectSearch } from "../../components/pages/ProjectSearch";
 import { PinsProvider } from "../../components/pins/PinsProvider";
 import { ProjectCopilot } from "../../components/ProjectCopilot";
+import { ProjectQuestions } from "../../components/questions/ProjectQuestions";
 import { useSettings } from "../../lib/settings";
 import { colors, radius, spacing } from "../../lib/theme";
 
-type Tab = "chat" | "pages" | "defects" | "checklists" | "diary";
+type Tab = "chat" | "pages" | "defects" | "checklists" | "diary" | "questions";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "chat", label: "Czat" },
@@ -22,6 +23,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "defects", label: "Usterki" },
   { id: "checklists", label: "Odbiory" },
   { id: "diary", label: "Dziennik" },
+  { id: "questions", label: "Pytania" },
 ];
 
 const TabBar = ({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void }) => (
@@ -36,7 +38,9 @@ const TabBar = ({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void }) =
           onPress={() => onChange(id)}
           style={[styles.tab, selected && styles.tabSelected]}
         >
-          <Text style={[styles.tabLabel, selected && styles.tabLabelSelected]}>{label}</Text>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.tabLabel, selected && styles.tabLabelSelected]}>
+            {label}
+          </Text>
         </Pressable>
       );
     })}
@@ -76,6 +80,9 @@ const ProjectScreen = () => {
           </View>
           <View style={[styles.pane, tab !== "diary" && styles.hidden]}>
             <ProjectDiary projectId={id} />
+          </View>
+          <View style={[styles.pane, tab !== "questions" && styles.hidden]}>
+            <ProjectQuestions projectId={id} />
           </View>
         </PageViewerProvider>
       </PinsProvider>
