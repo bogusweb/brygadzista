@@ -173,7 +173,8 @@ describe("what the project says about a defect", () => {
 describe("listDefects", () => {
   it("filters by status, person (any case) and page", async () => {
     await putPin(randomUUID(), defectBody({ room: "Salon" }));
-    await putPin(randomUUID(), defectBody({ room: "Kuchnia", status: "closed", assignee: "Nowak" }));
+    // A minute later, so the order within the page does not depend on how Postgres happens to return equal times.
+    await putPin(randomUUID(), defectBody({ room: "Kuchnia", status: "closed", assignee: "Nowak", createdAt: "2026-10-21T08:01:00.000Z" }));
     await putPin(randomUUID(), defectBody({ room: "Sypialnia", pageNo: 6 }));
     await defectSpecsIdle();
 

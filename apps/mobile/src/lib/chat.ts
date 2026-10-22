@@ -96,6 +96,10 @@ export const toolLabel = (name: string, args: ToolArgs, done: boolean) => {
   switch (name) {
     case "search_project":
       return done ? `Przeszukałem projekt${args.query ? `: „${args.query}”` : ""}` : `Szukam w projekcie${args.query ? `: „${args.query}”` : "…"}`;
+    case "draft_designer_question":
+      return done ? "Przygotowałem pytanie do projektanta" : "Przygotowuję pytanie do projektanta…";
+    case "list_designer_questions":
+      return done ? "Przejrzałem pytania do projektanta" : "Przeglądam pytania do projektanta…";
     case "get_project_outline":
       return done ? "Przejrzałem spis treści projektu" : "Przeglądam spis treści projektu…";
     case "get_pages":

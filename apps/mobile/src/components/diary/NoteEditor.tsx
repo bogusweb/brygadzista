@@ -1,15 +1,15 @@
 import { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { isIsoDate, linesToList, listToLines } from "../../lib/diary";
+import { crewToLines, isIsoDate, linesToCrew, linesToList, listToLines } from "../../lib/diary";
 import type { DiaryEntry, DiaryNote, DiaryReference } from "../../lib/diary";
 import { ApiError } from "../../lib/api";
 import { colors, radius, spacing } from "../../lib/theme";
 import { Button } from "../Button";
 
-const EMPTY_ENTRY: DiaryEntry = { summary: "", work: [], people: [], deliveries: [], weather: null, problems: [], references: [] };
+const EMPTY_ENTRY: DiaryEntry = { summary: "", work: [], people: [], crew: [], deliveries: [], weather: null, problems: [], references: [] };
 
-type Draft = { date: string; summary: string; work: string; people: string; deliveries: string; weather: string; problems: string };
+type Draft = { date: string; summary: string; work: string; people: string; crew: string; deliveries: string; weather: string; problems: string };
 
 const draftOf = (note: DiaryNote): Draft => {
   const entry = note.entry ?? EMPTY_ENTRY;
@@ -18,6 +18,7 @@ const draftOf = (note: DiaryNote): Draft => {
     summary: entry.summary,
     work: listToLines(entry.work),
     people: listToLines(entry.people),
+    crew: crewToLines(entry.crew ?? []),
     deliveries: listToLines(entry.deliveries),
     weather: entry.weather ?? "",
     problems: listToLines(entry.problems),
@@ -90,6 +91,7 @@ export const NoteEditor = ({ note, onClose, onSave, onResort, onDelete, onOpenRe
       summary: draft.summary.trim(),
       work: linesToList(draft.work),
       people: linesToList(draft.people),
+      crew: linesToCrew(draft.crew),
       deliveries: linesToList(draft.deliveries),
       weather: draft.weather.trim() || null,
       problems: linesToList(draft.problems),
@@ -112,6 +114,13 @@ export const NoteEditor = ({ note, onClose, onSave, onResort, onDelete, onOpenRe
           <Field label="Data" value={draft.date} onChange={set("date")} hint="RRRR-MM-DD" />
           <Field label="Podsumowanie" value={draft.summary} onChange={set("summary")} multiline />
           <Field label="Wykonane prace" value={draft.work} onChange={set("work")} multiline hint="Każda praca w osobnej linii." />
+          <Field
+            label="Obsada"
+            value={draft.crew}
+            onChange={set("crew")}
+            multiline
+            hint="Liczba i ekipa w osobnej linii, np. „4 zbrojarze (Stal-Bud)”."
+          />
           <Field label="Ludzie na budowie" value={draft.people} onChange={set("people")} multiline />
           <Field label="Dostawy" value={draft.deliveries} onChange={set("deliveries")} multiline />
           <Field label="Pogoda" value={draft.weather} onChange={set("weather")} />

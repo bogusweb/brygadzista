@@ -26,6 +26,25 @@ export const serverFolderName = (serverUrl: string) =>
     .replace(/[^a-z0-9.-]+/gi, "_")
     .replace(/^_+|_+$/g, "");
 
+// Saved data belongs to one account in one firm (#91): server / user / firm, so another account or firm on the same
+// phone never reads it. Logging out removes the server's folder, logging in as someone else removes the others' ones.
+export const scopeFolders = ({ serverUrl, userId, tenantId }: { serverUrl: string; userId: string; tenantId: string | null }) => [
+  serverFolderName(serverUrl),
+  userFolderName(userId),
+  `firm-${tenantId ?? "none"}`,
+];
+
+export const userFolderName = (userId: string) => `user-${userId}`;
+
+// Browser storage keeps the same scopes as key prefixes.
+export const storagePrefix = (folders: string[]) => `brygadzista:${folders.join(":")}:`;
+
+// Keys saved on this server by anyone but the given account, including data from before accounts.
+export const isForeignKey = (key: string, serverUrl: string, userId: string | null) => {
+  const server = storagePrefix([serverFolderName(serverUrl)]);
+  return key.startsWith(server) && (userId === null || !key.startsWith(storagePrefix([serverFolderName(serverUrl), userFolderName(userId)])));
+};
+
 export const pageFileName = (pageNo: number) => `${pageNo}.jpg`;
 
 export const pageNoFromFileName = (name: string) => {

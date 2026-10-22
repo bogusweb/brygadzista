@@ -5,6 +5,8 @@ import { parseJson, toolLabel } from "../../lib/chat";
 import { ChatCard } from "../cards/ChatCard";
 import { PhotoResults } from "../pins/PhotoResults";
 import type { FoundPin } from "../pins/PhotoResults";
+import type { QuestionDraft } from "../../lib/questions";
+import { QuestionDraftCard } from "../questions/QuestionDraftCard";
 import { PageCard } from "./PageCard";
 import { ToolStatus } from "./ToolStatus";
 
@@ -26,6 +28,13 @@ const buildCardParameters = z.object({
   kind: z.enum(["room", "partition"]),
   name: z.string(),
   refresh: z.boolean().optional(),
+});
+
+const draftQuestionParameters = z.object({
+  documentId: z.string(),
+  pageNo: z.number(),
+  question: z.string(),
+  reason: z.string().optional(),
 });
 
 type ShowPageResult = { documentId: string; pageNo: number; title?: string | null; caption?: string };
@@ -70,6 +79,20 @@ export const useChatToolRenderers = () => {
         const card = parseJson(result) as ElementCard | undefined;
         if (!card?.id || card.status !== "ready") return <ToolStatus label={`Nie udało się zebrać karty: ${parameters.name}`} done />;
         return <ChatCard card={card} />;
+      },
+    },
+    [],
+  );
+
+  useRenderTool(
+    {
+      name: "draft_designer_question",
+      parameters: draftQuestionParameters,
+      render: ({ status, result }) => {
+        if (status !== "complete") return <ToolStatus label={toolLabel("draft_designer_question", {}, false)} done={false} />;
+        const draft = (parseJson(result) as { draft?: QuestionDraft } | undefined)?.draft;
+        if (!draft) return <ToolStatus label="Nie udało się przygotować pytania" done />;
+        return <QuestionDraftCard draft={draft} />;
       },
     },
     [],
