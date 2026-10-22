@@ -104,3 +104,17 @@ describe("row level security", () => {
     expect(tables.filter((table) => !table.rls)).toEqual([]);
   });
 });
+
+describe("background work started by a request", () => {
+  // `void job()` inside a request runs in the request's firm transaction before it commits; detached() waits for it.
+  it("goes through detached(), never a bare void call", async () => {
+    const { readdir, readFile } = await import("node:fs/promises");
+    const bare: string[] = [];
+    for (const file of await readdir("src")) {
+      if (!file.endsWith(".ts") || file === "index.ts" || file === "ingest.ts") continue;
+      const source = await readFile(`src/${file}`, "utf8");
+      for (const match of source.matchAll(/\bvoid [A-Za-z]+\(/g)) bare.push(`${file}: ${match[0]}`);
+    }
+    expect(bare).toEqual([]);
+  });
+});

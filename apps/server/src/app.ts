@@ -25,6 +25,7 @@ import {
 } from "./auth.js";
 import { cards } from "./cards.js";
 import { chatThreads } from "./chat-threads.js";
+import { schedules } from "./schedules.js";
 import { checklists } from "./checklists.js";
 import { citationCheck } from "./citations.js";
 import { config } from "./config.js";
@@ -82,6 +83,7 @@ app.route("/", reports);
 app.route("/", checklists);
 app.route("/", questions);
 app.route("/", cards);
+app.route("/", schedules);
 app.route("/", mcp);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun), chatThreads);

@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config.js";
 import { migrate, sql } from "../src/db.js";
-import { prefixQuery, searchPages } from "../src/search.js";
+import { lexicalSearch, prefixQuery, searchPages, semanticSearch } from "../src/search.js";
 import { configuredEmbedding, embeddingSetId } from "../src/embedding-model.js";
 import { axisVector, createDocument, createProject, insertPage, resetDatabase } from "./helpers.js";
 
@@ -239,5 +239,43 @@ describe("searchPages with parameters from the text (#53)", () => {
     expect(facts).toEqual([{ label: "Kubatura budynku", value: "6680", unit: "m3", tenant: true }]);
     const [page] = await sql`select facts from pages where id = ${pageId}`;
     expect(page!.facts).toEqual([{ label: "Kubatura budynku", value: "6680 m3" }]);
+  });
+});
+
+describe("searchPages in a large project (#58)", () => {
+  let projectId: string;
+  let documentId: string;
+
+  beforeEach(async () => {
+    await resetDatabase();
+    embed.mockReset();
+    config.openrouterApiKey = "test-key";
+    config.searchIndexedFromPages = 0;
+    projectId = await createProject();
+    documentId = await createDocument(projectId, "ready");
+    await sql`update documents set page_count = 5000 where id = ${documentId}`;
+  });
+
+  afterAll(() => {
+    config.searchIndexedFromPages = 1000;
+  });
+
+  it("finds the same pages through the HNSW index and the full-text index", async () => {
+    const pages: string[] = [];
+    for (let pageNo = 1; pageNo <= 30; pageNo++) {
+      pages.push(await insertPage(projectId, documentId, pageNo, { searchText: pageNo === 7 ? "Okna PCV trzyszybowe" : `Rzut ${pageNo}` }));
+    }
+    for (const [i, pageId] of pages.entries()) {
+      await sql`insert into chunks (page_id, project_id, content, embedding, embedding_set)
+        values (${pageId}, ${projectId}, 'fragment', ${`[${axisVector(i === 19 ? 0 : 1 + (i % 5)).join(",")}]`}::vector, ${ACTIVE_SET})`;
+    }
+    embed.mockResolvedValue([axisVector(0)]);
+
+    const semantic = await semanticSearch(projectId, "attyka", 3);
+    const lexical = await lexicalSearch(projectId, "okna", 3);
+
+    expect(semantic[0]).toMatchObject({ page_id: pages[19], distance: 0 });
+    expect(lexical.map((row) => row.page_id)).toEqual([pages[6]]);
+    expect((await searchPages(projectId, "okna", 2)).map((hit) => hit.pageNo).sort((a, b) => a - b)).toEqual([7, 20]);
   });
 });
