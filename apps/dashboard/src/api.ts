@@ -76,6 +76,11 @@ export type PageKind = "opis" | "rysunek" | "detal" | "zestawienie" | "formalne"
 
 export type PageFact = { label: string; value: string };
 
+export type EmbeddingStatus = {
+  active: { model: string; dimensions: number } | null;
+  building: { model: string; dimensions: number; done: number; total: number; error: string | null } | null;
+};
+
 export type DocumentPage = {
   pageNo: number;
   title: string | null;
@@ -84,6 +89,31 @@ export type DocumentPage = {
   facts: PageFact[];
   indexed: boolean;
 };
+
+export type Region = { x: number; y: number; width: number; height: number };
+
+// Questions to the designer (#73).
+export type DesignerQuestion = {
+  id: string;
+  documentId: string | null;
+  pageNo: number | null;
+  pageTitle: string | null;
+  region: Region | null;
+  question: string;
+  reason: string;
+  status: "open" | "answered";
+  answer: string | null;
+  answeredAt: string | null;
+  authorName: string;
+  createdAt: string;
+};
+
+export type NewQuestion = { question: string; documentId?: string; pageNo?: number; region?: Region | null; reason?: string };
+
+export const cropQuery = (region: Region | null) =>
+  region
+    ? `x=${region.x.toFixed(4)}&y=${region.y.toFixed(4)}&w=${region.width.toFixed(4)}&h=${region.height.toFixed(4)}&`
+    : "";
 
 export class ApiError extends Error {
   constructor(
@@ -176,6 +206,7 @@ export const createApi = (token: string, operatorTenantId: string | null = null)
     createInvite: (invite: NewInvite) => request<Invite & { token: string }>(token, scoped("/api/invites"), post(invite)),
     revokeInvite: (id: string) => request<void>(token, scoped(`/api/invites/${id}`), { method: "DELETE" }),
     listProjects: () => request<Project[]>(token, "/api/projects"),
+    embeddingStatus: () => request<EmbeddingStatus>(token, "/api/admin/embeddings"),
     createProject: (name: string) =>
       request<Pick<Project, "id" | "name">>(token, "/api/projects", post({ name, tenantId: operatorTenantId ?? undefined })),
     deleteProject: (id: string) => request<void>(token, `/api/projects/${id}`, { method: "DELETE" }),
@@ -194,6 +225,16 @@ export const createApi = (token: string, operatorTenantId: string | null = null)
     // <img> can't send headers, so the image URL carries the token as a query parameter.
     pageImageUrl: (documentId: string, pageNo: number) =>
       `/api/documents/${documentId}/pages/${pageNo}/image?token=${encodeURIComponent(token)}`,
+    cropUrl: (documentId: string, pageNo: number, region: Region | null) =>
+      `/api/documents/${documentId}/pages/${pageNo}/crop?${cropQuery(region)}token=${encodeURIComponent(token)}`,
+    listQuestions: (projectId: string) => request<DesignerQuestion[]>(token, `/api/projects/${projectId}/questions`),
+    createQuestion: (projectId: string, question: NewQuestion) =>
+      request<DesignerQuestion>(token, `/api/projects/${projectId}/questions`, post(question)),
+    // An empty answer opens the question again.
+    answerQuestion: (projectId: string, id: string, answer: string) =>
+      request<DesignerQuestion>(token, `/api/projects/${projectId}/questions/${id}`, post({ answer: answer.trim() || null }, "PATCH")),
+    deleteQuestion: (projectId: string, id: string) =>
+      request<void>(token, `/api/projects/${projectId}/questions/${id}`, { method: "DELETE" }),
   };
 };
 

@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import postgres from "postgres";
 import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
+import { configuredEmbedding, embeddingSetId } from "./embedding-model.js";
 import { FACTS_VERSION, extractFacts, formatFact } from "./facts.js";
 import { META_VERSION, displayTitle, extractPageMeta, titleFromText } from "./page-meta.js";
 
@@ -49,7 +51,7 @@ export const migrate = async () => {
       page_id uuid not null references pages(id) on delete cascade,
       project_id uuid not null references projects(id) on delete cascade,
       content text not null,
-      embedding vector(${sql.unsafe(String(config.embeddingDimensions))}) not null
+      embedding vector not null
     )`;
   // Progress of the current indexing run (#9): pages queued for it, pages finished, and when it started.
   await sql`alter table documents add column if not exists started_at timestamptz`;
@@ -235,7 +237,6 @@ export const migrate = async () => {
   await sql`alter table pages add column if not exists meta_version int`;
   await sql`create index if not exists sessions_user on sessions (user_id)`;
   await sql`create index if not exists project_members_user on project_members (user_id)`;
-  await sql`create index if not exists chunks_embedding on chunks using hnsw (embedding vector_cosine_ops)`;
   await sql`create index if not exists chunks_project on chunks (project_id)`;
   await sql`create index if not exists pages_fts on pages using gin (to_tsvector('simple', search_text))`;
   await sql`create index if not exists pages_trgm on pages using gin (search_text gin_trgm_ops)`;
@@ -255,14 +256,46 @@ export const migrate = async () => {
       fetched_at timestamptz not null default now(),
       primary key (project_id, day)
     )`;
+  // Questions to the designer (#73): a gap or a contradiction in the project, asked outside the app and answered here.
+  await sql`
+    create table if not exists designer_questions (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references projects(id) on delete cascade,
+      document_id uuid references documents(id) on delete set null,
+      page_no int check (page_no >= 1),
+      region jsonb,
+      question text not null,
+      reason text not null default '',
+      status text not null default 'open' check (status in ('open', 'answered')),
+      answer text,
+      answered_at timestamptz,
+      created_by uuid references users(id) on delete set null,
+      author_name text not null default '',
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )`;
+  await sql`create index if not exists designer_questions_project on designer_questions (project_id, created_at desc)`;
   await migrateTenants();
+  await migrateEmbeddingSets();
   await backfillCodes();
   await backfillMeta();
   await backfillFacts();
 };
 
 // Tables that hang off a project: their firm always comes from the project, through a composite key.
-const PROJECT_TABLES = ["project_members", "documents", "pages", "chunks", "facts", "pins", "pin_photos", "diary_entries", "checklists", "site_weather"];
+const PROJECT_TABLES = [
+  "project_members",
+  "documents",
+  "pages",
+  "chunks",
+  "facts",
+  "pins",
+  "pin_photos",
+  "diary_entries",
+  "checklists",
+  "site_weather",
+  "designer_questions",
+];
 // Tables that hang off a checklist and take the firm from it.
 const CHECKLIST_TABLES = ["checklist_items", "checklist_events", "checklist_results"];
 
@@ -459,4 +492,72 @@ const backfillFacts = async () => {
     if (pages.length === 0) return;
     for (const page of pages) await sql.begin((tx) => replacePageFacts(tx, page.id, page.project_id, page.raw_text));
   }
+};
+
+// Vectors of one embedding set, with the set's own vector size, get their own HNSW index; the column has no fixed size.
+const embeddingIndexName = (setId: string) => `chunks_hnsw_${createHash("md5").update(setId).digest("hex").slice(0, 12)}`;
+
+const quoteLiteral = (value: string) => `'${value.replace(/'/g, "''")}'`;
+
+export const createEmbeddingIndex = (set: { id: string; dimensions: number }) =>
+  sql.unsafe(
+    `create index if not exists ${embeddingIndexName(set.id)} on chunks using hnsw ((embedding::vector(${Math.trunc(set.dimensions)})) vector_cosine_ops) ` +
+      `where embedding_set = ${quoteLiteral(set.id)}`,
+  );
+
+export const dropEmbeddingSet = async (setId: string) => {
+  await sql`delete from chunks where embedding_set = ${setId}`;
+  await sql.unsafe(`drop index if exists ${embeddingIndexName(setId)}`);
+  await sql`update embedding_sets set status = 'retired' where id = ${setId} and status <> 'active'`;
+};
+
+// Embedding sets (#46): every vector is tagged with the model and size that made it. Search reads the active set; when
+// the configured model differs, a new set is built in the background and replaces the active one once it is complete.
+// Server-wide, not per firm: the model is a setting of the server.
+const migrateEmbeddingSets = async () => {
+  await sql`
+    create table if not exists embedding_sets (
+      id text primary key,
+      model text not null,
+      dimensions int not null,
+      status text not null check (status in ('active', 'building', 'retired')),
+      error text,
+      retry_at timestamptz,
+      created_at timestamptz not null default now(),
+      activated_at timestamptz
+    )`;
+  await sql`create unique index if not exists embedding_sets_one_active on embedding_sets ((true)) where status = 'active'`;
+  await sql`alter table chunks add column if not exists embedding_set text`;
+  await sql`create index if not exists chunks_page_set on chunks (page_id, embedding_set)`;
+  // Before sets the column had the size of the one model, and one index over all of it.
+  const [column] = await sql<{ type: string }[]>`
+    select format_type(atttypid, atttypmod) as type from pg_attribute where attrelid = 'chunks'::regclass and attname = 'embedding'`;
+  if (column && column.type !== "vector") {
+    await sql`drop index if exists chunks_embedding`;
+    await sql`alter table chunks alter column embedding type vector`;
+  }
+
+  const wanted = { id: embeddingSetId(configuredEmbedding()), ...configuredEmbedding() };
+  let [active] = await sql<{ id: string; dimensions: number }[]>`select id, dimensions from embedding_sets where status = 'active'`;
+  if (!active) {
+    // Vectors from before sets were made by the configured model.
+    [active] = await sql<{ id: string; dimensions: number }[]>`
+      insert into embedding_sets (id, model, dimensions, status, activated_at)
+      values (${wanted.id}, ${wanted.model}, ${wanted.dimensions}, 'active', now())
+      on conflict (id) do update set status = 'active', activated_at = now(), error = null
+      returning id, dimensions`;
+  }
+  await sql`update chunks set embedding_set = ${active!.id} where embedding_set is null`;
+
+  // A set left half built by an earlier configuration is dropped; the configured one is built if search is not on it.
+  const stale = await sql<{ id: string }[]>`
+    select id from embedding_sets where status = 'building' and (id <> ${wanted.id} or id = ${active!.id})`;
+  for (const set of stale) await dropEmbeddingSet(set.id);
+  if (wanted.id !== active!.id) {
+    await sql`
+      insert into embedding_sets (id, model, dimensions, status) values (${wanted.id}, ${wanted.model}, ${wanted.dimensions}, 'building')
+      on conflict (id) do update set status = 'building', error = null, retry_at = null`;
+    await createEmbeddingIndex(wanted);
+  }
+  await createEmbeddingIndex(active!);
 };

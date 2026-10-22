@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ApiError, type Api, type Project } from "./api";
+import { ApiError, type Api, type EmbeddingStatus, type Project } from "./api";
 import { dateFormat, pluralize } from "./format";
 import { routeHref } from "./route";
 
@@ -9,7 +9,50 @@ type Props = { api: Api; onUnauthorized: () => void; tenantId: string | null; fi
 
 const documentLabel = (count: number) => pluralize(count, "dokument", "dokumenty", "dokumentów");
 
+const EMBEDDING_POLL_MS = 10_000;
+
+// The model search runs on and, during a change of model, how far the new vectors are (#46). Search keeps working on the
+// old model until the new one covers every page.
+const EmbeddingModelNote = ({ api }: { api: Api }) => {
+  const [status, setStatus] = useState<EmbeddingStatus | null>(null);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const next = await api.embeddingStatus();
+        if (cancelled) return;
+        setStatus(next);
+        if (next.building) timer = setTimeout(() => void load(), EMBEDDING_POLL_MS);
+      } catch {
+        // Only admins see it; for anyone else the note stays hidden.
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [api]);
+
+  if (!status?.active) return null;
+  const { active, building } = status;
+  return (
+    <p className="muted small">
+      Model wyszukiwania: {active.model} ({active.dimensions})
+      {building && (
+        <>
+          {" · "}przeliczanie na {building.model} ({building.dimensions}): {building.done} z {building.total} stron
+          {building.error && <span className="error"> · {building.error}</span>}
+        </>
+      )}
+    </p>
+  );
+};
+
 export const ProjectsScreen = ({ api, onUnauthorized, tenantId, firmNames }: Props) => {
+
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -74,6 +117,7 @@ export const ProjectsScreen = ({ api, onUnauthorized, tenantId, firmNames }: Pro
       <div className="section-head">
         <h1>Projekty</h1>
       </div>
+      <EmbeddingModelNote api={api} />
 
       {firmNames ? (
         <p className="card muted">Widzisz budowy wszystkich firm. Żeby założyć nowy projekt, wybierz firmę w nagłówku.</p>
