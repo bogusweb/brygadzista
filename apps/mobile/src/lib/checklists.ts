@@ -51,7 +51,10 @@ export type ChecklistSummary = {
   lastCompletedAt: string | null;
 };
 
-export type StageTemplate = { stage: string; title: string; when: string; items: string[] };
+export type StageTemplate = { stage: string; title: string; when: string; items: string[]; recommended?: boolean };
+
+// The stages offered for a project: those of its kind of building (#85) first, marked recommended, then the rest.
+export type ProjectTemplates = { buildingType: string; label: string; templates: StageTemplate[] };
 
 // What the phone remembers until the server confirms it. The id makes a resend harmless: the server applies each event once.
 export type ChecklistEvent =

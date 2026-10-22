@@ -111,6 +111,51 @@ export const STAGE_TEMPLATES: StageTemplate[] = [
       { label: "Spadki w pomieszczeniach mokrych", ask: "spadki posadzek do odpływów", query: "spadek posadzki odpływ liniowy" },
     ],
   },
+  {
+    stage: "szkielet",
+    title: "Konstrukcja szkieletowa",
+    when: "Przed zamknięciem ścian płytami",
+    items: [
+      { label: "Przekroje i klasa drewna", ask: "przekroje słupków, podwalin i oczepów oraz klasa wytrzymałości drewna (np. C24)", query: "słupki przekrój drewno C24 podwalina oczep" },
+      { label: "Rozstaw słupków", ask: "rozstaw osiowy słupków w ścianach zewnętrznych i wewnętrznych", query: "rozstaw słupków osiowy 60 cm szkielet" },
+      { label: "Kotwienie do fundamentu", ask: "sposób, rodzaj i rozstaw kotew podwaliny do płyty lub ściany fundamentowej", query: "kotwa podwalina kotwienie fundament rozstaw" },
+      { label: "Poszycie i usztywnienie", ask: "rodzaj i grubość poszycia ścian (OSB, płyta MFP, gipsowo-włóknowa) i sposób usztywnienia", query: "poszycie OSB płyta usztywnienie ściany grubość" },
+      { label: "Nadproża w ścianach szkieletowych", ask: "nadproża nad otworami: przekroje i oparcie", query: "nadproże szkielet otwór belka" },
+      { label: "Izolacja termiczna ścian", ask: "materiał i grubość izolacji w ścianach (wełna między słupkami, docieplenie)", query: "wełna mineralna ściana szkieletowa grubość izolacja" },
+      { label: "Paroizolacja", ask: "rodzaj paroizolacji lub membrany paroszczelnej i sposób klejenia połączeń", query: "paroizolacja folia paroszczelna membrana" },
+      { label: "Wiatroizolacja", ask: "rodzaj wiatroizolacji / membrany wiatroizolacyjnej", query: "wiatroizolacja membrana wiatroizolacyjna" },
+      { label: "Impregnacja drewna", ask: "wymagania dotyczące impregnacji drewna konstrukcyjnego", query: "impregnacja drewna konstrukcyjnego" },
+    ],
+  },
+  {
+    stage: "ocieplenie",
+    title: "Ocieplenie ścian",
+    when: "Przed klejeniem płyt i przed tynkiem cienkowarstwowym",
+    items: [
+      { label: "Materiał i grubość ocieplenia", ask: "materiał izolacji ścian zewnętrznych, grubość i współczynnik lambda", query: "ocieplenie ścian styropian wełna grubość lambda" },
+      { label: "Ocieplenie cokołu", ask: "materiał, grubość i wysokość ocieplenia cokołu", query: "cokół ocieplenie XPS grubość wysokość" },
+      { label: "Klejenie płyt", ask: "sposób klejenia płyt (metoda obwodowo-punktowa, powierzchnia kleju)", query: "klej do styropianu metoda obwodowo-punktowa klejenie płyt" },
+      { label: "Łączniki mechaniczne", ask: "rodzaj, liczba na m² i długość łączników mechanicznych (kołków)", query: "łączniki mechaniczne kołki liczba na m2 kotwienie" },
+      { label: "Ocieplenie ościeży", ask: "grubość ocieplenia ościeży okiennych i drzwiowych", query: "ościeża ocieplenie grubość" },
+      { label: "Warstwa zbrojona", ask: "siatka zbrojąca (gramatura), zaprawa i wzmocnienia narożników", query: "siatka zbrojąca gramatura warstwa zbrojona narożniki" },
+      { label: "Tynk zewnętrzny", ask: "rodzaj, faktura i kolor tynku zewnętrznego", query: "tynk silikonowy cienkowarstwowy faktura kolor" },
+      { label: "Bariera ogniowa", ask: "pasy przeciwogniowe z wełny (gdzie i jakiej szerokości), jeśli wymagane", query: "pas przeciwogniowy wełna bariera ogniowa" },
+    ],
+  },
+  {
+    stage: "stolarka",
+    title: "Okna i drzwi zewnętrzne",
+    when: "Przed montażem stolarki",
+    items: [
+      { label: "Wymiary i oznaczenia okien", ask: "zestawienie okien: oznaczenia, wymiary, podziały i kierunek otwierania", query: "zestawienie stolarki okna wymiary oznaczenie" },
+      { label: "Współczynnik U okien", ask: "wymagany współczynnik przenikania ciepła okien i drzwi (Uw, Ud)", query: "współczynnik przenikania ciepła okna Uw drzwi" },
+      { label: "Montaż (ciepły montaż)", ask: "sposób montażu stolarki: warstwa ocieplenia, taśmy paroszczelne i paroprzepuszczalne", query: "ciepły montaż taśmy paroszczelne okna montaż" },
+      { label: "Położenie okna w murze", ask: "położenie okna w grubości ściany (w warstwie ocieplenia, w licu muru)", query: "okno w warstwie ocieplenia położenie w murze" },
+      { label: "Parapety", ask: "rodzaj parapetów zewnętrznych i wewnętrznych oraz wysięg", query: "parapet zewnętrzny wewnętrzny" },
+      { label: "Drzwi zewnętrzne", ask: "drzwi zewnętrzne: wymiary, klasa, próg", query: "drzwi zewnętrzne wejściowe wymiary" },
+      { label: "Nawiewniki", ask: "nawiewniki okienne lub ścienne: gdzie i jakie", query: "nawiewnik okienny wentylacja" },
+    ],
+  },
 ];
 
 export const stageTemplate = (stage: string) => STAGE_TEMPLATES.find((template) => template.stage === stage);

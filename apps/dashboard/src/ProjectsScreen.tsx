@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ApiError, type Api, type EmbeddingStatus, type Project } from "./api";
+import { BuildingTypeSelect, useBuildingTypes } from "./BuildingTypeCard";
 import { dateFormat, pluralize } from "./format";
 import { routeHref } from "./route";
 
@@ -56,6 +57,8 @@ export const ProjectsScreen = ({ api, onUnauthorized, tenantId, firmNames }: Pro
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
+  const buildingTypes = useBuildingTypes(api);
+  const [buildingType, setBuildingType] = useState("dom_murowany");
   const [creating, setCreating] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
@@ -86,7 +89,7 @@ export const ProjectsScreen = ({ api, onUnauthorized, tenantId, firmNames }: Pro
     if (!name.trim()) return;
     setCreating(true);
     try {
-      await api.createProject(name.trim());
+      await api.createProject(name.trim(), buildingType);
       setName("");
       await reload();
     } catch (cause) {
@@ -131,6 +134,10 @@ export const ProjectsScreen = ({ api, onUnauthorized, tenantId, firmNames }: Pro
               placeholder="np. Dom jednorodzinny, ul. Lipowa 5"
             />
           </label>
+          <label className="field">
+            <span>Typ budowy</span>
+            <BuildingTypeSelect types={buildingTypes} value={buildingType} onChange={setBuildingType} />
+          </label>
           <button type="submit" className="button primary" disabled={creating || !name.trim()}>
             {creating ? "Tworzę…" : "Utwórz projekt"}
           </button>
@@ -167,6 +174,7 @@ export const ProjectsScreen = ({ api, onUnauthorized, tenantId, firmNames }: Pro
                 </a>
                 <span className="muted small">
                   {firmNames && `${firmNames.get(project.tenantId) ?? "Inna firma"} · `}
+                  {buildingTypes.find((type) => type.type === project.buildingType)?.label ?? "Budowa"} ·{" "}
                   {documentLabel(project.documentCount)} · utworzono {dateFormat.format(new Date(project.createdAt))}
                 </span>
               </div>

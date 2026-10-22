@@ -46,6 +46,7 @@ export type Project = {
   id: string;
   name: string;
   tenantId: string;
+  buildingType: string;
   createdAt: string;
   documentCount: number;
 };
@@ -168,6 +169,8 @@ const uploadDocument = (token: string, projectId: string, file: File, onProgress
   return { done, cancel: () => xhr.abort() };
 };
 
+export type BuildingType = { type: string; label: string; stages: string[] };
+
 export type Site = { address: string | null; lat: number | null; lon: number | null; found?: string | null };
 
 const post = (body: unknown, method = "POST"): RequestInit => ({ method, body: JSON.stringify(body) });
@@ -207,8 +210,15 @@ export const createApi = (token: string, operatorTenantId: string | null = null)
     revokeInvite: (id: string) => request<void>(token, scoped(`/api/invites/${id}`), { method: "DELETE" }),
     listProjects: () => request<Project[]>(token, "/api/projects"),
     embeddingStatus: () => request<EmbeddingStatus>(token, "/api/admin/embeddings"),
-    createProject: (name: string) =>
-      request<Pick<Project, "id" | "name">>(token, "/api/projects", post({ name, tenantId: operatorTenantId ?? undefined })),
+    createProject: (name: string, buildingType: string) =>
+      request<Pick<Project, "id" | "name" | "buildingType">>(
+        token,
+        "/api/projects",
+        post({ name, buildingType, tenantId: operatorTenantId ?? undefined }),
+      ),
+    updateProject: (id: string, changes: { name?: string; buildingType?: string }) =>
+      request<Pick<Project, "id" | "name" | "buildingType">>(token, `/api/projects/${id}`, post(changes, "PATCH")),
+    listBuildingTypes: () => request<BuildingType[]>(token, "/api/building-types"),
     deleteProject: (id: string) => request<void>(token, `/api/projects/${id}`, { method: "DELETE" }),
     getSite: (projectId: string) => request<Site | null>(token, `/api/projects/${projectId}/site`),
     putSite: (projectId: string, address: string) => request<Site>(token, `/api/projects/${projectId}/site`, post({ address }, "PUT")),

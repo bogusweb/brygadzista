@@ -19,7 +19,11 @@ const detailKey = (id: string) => `checklist-${id}`;
 export const useChecklists = (projectId: string) => {
   const connection = useConnection();
   const summaries = useCachedResource(`checklists-${projectId}`, (current) => fetchChecklists(current, projectId), "Nie udało się pobrać checklist.");
-  const templates = useCachedResource("checklist-templates", fetchTemplates, "Nie udało się pobrać etapów budowy.");
+  const templates = useCachedResource(
+    `checklist-templates-${projectId}`,
+    (current) => fetchTemplates(current, projectId),
+    "Nie udało się pobrać etapów budowy.",
+  );
   const reloadSummaries = summaries.reload;
   const [details, setDetails] = useState<Record<string, { data: Checklist; offline: boolean }>>({});
   const [queue, setQueue] = useState<ChecklistQueue | null>(null);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { summaryWithPending } from "../../lib/checklists";
-import type { ChecklistSummary, StageTemplate } from "../../lib/checklists";
+import type { ChecklistSummary, ProjectTemplates, StageTemplate } from "../../lib/checklists";
 import { formatDateTime } from "../../lib/format";
 import { colors, radius, spacing } from "../../lib/theme";
 import { ChecklistView } from "./ChecklistView";
@@ -33,28 +33,44 @@ const SummaryRow = ({ summary, waiting, onPress }: { summary: ChecklistSummary; 
   </Pressable>
 );
 
-const StagePicker = ({ templates, onPick, busy }: { templates: StageTemplate[]; onPick: (stage: string) => void; busy: string | null }) => (
-  <View style={styles.picker}>
-    <Text style={styles.section}>Nowa checklista</Text>
-    {templates.map((template) => (
-      <Pressable
-        key={template.stage}
-        accessibilityRole="button"
-        disabled={busy !== null}
-        onPress={() => onPick(template.stage)}
-        style={({ pressed }) => [styles.card, pressed && styles.pressed, busy !== null && styles.disabled]}
-      >
-        <View style={styles.titleRow}>
-          <Text style={styles.cardTitle}>{template.title}</Text>
-          {busy === template.stage ? <ActivityIndicator color={colors.muted} /> : null}
-        </View>
-        <Text style={styles.meta}>
-          {template.when} · {template.items.length} pozycji
-        </Text>
-      </Pressable>
-    ))}
-  </View>
+const StageCard = ({ template, onPick, busy }: { template: StageTemplate; onPick: (stage: string) => void; busy: string | null }) => (
+  <Pressable
+    accessibilityRole="button"
+    disabled={busy !== null}
+    onPress={() => onPick(template.stage)}
+    style={({ pressed }) => [styles.card, pressed && styles.pressed, busy !== null && styles.disabled]}
+  >
+    <View style={styles.titleRow}>
+      <Text style={styles.cardTitle}>{template.title}</Text>
+      {busy === template.stage ? <ActivityIndicator color={colors.muted} /> : null}
+    </View>
+    <Text style={styles.meta}>
+      {template.when} · {template.items.length} pozycji
+    </Text>
+  </Pressable>
 );
+
+// The stages of the project's kind of building (#85) first; the others stay one tap away.
+const StagePicker = ({ project, onPick, busy }: { project: ProjectTemplates; onPick: (stage: string) => void; busy: string | null }) => {
+  const [showOthers, setShowOthers] = useState(false);
+  const recommended = project.templates.filter((template) => template.recommended);
+  const others = project.templates.filter((template) => !template.recommended);
+  return (
+    <View style={styles.picker}>
+      <Text style={styles.section}>Nowa checklista</Text>
+      <Text style={styles.meta}>Etapy dla typu: {project.label}</Text>
+      {recommended.map((template) => (
+        <StageCard key={template.stage} template={template} onPick={onPick} busy={busy} />
+      ))}
+      {others.length ? (
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: showOthers }} onPress={() => setShowOthers(!showOthers)}>
+          <Text style={styles.link}>{showOthers ? "Ukryj inne etapy" : `Inne etapy (${others.length})`}</Text>
+        </Pressable>
+      ) : null}
+      {showOthers ? others.map((template) => <StageCard key={template.stage} template={template} onPick={onPick} busy={busy} />) : null}
+    </View>
+  );
+};
 
 export const ProjectChecklists = ({ projectId }: { projectId: string }) => {
   const checklists = useChecklists(projectId);
@@ -114,7 +130,7 @@ export const ProjectChecklists = ({ projectId }: { projectId: string }) => {
             offline ? (
               <Text style={styles.muted}>Nową checklistę wypełnię z projektu, gdy wróci zasięg.</Text>
             ) : (
-              <StagePicker templates={templates.data} onPick={(stage) => void pick(stage)} busy={creating} />
+              <StagePicker project={templates.data} onPick={(stage) => void pick(stage)} busy={creating} />
             )
           ) : templates.error ? (
             <Text style={styles.error}>{templates.error}</Text>
@@ -139,4 +155,5 @@ const styles = StyleSheet.create({
   error: { fontSize: 15, color: colors.danger },
   pressed: { opacity: 0.8 },
   disabled: { opacity: 0.5 },
+  link: { fontSize: 15, fontWeight: "600", color: colors.link, paddingVertical: spacing.xs },
 });
