@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import { crewTotal, dayLabel, edbDraft, formatDay, groupByDay, isSorting } from "../../lib/diary";
+import { ActivityIndicator, FlatList, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { diaryReportUrl } from "../../lib/api";
+import { useConnection } from "../../lib/settings";
+import { crewTotal, dayCrew, dayLabel, edbDraft, formatDay, groupByDay, isSorting, localDate, shiftDate } from "../../lib/diary";
 import type { DiaryEntry, DiaryNote } from "../../lib/diary";
 import type { QueuedNote } from "../../lib/diaryQueue";
 import { colors, radius, spacing } from "../../lib/theme";
@@ -87,6 +89,8 @@ type Row =
 // The project's daily log (#69): the recorder on top, notes waiting for signal, then the days, newest first.
 export const ProjectDiary = ({ projectId }: { projectId: string }) => {
   const diary = useDiary(projectId);
+  const connection = useConnection();
+  const openReport = (from: string, to: string) => void Linking.openURL(diaryReportUrl(connection, projectId, from, to));
   const openPage = usePageViewer();
   const [editing, setEditing] = useState<DiaryNote | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
@@ -111,20 +115,32 @@ export const ProjectDiary = ({ projectId }: { projectId: string }) => {
 
   const openDraft = (date: string, notes: DiaryNote[]) => {
     const entries = notes.flatMap((note) => (note.entry && note.status === "ready" ? [note.entry] : []));
-    setDraft(edbDraft(date, entries));
+    setDraft(edbDraft(date, entries, notes.find((note) => note.siteWeather)?.siteWeather?.text ?? null));
   };
 
   const renderRow = ({ item }: { item: Row }) => {
     if (item.type === "queued") return <QueuedRow note={item.note} onRemove={() => void diary.removeQueued(item.note.clientId)} />;
     if (item.type === "day") {
       const ready = item.notes.some((note) => note.status === "ready" && note.entry);
+      const weather = item.notes.find((note) => note.siteWeather)?.siteWeather;
+      const crew = crewTotal(dayCrew(item.notes.flatMap((note) => (note.entry ? [note.entry] : []))));
       return (
-        <View style={styles.dayHeader}>
-          <Text style={styles.dayTitle}>{dayLabel(item.date)}</Text>
-          {ready ? (
-            <Pressable accessibilityRole="button" onPress={() => openDraft(item.date, item.notes)} hitSlop={8}>
-              <Text style={styles.link}>Szkic do EDB</Text>
-            </Pressable>
+        <View style={styles.day}>
+          <View style={styles.dayHeader}>
+            <Text style={styles.dayTitle}>{dayLabel(item.date)}</Text>
+            {ready ? (
+              <View style={styles.dayActions}>
+                <Pressable accessibilityRole="button" onPress={() => openReport(item.date, item.date)} hitSlop={8}>
+                  <Text style={styles.link}>PDF</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={() => openDraft(item.date, item.notes)} hitSlop={8}>
+                  <Text style={styles.link}>Szkic do EDB</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+          {weather || crew ? (
+            <Text style={styles.muted}>{[weather ? `Pogoda: ${weather.text}` : null, crew ? `obsada: ${crew} os.` : null].filter(Boolean).join(" · ")}</Text>
           ) : null}
         </View>
       );
@@ -143,6 +159,17 @@ export const ProjectDiary = ({ projectId }: { projectId: string }) => {
         ListHeaderComponent={
           <View style={styles.header}>
             <DiaryRecorder onRecording={diary.addRecording} onText={diary.addText} />
+            {data?.length ? (
+              <View style={styles.exportRow}>
+                <Text style={styles.muted}>Dziennik PDF:</Text>
+                <Pressable accessibilityRole="button" onPress={() => openReport(shiftDate(localDate(), -6), localDate())} hitSlop={8}>
+                  <Text style={styles.link}>7 dni</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={() => openReport(shiftDate(localDate(), -29), localDate())} hitSlop={8}>
+                  <Text style={styles.link}>30 dni</Text>
+                </Pressable>
+              </View>
+            ) : null}
             {offline ? <Text style={styles.notice}>Brak połączenia z serwerem. Pokazuję zapisany dziennik.</Text> : null}
             {error && !data ? <Text style={styles.error}>{error}</Text> : null}
             {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
@@ -199,7 +226,10 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", gap: spacing.lg },
   link: { fontSize: 15, color: colors.link },
   danger: { fontSize: 15, color: colors.danger },
-  dayHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.md },
+  day: { gap: 2, marginTop: spacing.md },
+  dayHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dayActions: { flexDirection: "row", gap: spacing.lg },
+  exportRow: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
   dayTitle: { fontSize: 15, fontWeight: "600", color: colors.text },
   empty: { marginTop: spacing.lg, textAlign: "center" },
 });

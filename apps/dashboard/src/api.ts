@@ -95,6 +95,8 @@ const uploadDocument = (token: string, projectId: string, file: File, onProgress
   return { done, cancel: () => xhr.abort() };
 };
 
+export type Site = { address: string | null; lat: number | null; lon: number | null; found?: string | null };
+
 export const createApi = (token: string) => ({
   // The chat runtime sends its own requests and needs the raw token for its headers.
   token,
@@ -103,6 +105,9 @@ export const createApi = (token: string) => ({
   createProject: (name: string) =>
     request<Pick<Project, "id" | "name">>(token, "/api/projects", { method: "POST", body: JSON.stringify({ name }) }),
   deleteProject: (id: string) => request<void>(token, `/api/projects/${id}`, { method: "DELETE" }),
+  getSite: (projectId: string) => request<Site | null>(token, `/api/projects/${projectId}/site`),
+  putSite: (projectId: string, address: string) =>
+    request<Site>(token, `/api/projects/${projectId}/site`, { method: "PUT", body: JSON.stringify({ address }) }),
   listDocuments: (projectId: string) => request<ProjectDocument[]>(token, `/api/projects/${projectId}/documents`),
   uploadDocument: (projectId: string, file: File, onProgress: (fraction: number) => void) =>
     uploadDocument(token, projectId, file, onProgress),

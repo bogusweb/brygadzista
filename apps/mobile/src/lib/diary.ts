@@ -15,6 +15,9 @@ export type DiaryEntry = {
   references: DiaryReference[];
 };
 
+// Weather of the day at the site's location (#81), read by the server; `text` is ready to show.
+export type SiteWeather = { sky: string; tempMin: number; tempMax: number; precipitationMm: number; windMaxKmh: number; text: string };
+
 export type DiaryStatus = "queued" | "processing" | "ready" | "error";
 
 export type DiaryNote = {
@@ -28,6 +31,7 @@ export type DiaryNote = {
   error: string | null;
   edited: boolean;
   authorName: string;
+  siteWeather?: SiteWeather | null;
   createdAt: string;
   updatedAt: string;
 };
