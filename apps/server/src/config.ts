@@ -40,7 +40,8 @@ export const config = {
   embeddingModel: process.env.EMBEDDING_MODEL ?? "google/gemini-embedding-2",
   // Empty = any provider that keeps no data (embeddings may leave the EU); set one to pin it.
   embeddingProvider: process.env.EMBEDDING_PROVIDER ?? "",
-  embeddingDimensions: 1536,
+  // Changing the model or the size starts a background re-embed (#46); search keeps the old vectors until it is done.
+  embeddingDimensions: Number(process.env.EMBEDDING_DIMENSIONS ?? 1536),
   // Search: cosine distance above which a page does not count as an answer by meaning. A loose start, to tune with
   // the retrieval eval (recall and the share of empty results for "brak" questions) once it has run with a key.
   searchMaxDistance: Number(process.env.SEARCH_MAX_DISTANCE ?? 0.5),
