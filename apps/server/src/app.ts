@@ -22,9 +22,11 @@ import {
   type AuthEnv,
   type Role,
 } from "./auth.js";
+import { cards } from "./cards.js";
 import { checklists } from "./checklists.js";
 import { citationCheck } from "./citations.js";
 import { config } from "./config.js";
+import { embeddingStatus } from "./embedding-sets.js";
 import { defaultTenantId, sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
 import { defects } from "./defects.js";
@@ -64,6 +66,9 @@ app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-t
 
 // `llm` tells an operator at a glance whether the OpenRouter key reached the server.
 app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterApiKey) }));
+
+// The embedding model search uses, and the progress of a change to a new one (#46).
+app.get("/api/admin/embeddings", requireRole("admin"), async (c) => c.json(await embeddingStatus()));
 app.route("/", users);
 app.route("/", pins);
 app.route("/", defects);
@@ -71,6 +76,7 @@ app.route("/", diary);
 app.route("/", site);
 app.route("/", checklists);
 app.route("/", questions);
+app.route("/", cards);
 app.route("/", mcp);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun));
