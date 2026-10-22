@@ -66,6 +66,34 @@ export type DesignerQuestion = {
   createdAt: string;
 };
 
+// Material schedules (#67).
+export type ScheduleCategory = "stal" | "nadproza" | "okna" | "drzwi" | "prefabrykaty" | "inne";
+
+export type ScheduleItem = {
+  documentId: string;
+  pageNo: number;
+  category: ScheduleCategory;
+  element: string;
+  level: string;
+  mark: string;
+  description: string;
+  dimensions: string;
+  quantity: number | null;
+  unit: string;
+  quote: string;
+  verified: boolean;
+};
+
+export type ScheduleTotal = { category: ScheduleCategory; label: string; unit: string; quantity: number; rows: number };
+
+export type Schedule = {
+  status: "ready" | "reading" | "no_model";
+  pages: { documentId: string; pageNo: number; title: string | null }[];
+  failedPages: number[];
+  items: ScheduleItem[];
+  totals: ScheduleTotal[];
+};
+
 export type NewQuestion = { question: string; documentId?: string; pageNo?: number; region?: Region | null; reason?: string };
 
 export const cropQuery = (region: Region | null) =>
@@ -160,6 +188,16 @@ export const createApi = (token: string) => ({
     `/api/documents/${documentId}/pages/${pageNo}/image?token=${encodeURIComponent(token)}`,
   cropUrl: (documentId: string, pageNo: number, region: Region | null) =>
     `/api/documents/${documentId}/pages/${pageNo}/crop?${cropQuery(region)}token=${encodeURIComponent(token)}`,
+  getSchedule: (projectId: string, category?: ScheduleCategory) =>
+    request<Schedule>(token, `/api/projects/${projectId}/schedules${category ? `?category=${category}` : ""}`),
+  scheduleCsv: async (projectId: string, category?: ScheduleCategory) => {
+    const response = await fetch(`/api/projects/${projectId}/schedules.csv${category ? `?category=${category}` : ""}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new ApiError(`Błąd serwera (${response.status})`, response.status);
+    return response.blob();
+  },
+  refreshSchedule: (projectId: string) => request<Schedule>(token, `/api/projects/${projectId}/schedules/refresh`, { method: "POST" }),
   listQuestions: (projectId: string) => request<DesignerQuestion[]>(token, `/api/projects/${projectId}/questions`),
   createQuestion: (projectId: string, question: NewQuestion) =>
     request<DesignerQuestion>(token, `/api/projects/${projectId}/questions`, { method: "POST", body: JSON.stringify(question) }),

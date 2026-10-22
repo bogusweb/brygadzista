@@ -5,6 +5,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { configuredEmbedding, type EmbeddingModel } from "./embedding-model.js";
 import { HttpError, parseRetryAfter, withRetry } from "./retry.js";
+import { SCHEDULE_CATEGORIES, type ScheduleCategory } from "./schedule-categories.js";
 
 // Every request is pinned to one EU endpoint, with no fallback and only to providers
 // that neither train on nor retain prompts (OpenRouter zero data retention).
@@ -133,6 +134,57 @@ export const readLayers = async (name: string, pages: ChecklistSourcePage[]): Pr
       context,
   }));
   return output.layers.filter((layer) => layer.material.trim());
+};
+
+export type ScheduleRowFinding = {
+  category: ScheduleCategory;
+  element: string;
+  level: string;
+  mark: string;
+  description: string;
+  dimensions: string;
+  quantity: number | null;
+  unit: string;
+  quote: string;
+};
+
+const scheduleSchema = z.object({
+  rows: z.array(
+    z.object({
+      category: z.enum(SCHEDULE_CATEGORIES),
+      element: z.string(),
+      level: z.string(),
+      mark: z.string(),
+      description: z.string(),
+      dimensions: z.string(),
+      quantity: z.number().nullable(),
+      unit: z.string(),
+      quote: z.string(),
+    }),
+  ),
+});
+
+// Reads the rows of the schedules (zestawienia) on one page (#67): steel, lintels, windows, doors, precast elements.
+// The caller checks that each row's numbers are on the page, so a row the model made up never reaches an order.
+export const readScheduleRows = async (page: ChecklistSourcePage): Promise<ScheduleRowFinding[]> => {
+  const { output } = await callModel("schedule rows", (abortSignal) => generateText({
+    model: agentLanguageModel(),
+    abortSignal,
+    maxRetries: 0,
+    output: Output.object({ schema: scheduleSchema }),
+    prompt:
+      "To strona projektu technicznego, tekst z PDF z zachowanym układem kolumn. Przepisz wiersze zestawień (stal zbrojeniowa, " +
+      "nadproża, stolarka okienna i drzwiowa, elementy prefabrykowane) do listy, jeden wiersz na pozycję zestawienia.\n" +
+      "Pola: category (stal, nadproza, okna, drzwi, prefabrykaty, inne); element: element konstrukcji, którego dotyczy " +
+      "(np. 'strop nad parterem', 'wieniec W1'), pusty gdy brak; level: kondygnacja, pusta gdy brak; mark: symbol lub numer " +
+      "pozycji (np. 'O1', 'N2', 'poz. 3'); description: co to jest, dla stali średnica i gatunek (np. 'pręt Ø12 B500SP'); " +
+      "dimensions: wymiary dokładnie jak w projekcie (np. '84x142'); quantity: liczba sztuk, a dla stali długość całkowita " +
+      "albo masa z zestawienia (liczba, przecinek dziesiętny zamień na kropkę), null gdy jej nie ma; unit: 'szt.', 'm' albo 'kg'; " +
+      "quote: dosłowny fragment strony z liczbami tej pozycji. Wiersze podsumowań (razem, ogółem) pomiń. Liczby przepisuj " +
+      "bez zmian i niczego nie licz ani nie zgaduj. Gdy na stronie nie ma zestawienia, zwróć pustą listę.\n\n" +
+      `### dokument ${page.documentId}, strona ${page.pageNo}${page.title ? ` – ${page.title}` : ""}\n${page.text}`,
+  }));
+  return output.rows;
 };
 
 // Gemini Embedding is Matryoshka-trained, so a longer vector can be truncated and renormalised.
