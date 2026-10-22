@@ -4,7 +4,7 @@ import { pageImagePath } from "./agent.js";
 import { canAccessProject, isUuid, requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
 import { actor, fillItem, mapLimit, sourcePages } from "./checklists.js";
 import { config } from "./config.js";
-import { sql } from "./db.js";
+import { detached, sql, withTenant } from "./db.js";
 import { readLayers } from "./llm.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { bestSnippet, searchPages } from "./search.js";
@@ -168,7 +168,7 @@ export const requestCard = async (
       status = case when ${refresh} or element_cards.status = 'error' then 'generating' else element_cards.status end,
       error = case when ${refresh} or element_cards.status = 'error' then null else element_cards.error end
     returning id, status`;
-  if (card!.status === "generating") void buildCard(card!.id);
+  if (card!.status === "generating") detached(() => buildCard(card!.id));
   return card!.id;
 };
 
@@ -180,8 +180,9 @@ const projectOfCard = async (cardId: string) => {
 
 const requireCardAccess = (): MiddlewareHandler<AuthEnv> => async (c, next) => {
   const projectId = await projectOfCard(c.req.param("id") ?? "");
-  if (!projectId || !(await canAccessProject(c.get("principal"), projectId))) return c.json({ error: "Nie ma takiej karty" }, 404);
-  await next();
+  const tenantId = projectId ? await canAccessProject(c.get("principal"), projectId) : null;
+  if (!tenantId) return c.json({ error: "Nie ma takiej karty" }, 404);
+  await withTenant(tenantId, next);
 };
 
 export const cardRequest = z.object({

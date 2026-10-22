@@ -3,7 +3,7 @@ import type { TransactionSql } from "postgres";
 import { chunkPage } from "./chunking.js";
 import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
-import { replacePageFacts, sql } from "./db.js";
+import { replacePageFacts, sql, withTenant } from "./db.js";
 import { buildingEmbeddingSet, pagesMissingFrom, recordSetError, switchToSet, writeEmbeddingSet, type EmbeddingSet } from "./embedding-sets.js";
 import { titleFromText } from "./outline.js";
 import { saveOutline } from "./project-outline.js";
@@ -51,7 +51,7 @@ const saveChunks = async (tx: TransactionSql, page: { id: string; projectId: str
   }
 };
 
-const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: number) => {
+const indexOnePage = async (doc: { id: string; project_id: string; tenant_id: string }, pageNo: number) => {
   const pdf = documentPdf(doc.id);
   const image = await imageOf(doc.id, pageNo);
   const raw = await pdfPageText(pdf, pageNo);
@@ -65,7 +65,8 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
   const target = config.openrouterApiKey ? await writeEmbeddingSet() : null;
   const chunks = target ? await embedPage(pageNo, title, raw, image, target) : null;
 
-  await sql.begin(async (tx) => {
+  // The page is written as the document's firm, under the same row level security as a request (#92).
+  await withTenant(doc.tenant_id, async (tx) => {
     const [page] = await tx<{ id: string }[]>`
       update pages set
         kind = ${meta.kind},
@@ -122,7 +123,7 @@ const pauseReason = (error: unknown) => {
   return undefined;
 };
 
-const processDocument = async (doc: { id: string; project_id: string }) => {
+const processDocument = async (doc: { id: string; project_id: string; tenant_id: string }) => {
   const pageCount = await pdfPageCount(documentPdf(doc.id));
   await sql`update documents set page_count = ${pageCount}, status = 'processing', error = null where id = ${doc.id}`;
   await sql`
@@ -184,10 +185,10 @@ const processDocument = async (doc: { id: string; project_id: string }) => {
 };
 
 const claimNextDocument = async () => {
-  const [doc] = await sql<{ id: string; project_id: string }[]>`
+  const [doc] = await sql<{ id: string; project_id: string; tenant_id: string }[]>`
     update documents set status = 'processing'
     where id = (select id from documents where status = 'queued' order by created_at limit 1 for update skip locked)
-    returning id, project_id`;
+    returning id, project_id, tenant_id`;
   return doc;
 };
 

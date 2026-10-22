@@ -1,9 +1,9 @@
-import { BuiltInAgent, defineTool } from "@copilotkit/runtime/v2";
+import { BuiltInAgent, defineTool, type ToolDefinition } from "@copilotkit/runtime/v2";
 import { z } from "zod";
 import { CARD_KINDS, cardSettled, cardView, requestCard } from "./cards.js";
 import { SCHEDULE_CATEGORIES } from "./schedule-categories.js";
 import { projectSchedule, schedulesSettled } from "./schedules.js";
-import { sql } from "./db.js";
+import { sql, withTenant } from "./db.js";
 import { inspectionImages } from "./drawing.js";
 import { agentLanguageModel, askAboutPage } from "./llm.js";
 import { listDefects } from "./defects.js";
@@ -79,12 +79,19 @@ const assertPageInProject = async (projectId: string, documentId: string, pageNo
 
 export const pageImagePath = (documentId: string, pageNo: number) => `/api/documents/${documentId}/pages/${pageNo}/image`;
 
+// Every tool call reads the database as the project's firm, under row level security (#92).
+const inTenant = (tenantId: string, tool: ToolDefinition): ToolDefinition => {
+  const { execute } = tool;
+  if (!execute) return tool;
+  return { ...tool, execute: (...args: Parameters<typeof execute>) => withTenant(tenantId, async () => execute(...args)) };
+};
+
 // The kind of building (#85) tells the agent what work it is; the project itself stays the only source of values.
 export const buildingPrompt = (building: { label: string; context: string } | undefined) =>
   building ? `\n\nTyp budowy: ${building.label}. ${building.context}` : "";
 
 // extraPrompt carries what changes per project between requests, such as the designer's answers (#73).
-export const createProjectAgent = (projectId: string, extraPrompt = "") =>
+export const createProjectAgent = (projectId: string, tenantId: string, extraPrompt = "") =>
   new BuiltInAgent({
     model: agentLanguageModel(),
     prompt: SYSTEM_PROMPT + A2UI_PROMPT + extraPrompt,
@@ -319,5 +326,5 @@ export const createProjectAgent = (projectId: string, extraPrompt = "") =>
           return { documentId, pageNo, title: page.title, caption, imagePath: pageImagePath(documentId, pageNo) };
         },
       }),
-    ],
+    ].map((tool) => inTenant(tenantId, tool as ToolDefinition)),
   });

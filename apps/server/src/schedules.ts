@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { pageImagePath } from "./agent.js";
 import { requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
 import { config } from "./config.js";
-import { sql } from "./db.js";
+import { detached, sql } from "./db.js";
 import { readScheduleRows, type ScheduleRowFinding } from "./llm.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { SCHEDULE_CATEGORIES, type ScheduleCategory } from "./schedule-categories.js";
@@ -168,7 +168,7 @@ const matches = (item: ItemRow, { category, element, mark }: ScheduleFilter) => 
 export const projectSchedule = async (projectId: string, filter: ScheduleFilter = {}) => {
   const pages = await schedulePages(projectId);
   const pending = pages.filter((page) => page.version !== SCHEDULE_VERSION);
-  if (pending.length && config.openrouterApiKey) void extractSchedules(projectId);
+  if (pending.length && config.openrouterApiKey) detached(() => extractSchedules(projectId));
   const rows = await sql<ItemRow[]>`
     select i.id, i.document_id as "documentId", i.page_no as "pageNo", p.title as "pageTitle", i.category, i.element, i.level,
       i.mark, i.description, i.dimensions, i.quantity, i.unit, i.quote, i.verified

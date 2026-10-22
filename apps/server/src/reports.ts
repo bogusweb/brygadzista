@@ -2,7 +2,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { canAccessProject, isUuid, requireProjectAccess, requireRole, requireRoleOrQueryToken, type AuthEnv } from "./auth.js";
-import { sql } from "./db.js";
+import { sql, withTenant } from "./db.js";
 import { STATUS_LABELS } from "./defects.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { exists, formatDay, formatIsoDay } from "./report-pdf.js";
@@ -42,8 +42,9 @@ const isDate = (value: unknown): value is string =>
 
 const requireReportAccess: MiddlewareHandler<AuthEnv> = async (c, next) => {
   const report = await reportById(c.req.param("id") ?? "");
-  if (!report || !(await canAccessProject(c.get("principal"), report.projectId))) return c.json({ error: "Nie ma takiego raportu" }, 404);
-  await next();
+  const tenantId = report ? await canAccessProject(c.get("principal"), report.projectId) : null;
+  if (!tenantId) return c.json({ error: "Nie ma takiego raportu" }, 404);
+  await withTenant(tenantId, next);
 };
 
 const pdfResponse = (pdf: Buffer, filename: string) =>
