@@ -199,3 +199,42 @@ describe("searchPages with page metadata (#55)", () => {
     expect(page).toEqual({ kind: "rysunek", title: "RZUT DACHU (rys. 5)", drawing_no: "5", scale: "1:100", level: "dach" });
   });
 });
+
+describe("searchPages with parameters from the text (#53)", () => {
+  let projectId: string;
+  let documentId: string;
+
+  beforeEach(async () => {
+    await resetDatabase();
+    config.openrouterApiKey = "";
+    projectId = await createProject();
+    documentId = await createDocument(projectId, "ready");
+  });
+
+  it("finds a page by a parameter's name and returns the matching parameters with it", async () => {
+    const filler = Array.from({ length: 30 }, (_, i) => `Wiersz ${i} opisu robót przygotowawczych`).join("\n");
+    await insertPage(projectId, documentId, 8, {
+      searchText: `${filler}\nOcieplenie cokołu wykonać z płyt izolacyjnych – styrodur gr. 10 cm.\nTynk mozaikowy na wysokość 30 cm.`,
+    });
+    await insertPage(projectId, documentId, 3, { searchText: "Kubatura budynku – 6680 m3" });
+    await migrate();
+
+    const [hit] = await searchPages(projectId, "Jaka grubość styroduru?");
+
+    expect(hit).toMatchObject({ pageNo: 8, facts: [{ label: "wykonać z płyt izolacyjnych – styrodur", value: "10 cm" }] });
+  });
+
+  it("re-reads the parameters of pages stored with an older extraction at startup", async () => {
+    const pageId = await insertPage(projectId, documentId, 3, { searchText: "Kubatura budynku – 6680 m3" });
+    await migrate();
+    await sql`update pages set facts_version = 0 where id = ${pageId}`;
+    await sql`delete from facts where page_id = ${pageId}`;
+
+    await migrate();
+
+    const facts = await sql`select label, value, unit, tenant_id is not null as tenant from facts where page_id = ${pageId}`;
+    expect(facts).toEqual([{ label: "Kubatura budynku", value: "6680", unit: "m3", tenant: true }]);
+    const [page] = await sql`select facts from pages where id = ${pageId}`;
+    expect(page!.facts).toEqual([{ label: "Kubatura budynku", value: "6680 m3" }]);
+  });
+});

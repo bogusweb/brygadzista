@@ -23,6 +23,7 @@ import {
   type Role,
 } from "./auth.js";
 import { checklists } from "./checklists.js";
+import { citationCheck } from "./citations.js";
 import { config } from "./config.js";
 import { defaultTenantId, sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
@@ -44,7 +45,8 @@ const projectAgents =
   (roles: Role[]) =>
   async ({ request }: { request: Request }) => {
     const projectId = await agentProjectId(request, roles);
-    return { default: config.fakeAgent ? new FakeProjectAgent(projectId) : createProjectAgent(projectId) };
+    const agent = config.fakeAgent ? new FakeProjectAgent(projectId) : createProjectAgent(projectId);
+    return { default: agent.use(citationCheck) };
   };
 
 // Both clients render A2UI surfaces built from the construction catalog (src/a2ui-catalog.ts):

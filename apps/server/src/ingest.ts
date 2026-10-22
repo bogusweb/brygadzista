@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
 import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
-import { sql } from "./db.js";
+import { replacePageFacts, sql } from "./db.js";
 import { titleFromText } from "./outline.js";
 import { saveOutline } from "./project-outline.js";
 import { META_VERSION, displayTitle, extractPageMeta } from "./page-meta.js";
@@ -69,7 +69,6 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
         meta_version = ${META_VERSION},
         raw_text = ${raw},
         summary = null,
-        facts = ${tx.json([])},
         keywords = ${[]},
         search_text = ${searchText},
         codes = ${extractCodes(`${title ?? ""}\n${raw}`)},
@@ -77,7 +76,9 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
         indexed = ${chunks !== null}
       where document_id = ${doc.id} and page_no = ${pageNo}
       returning id`;
-    if (!page || !chunks) return;
+    if (!page) return;
+    await replacePageFacts(tx, page.id, doc.project_id, raw);
+    if (!chunks) return;
     await tx`delete from chunks where page_id = ${page.id}`;
     for (const chunk of chunks) {
       await tx`insert into chunks (page_id, project_id, content, embedding)
