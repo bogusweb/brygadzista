@@ -1174,3 +1174,25 @@ select {
     justify-content: flex-start;
   }
 }
+
+/* Changes between versions (#72) */
+.change {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.change-facts,
+.change-lines {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.change-lines .added {
+  color: #1d6b35;
+}
+
+.change-lines .removed {
+  color: var(--danger, #b42318);
+  text-decoration: line-through;
+}

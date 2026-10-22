@@ -4,6 +4,7 @@ import { sql } from "./db.js";
 import { activeEmbeddingSet } from "./embedding-sets.js";
 import { formatFact } from "./facts.js";
 import { embed } from "./llm.js";
+import { supersededDocuments } from "./revisions.js";
 import { drawingRefOf, levelOf, type PageBranch, type PageKind } from "./page-meta.js";
 
 export type PageFact = { label: string; value: string };
@@ -271,7 +272,13 @@ export const searchPages = async (projectId: string, query: string, limit = 6, f
     .filter(([id]) => relevant.has(id) && !named.includes(id))
     .sort((a, b) => b[1] - a[1])
     .map(([id]) => id);
-  const ids = [...named, ...fused].slice(0, limit);
+  // An older version of a document answers only until its new version is indexed (#72).
+  const candidates = [...named, ...fused];
+  const outdated = candidates.length
+    ? new Set((await sql<{ id: string }[]>`
+        select id from pages where id in ${sql(candidates)} and document_id in (${supersededDocuments()})`).map((row) => row.id))
+    : new Set<string>();
+  const ids = candidates.filter((id) => !outdated.has(id)).slice(0, limit);
   if (ids.length === 0) return [];
   const [rows, factsByPage] = await Promise.all([
     sql<{ id: string; document_id: string; filename: string; page_no: number; title: string | null; raw_text: string }[]>`

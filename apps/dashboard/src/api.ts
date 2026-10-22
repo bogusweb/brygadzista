@@ -81,6 +81,32 @@ export type ProjectDocument = {
   estimate?: IndexingEstimate;
   progress?: IndexingProgress | null;
   failedPages?: number;
+  // Versions (#72): the document this one replaces, and the newest one replacing it.
+  revisionOf?: string | null;
+  supersededBy?: string | null;
+};
+
+export type FactChange = { label: string; before: string | null; after: string | null };
+
+export type PageChange = {
+  kind: "changed" | "added" | "removed";
+  pageNo: number | null;
+  previousPageNo: number | null;
+  title: string | null;
+  drawingNo: string | null;
+  facts: FactChange[];
+  linesAdded: string[];
+  linesRemoved: string[];
+};
+
+export type Revision = {
+  documentId: string;
+  filename: string;
+  previousId: string;
+  previousFilename: string;
+  createdAt: string;
+  changedPages: number;
+  changes: PageChange[];
 };
 
 export type UploadedDocument = { id: string; status?: DocumentStatus; pageCount?: number; estimate?: IndexingEstimate };
@@ -188,11 +214,12 @@ const errorFromXhr = (xhr: XMLHttpRequest) => {
 };
 
 // fetch() can't report upload progress, so the PDF goes up through XHR.
-const uploadDocument = (token: string, projectId: string, file: File, onProgress: (fraction: number) => void) => {
+const uploadDocument = (token: string, projectId: string, file: File, onProgress: (fraction: number) => void, revisionOf?: string) => {
   const xhr = new XMLHttpRequest();
   const done = new Promise<UploadedDocument>((resolve, reject) => {
     // autostart=0: indexing waits until the operator has seen the cost estimate and pressed start.
-    xhr.open("PUT", `/api/projects/${projectId}/documents?filename=${encodeURIComponent(file.name)}&autostart=0`);
+    const revision = revisionOf ? `&revisionOf=${revisionOf}` : "";
+    xhr.open("PUT", `/api/projects/${projectId}/documents?filename=${encodeURIComponent(file.name)}&autostart=0${revision}`);
     xhr.setRequestHeader("authorization", `Bearer ${token}`);
     xhr.setRequestHeader("content-type", "application/pdf");
     xhr.upload.onprogress = (event) => {
@@ -271,8 +298,9 @@ export const createApi = (token: string, operatorTenantId: string | null = null)
     getSite: (projectId: string) => request<Site | null>(token, `/api/projects/${projectId}/site`),
     putSite: (projectId: string, address: string) => request<Site>(token, `/api/projects/${projectId}/site`, post({ address }, "PUT")),
     listDocuments: (projectId: string) => request<ProjectDocument[]>(token, `/api/projects/${projectId}/documents`),
-    uploadDocument: (projectId: string, file: File, onProgress: (fraction: number) => void) =>
-      uploadDocument(token, projectId, file, onProgress),
+    uploadDocument: (projectId: string, file: File, onProgress: (fraction: number) => void, revisionOf?: string) =>
+      uploadDocument(token, projectId, file, onProgress, revisionOf),
+    listRevisions: (projectId: string) => request<Revision[]>(token, `/api/projects/${projectId}/revisions`),
     startDocument: (id: string) => request<{ ok: true }>(token, `/api/documents/${id}/start`, { method: "POST" }),
     resumeDocument: (id: string) => request<{ ok: true }>(token, `/api/documents/${id}/resume`, { method: "POST" }),
     reindexDocument: (id: string) => request<{ ok: true }>(token, `/api/documents/${id}/reindex`, { method: "POST" }),

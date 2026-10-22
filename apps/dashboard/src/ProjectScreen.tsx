@@ -3,6 +3,7 @@ import { ApiError, type Api, type Project, type ProjectDocument } from "./api";
 import { dateFormat, errorMessage, formatBytes, formatDuration, formatUsd, pluralize } from "./format";
 import { PageViewerProvider } from "./pageViewer";
 import { QuestionsPanel } from "./questions";
+import { RevisionsPanel } from "./revisions";
 import { SchedulesPanel } from "./schedules";
 import { routeHref } from "./route";
 import { BuildingTypeCard } from "./BuildingTypeCard";
@@ -70,6 +71,8 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
   const [dragging, setDragging] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const revisionInput = useRef<HTMLInputElement>(null);
+  const [revisionOf, setRevisionOf] = useState<ProjectDocument | null>(null);
 
   const handleError = useCallback(
     (cause: unknown) => {
@@ -101,14 +104,17 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
     return () => window.clearInterval(timer);
   }, [indexing, reload]);
 
-  const send = async (file: File) => {
+  const send = async (file: File, previous?: ProjectDocument) => {
     if (!isPdf(file)) {
       setError(`„${file.name}” nie jest plikiem PDF. Wybierz plik z rozszerzeniem .pdf.`);
       return;
     }
     setError(null);
-    const { done, cancel } = api.uploadDocument(projectId, file, (progress) =>
-      setUpload((current) => (current ? { ...current, progress } : current)),
+    const { done, cancel } = api.uploadDocument(
+      projectId,
+      file,
+      (progress) => setUpload((current) => (current ? { ...current, progress } : current)),
+      previous?.id,
     );
     setUpload({ name: file.name, size: file.size, progress: 0, cancel });
     try {
@@ -125,6 +131,14 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (file) void send(file);
+  };
+
+  // A new version of a document (#72): the old one stays for reference and the changes are listed below.
+  const pickRevision = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file && revisionOf) void send(file, revisionOf);
+    setRevisionOf(null);
   };
 
   const dropFile = (event: DragEvent) => {
@@ -210,6 +224,7 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
           </>
         )}
         <input ref={fileInput} type="file" accept="application/pdf,.pdf" hidden onChange={pickFile} />
+        <input ref={revisionInput} type="file" accept="application/pdf,.pdf" hidden onChange={pickRevision} />
       </div>
 
       {error && (
@@ -250,6 +265,8 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
                     )}
                     <span className={`small ${doc.status === "error" || doc.status === "paused" || doc.failedPages ? "danger-text" : "muted"}`}>
                       {statusText(doc)} · dodano {dateFormat.format(new Date(doc.createdAt))}
+                      {doc.revisionOf ? ` · nowa wersja „${documents.find((other) => other.id === doc.revisionOf)?.filename ?? "dokumentu"}”` : ""}
+                      {doc.supersededBy ? " · zastąpiony nowszą wersją (do wglądu)" : ""}
                     </span>
                   </div>
                   <div className="actions">
@@ -283,6 +300,19 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
                         Indeksuj ponownie
                       </button>
                     )}
+                    {doc.status === "ready" && !doc.supersededBy && (
+                      <button
+                        type="button"
+                        className="button ghost"
+                        disabled={pending || upload !== null}
+                        onClick={() => {
+                          setRevisionOf(doc);
+                          revisionInput.current?.click();
+                        }}
+                      >
+                        Wgraj nową wersję
+                      </button>
+                    )}
                     <button type="button" className="button danger" disabled={pending} onClick={() => void remove(doc)}>
                       Usuń
                     </button>
@@ -308,6 +338,7 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
       <SiteCard api={api} projectId={projectId} />
 
       <PageViewerProvider api={api}>
+        <RevisionsPanel api={api} projectId={projectId} reloadKey={documents} />
         <SchedulesPanel api={api} projectId={projectId} onUnauthorized={onUnauthorized} />
         <QuestionsPanel api={api} projectId={projectId} onUnauthorized={onUnauthorized} />
       </PageViewerProvider>
