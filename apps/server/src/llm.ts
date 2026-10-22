@@ -107,6 +107,34 @@ export const readChecklistValue = async (ask: string, pages: ChecklistSourcePage
   return output.found && output.value.trim() ? { value: output.value.trim(), documentId: output.documentId, pageNo: output.pageNo, quote: output.quote.trim() } : null;
 };
 
+export type LayerFinding = { material: string; thickness: string; documentId: string; pageNo: number; quote: string };
+
+const layersSchema = z.object({
+  layers: z.array(z.object({ material: z.string(), thickness: z.string(), documentId: z.string(), pageNo: z.number().int(), quote: z.string() })),
+});
+
+// Reads the layers of one partition (wall, roof, floor) from the pages the search found (#71), outside to inside.
+// The caller checks each quote against its page, the same way as for checklist values.
+export const readLayers = async (name: string, pages: ChecklistSourcePage[]): Promise<LayerFinding[]> => {
+  const context = pages
+    .map((page) => `### dokument ${page.documentId}, strona ${page.pageNo}${page.title ? ` – ${page.title}` : ""}\n${page.text}`)
+    .join("\n\n");
+  const { output } = await callModel("partition layers", (abortSignal) => generateText({
+    model: agentLanguageModel(),
+    abortSignal,
+    maxRetries: 0,
+    output: Output.object({ schema: layersSchema }),
+    prompt:
+      `Przygotowujesz kartę przegrody „${name}” dla ekipy na budowie. Poniżej fragmenty stron projektu technicznego.\n` +
+      "Wypisz warstwy tej przegrody od zewnątrz do wewnątrz (albo od góry do dołu): material to materiał warstwy, thickness " +
+      "grubość z jednostką dokładnie jak w projekcie (pusta, gdy projekt jej nie podaje). quote to dosłowny, krótki cytat ze " +
+      "strony, na której jest ta warstwa, przepisany bez zmian; podaj documentId i pageNo tej strony. Pomiń warstwy innych " +
+      "przegród. Jeśli strony nie opisują warstw tej przegrody, zwróć pustą listę. Niczego nie zgaduj.\n\n" +
+      context,
+  }));
+  return output.layers.filter((layer) => layer.material.trim());
+};
+
 // Gemini Embedding is Matryoshka-trained, so a longer vector can be truncated and renormalised.
 const fitDimensions = (vector: number[], dimensions: number) => {
   const head = vector.slice(0, dimensions);

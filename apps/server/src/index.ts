@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { app } from "./app.js";
+import { failInterruptedCards } from "./cards.js";
 import { failInterruptedChecklists } from "./checklists.js";
 import { config } from "./config.js";
 import { migrate } from "./db.js";
@@ -9,6 +10,7 @@ import { startIngestWorker } from "./ingest.js";
 
 await migrate();
 await failInterruptedChecklists();
+await failInterruptedCards();
 await startIngestWorker();
 void resumeDiaryEntries();
 void resumeDefectSpecs();
