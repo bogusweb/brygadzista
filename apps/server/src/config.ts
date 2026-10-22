@@ -18,6 +18,9 @@ export const config = {
   // development keep it as a quick key to the oldest firm.
   adminToken: requireEnv("ADMIN_TOKEN", "dev-admin"),
   appToken: process.env.NODE_ENV === "production" ? "" : (process.env.APP_TOKEN ?? "dev-app"),
+  // Address of the server as people outside see it, for read-only links and QR codes (#84, #82). Without it the
+  // address is taken from the request (behind a proxy, from X-Forwarded-Proto and Host).
+  publicUrl: (process.env.PUBLIC_URL ?? "").replace(/\/+$/, ""),
   sessionTtlDays: Number(process.env.SESSION_TTL_DAYS ?? 30),
   // Rate limits per user (or per shared token); login attempts per e-mail and per IP.
   chatRequestsPerMinute: Number(process.env.RATE_LIMIT_CHAT_PER_MINUTE ?? 10),
@@ -44,6 +47,9 @@ export const config = {
   // Search: cosine distance above which a page does not count as an answer by meaning. A loose start, to tune with
   // the retrieval eval (recall and the share of empty results for "brak" questions) once it has run with a key.
   searchMaxDistance: Number(process.env.SEARCH_MAX_DISTANCE ?? 0.5),
+  // From this many pages in a project, search goes through the indexes (HNSW with iterative scan, full-text GIN) instead
+  // of comparing every page: exact below it, fast above it (#58).
+  searchIndexedFromPages: Number(process.env.SEARCH_INDEXED_FROM_PAGES ?? 1000),
   indexConcurrency: Number(process.env.INDEX_CONCURRENCY ?? 2),
   // Upload limits: the PDF is streamed to disk and cut off as soon as it passes the size limit.
   maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 1024) * 1024 * 1024,

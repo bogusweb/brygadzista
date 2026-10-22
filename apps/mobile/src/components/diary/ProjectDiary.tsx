@@ -11,6 +11,7 @@ import { DiaryRecorder } from "./DiaryRecorder";
 import { EdbDraft } from "./EdbDraft";
 import { NoteEditor } from "./NoteEditor";
 import { useDiary } from "./useDiary";
+import { WeeklyReport } from "./WeeklyReport";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
 
@@ -94,6 +95,7 @@ export const ProjectDiary = ({ projectId }: { projectId: string }) => {
   const openPage = usePageViewer();
   const [editing, setEditing] = useState<DiaryNote | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
+  const [reporting, setReporting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const { data, error, loading, offline } = diary.notes;
 
@@ -168,6 +170,9 @@ export const ProjectDiary = ({ projectId }: { projectId: string }) => {
                 <Pressable accessibilityRole="button" onPress={() => openReport(shiftDate(localDate(), -29), localDate())} hitSlop={8}>
                   <Text style={styles.link}>30 dni</Text>
                 </Pressable>
+                <Pressable accessibilityRole="button" onPress={() => setReporting(true)} hitSlop={8}>
+                  <Text style={styles.link}>Raport dla inwestora</Text>
+                </Pressable>
               </View>
             ) : null}
             {offline ? <Text style={styles.notice}>Brak połączenia z serwerem. Pokazuję zapisany dziennik.</Text> : null}
@@ -200,6 +205,7 @@ export const ProjectDiary = ({ projectId }: { projectId: string }) => {
         />
       ) : null}
       {draft !== null ? <EdbDraft text={draft} onClose={() => setDraft(null)} /> : null}
+      {reporting ? <WeeklyReport projectId={projectId} onClose={() => setReporting(false)} /> : null}
     </>
   );
 };
@@ -229,7 +235,7 @@ const styles = StyleSheet.create({
   day: { gap: 2, marginTop: spacing.md },
   dayHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   dayActions: { flexDirection: "row", gap: spacing.lg },
-  exportRow: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
+  exportRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: spacing.lg, rowGap: spacing.xs },
   dayTitle: { fontSize: 15, fontWeight: "600", color: colors.text },
   empty: { marginTop: spacing.lg, textAlign: "center" },
 });

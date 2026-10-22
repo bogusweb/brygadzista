@@ -64,9 +64,21 @@ const MIN_COVERAGE = 0.5;
 
 // Exported for the retrieval eval (scripts/eval-search.ts), which scores each ranking on its own.
 // Pages holding more of the question's words come first; within that, the usual rank and trigram similarity.
+// Pages of a project, to choose between comparing every page and going through the indexes.
+const projectPageCount = async (projectId: string) => {
+  const [row] = await sql<{ pages: number }[]>`
+    select coalesce(sum(page_count), 0)::int as pages from documents where project_id = ${projectId}`;
+  return row?.pages ?? 0;
+};
+
+const isLargeProject = async (projectId: string) => (await projectPageCount(projectId)) >= config.searchIndexedFromPages;
+
 export const lexicalSearch = async (projectId: string, query: string, limit: number, filter: PageFilter = {}) => {
   const terms = queryTerms(query);
   const tsquery = terms.join(" | ");
+  // In a large project only pages holding one of the words are ranked, found through the full-text index; a small one
+  // ranks every page, so even a page without the words can come up by trigram similarity.
+  const indexed = terms.length > 0 && (await isLargeProject(projectId));
   return sql<{ page_id: string; coverage: number }[]>`
     select id as page_id, coverage from pages,
       lateral (select to_tsvector('simple', search_text) as tsv) doc,
@@ -74,6 +86,7 @@ export const lexicalSearch = async (projectId: string, query: string, limit: num
         (select count(*) from unnest(${terms}::text[]) term where doc.tsv @@ to_tsquery('simple', term))::float / ${terms.length}::int
       end as coverage) matched
     where project_id = ${projectId} and search_text <> '' ${pageConditions(filter)}
+      ${indexed ? sql`and to_tsvector('simple', search_text) @@ to_tsquery('simple', ${tsquery})` : sql``}
     order by
       round(coverage::numeric, 2) desc,
       (case when ${tsquery} = '' then 0 else ts_rank(doc.tsv, to_tsquery('simple', ${tsquery})) end)
@@ -81,20 +94,56 @@ export const lexicalSearch = async (projectId: string, query: string, limit: num
     limit ${limit}`;
 };
 
+// Whether pgvector can keep scanning the HNSW index until enough rows pass the project filter (0.8+).
+let iterativeScan: Promise<boolean> | undefined;
+const supportsIterativeScan = () =>
+  (iterativeScan ??= sql<{ version: string }[]>`select extversion as version from pg_extension where extname = 'vector'`.then(
+    ([row]) => {
+      const [major = 0, minor = 0] = (row?.version ?? "0").split(".").map(Number);
+      return major > 0 || minor >= 8;
+    },
+  ));
+
+// Nearest fragments taken from the HNSW index, per page found.
+const ANN_FRAGMENTS_PER_PAGE = 8;
+const ANN_EF_SEARCH = 200;
+
+const quoteLiteral = (value: string) => `'${value.replace(/'/g, "''")}'`;
+
 // Reads the active embedding set only (#46): during a model change the new set is still incomplete, so the question is
-// embedded with the old model and compared with the old vectors until the switch.
+// embedded with the old model and compared with the old vectors until the switch. A small project compares every
+// fragment (exact); a large one goes through the set's HNSW index with iterative scan, so the project filter does not
+// leave the index short of rows (#58).
 export const semanticSearch = async (projectId: string, query: string, limit: number, filter: PageFilter = {}) => {
   if (!config.openrouterApiKey) return [];
   const set = await activeEmbeddingSet();
   if (!set) return [];
   const [vector] = await embed([expandAbbreviations(query)], set);
-  // The vector size is part of the index expression, so it is written into the query rather than sent as a parameter.
+  // The vector size and the set are part of the index definition, so they are written into the query, not sent as
+  // parameters, or the planner could not match the partial index.
   const sized = sql.unsafe(`vector(${Math.trunc(set.dimensions)})`);
+  const inSet = sql.unsafe(`embedding_set = ${quoteLiteral(set.id)}`);
+  const literal = `[${vector!.join(",")}]`;
+  const filtered = hasFilter(filter)
+    ? sql`and page_id in (select id from pages where project_id = ${projectId} ${pageConditions(filter)})`
+    : sql``;
+  if ((await isLargeProject(projectId)) && (await supportsIterativeScan())) {
+    return sql.begin(async (tx) => {
+      await tx.unsafe("set local hnsw.iterative_scan = relaxed_order");
+      await tx.unsafe(`set local hnsw.ef_search = ${ANN_EF_SEARCH}`);
+      return tx<{ page_id: string; distance: number }[]>`
+        select page_id, min(distance) as distance from (
+          select page_id, embedding::${sized} <=> ${literal}::${sized} as distance
+          from chunks where ${inSet} and project_id = ${projectId} ${filtered}
+          order by embedding::${sized} <=> ${literal}::${sized}
+          limit ${limit * ANN_FRAGMENTS_PER_PAGE}
+        ) nearest group by page_id order by distance limit ${limit}`;
+    });
+  }
   return sql<{ page_id: string; distance: number }[]>`
     select page_id, distance from (
-      select page_id, min(embedding::${sized} <=> ${`[${vector!.join(",")}]`}::${sized}) as distance
-      from chunks where project_id = ${projectId} and embedding_set = ${set.id}
-      ${hasFilter(filter) ? sql`and page_id in (select id from pages where project_id = ${projectId} ${pageConditions(filter)})` : sql``}
+      select page_id, min(embedding::${sized} <=> ${literal}::${sized}) as distance
+      from chunks where project_id = ${projectId} and ${inSet} ${filtered}
       group by page_id
     ) ranked order by distance limit ${limit}`;
 };
