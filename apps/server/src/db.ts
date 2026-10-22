@@ -273,6 +273,25 @@ export const migrate = async () => {
       created_at timestamptz not null default now(),
       unique (project_id, kind, period_start)
     )`;
+  // Questions to the designer (#73): a gap or a contradiction in the project, asked outside the app and answered here.
+  await sql`
+    create table if not exists designer_questions (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references projects(id) on delete cascade,
+      document_id uuid references documents(id) on delete set null,
+      page_no int check (page_no >= 1),
+      region jsonb,
+      question text not null,
+      reason text not null default '',
+      status text not null default 'open' check (status in ('open', 'answered')),
+      answer text,
+      answered_at timestamptz,
+      created_by uuid references users(id) on delete set null,
+      author_name text not null default '',
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )`;
+  await sql`create index if not exists designer_questions_project on designer_questions (project_id, created_at desc)`;
   await migrateTenants();
   await backfillCodes();
   await backfillMeta();
@@ -280,7 +299,20 @@ export const migrate = async () => {
 };
 
 // Tables that hang off a project: their firm always comes from the project, through a composite key.
-const PROJECT_TABLES = ["project_members", "documents", "pages", "chunks", "facts", "pins", "pin_photos", "diary_entries", "checklists", "site_weather", "reports"];
+const PROJECT_TABLES = [
+  "project_members",
+  "documents",
+  "pages",
+  "chunks",
+  "facts",
+  "pins",
+  "pin_photos",
+  "diary_entries",
+  "checklists",
+  "site_weather",
+  "designer_questions",
+  "reports",
+];
 // Tables that hang off a checklist and take the firm from it.
 const CHECKLIST_TABLES = ["checklist_items", "checklist_events", "checklist_results"];
 

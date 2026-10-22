@@ -34,6 +34,7 @@ import { site } from "./site.js";
 import { FakeProjectAgent } from "./fake-agent.js";
 import { pdfPageCount } from "./pdf.js";
 import { projectOutline } from "./project-outline.js";
+import { designerAnswersPrompt, questions } from "./questions.js";
 import { pins, removeDocumentPhotos, removeProjectFiles } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { documentDir, documentPdf, pageImage } from "./storage.js";
@@ -46,7 +47,9 @@ const projectAgents =
   (roles: Role[]) =>
   async ({ request }: { request: Request }) => {
     const projectId = await agentProjectId(request, roles);
-    const agent = config.fakeAgent ? new FakeProjectAgent(projectId) : createProjectAgent(projectId);
+    const agent = config.fakeAgent
+      ? new FakeProjectAgent(projectId)
+      : createProjectAgent(projectId, await designerAnswersPrompt(projectId));
     return { default: agent.use(citationCheck) };
   };
 
@@ -68,6 +71,7 @@ app.route("/", diary);
 app.route("/", site);
 app.route("/", reports);
 app.route("/", checklists);
+app.route("/", questions);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun));
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));

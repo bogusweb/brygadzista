@@ -13,11 +13,11 @@ export const config = {
   dashboardDir: path.resolve(process.env.DASHBOARD_DIR ?? "../dashboard/dist"),
   // Web export of the Expo app (pnpm --filter @brygadzista/mobile export:web), served under /app.
   mobileWebDir: path.resolve(process.env.MOBILE_WEB_DIR ?? "../mobile/dist-web"),
-  // Shared tokens from before user accounts (#10). ADMIN_TOKEN is the operator: every firm, e.g. to create the
-  // first accounts. APP_TOKEN is the old app token, now limited to the oldest firm until the app logs in with
-  // accounts (#91). It is off when set to "", and in production unless set explicitly.
+  // ADMIN_TOKEN is the operator: every firm, e.g. to create the first accounts. APP_TOKEN, the shared app code from
+  // before accounts, no longer works in production now that the app logs in with accounts (#91); tests and local
+  // development keep it as a quick key to the oldest firm.
   adminToken: requireEnv("ADMIN_TOKEN", "dev-admin"),
-  appToken: process.env.APP_TOKEN ?? (process.env.NODE_ENV === "production" ? "" : "dev-app"),
+  appToken: process.env.NODE_ENV === "production" ? "" : (process.env.APP_TOKEN ?? "dev-app"),
   // Address of the server as people outside see it, for read-only links and QR codes (#84, #82). Without it the
   // address is taken from the request (behind a proxy, from X-Forwarded-Proto and Host).
   publicUrl: (process.env.PUBLIC_URL ?? "").replace(/\/+$/, ""),

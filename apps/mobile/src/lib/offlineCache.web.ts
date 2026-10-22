@@ -1,4 +1,4 @@
-import { serverFolderName } from "./offline";
+import { isForeignKey, scopeFolders, storagePrefix } from "./offline";
 import type { Connection } from "./settings";
 
 // expo-file-system has no web implementation, so the browser version always reads pages from the server.
@@ -12,7 +12,7 @@ export const removePage = (_connection: Connection, _documentId: string, _pageNo
 export const removeDocumentPages = (_connection: Connection, _documentId: string) => {};
 // Lists and the search index are small enough for localStorage, so search keeps working when the signal drops.
 // A full or blocked storage only means no saved copy.
-const storageKey = (connection: Connection, key: string) => `brygadzista:${serverFolderName(connection.serverUrl)}:${key}`;
+const storageKey = (connection: Connection, key: string) => `${storagePrefix(scopeFolders(connection))}${key}`;
 
 export const readJson = async <T>(connection: Connection, key: string): Promise<T | null> => {
   try {
@@ -30,3 +30,18 @@ export const writeJson = async (connection: Connection, key: string, value: unkn
     // Quota exceeded or storage disabled.
   }
 };
+
+const removeKeys = (serverUrl: string, userId: string | null) => {
+  try {
+    const storage = globalThis.localStorage;
+    if (!storage) return;
+    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter((key): key is string => key !== null);
+    keys.filter((key) => isForeignKey(key, serverUrl, userId)).forEach((key) => storage.removeItem(key));
+  } catch {
+    // Storage disabled: nothing was saved either.
+  }
+};
+
+export const clearServerData = (serverUrl: string) => removeKeys(serverUrl, null);
+
+export const clearOtherAccounts = (serverUrl: string, userId: string) => removeKeys(serverUrl, userId);
