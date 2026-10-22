@@ -61,9 +61,9 @@ describe("inspectionImages", () => {
 
     expect(images.length).toBe(1 + planTiles(A1).length);
     for (const image of images) expect((await stat(image)).size).toBeLessThanOrEqual(MAX_JPEG_BYTES);
-    const rendered = await readdir(pageTilesDir(documentId, 1));
+    const rendered = await readdir(await pageTilesDir(documentId, 1));
     expect(await inspectionImages(documentId, 1)).toEqual(images);
-    expect(await readdir(pageTilesDir(documentId, 1))).toEqual(rendered);
+    expect(await readdir(await pageTilesDir(documentId, 1))).toEqual(rendered);
   });
 
   it("sends just the page image for an ordinary A4 page", async () => {

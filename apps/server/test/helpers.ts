@@ -67,8 +67,8 @@ export const createDocument = async (projectId: string, status = "queued") => {
 };
 
 export const writeDocumentPdf = async (documentId: string, pdf: Uint8Array) => {
-  await mkdir(documentDir(documentId), { recursive: true });
-  await writeFile(documentPdf(documentId), pdf);
+  await mkdir(await documentDir(documentId), { recursive: true });
+  await writeFile(await documentPdf(documentId), pdf);
 };
 
 export const insertPage = async (

@@ -61,12 +61,14 @@ const readManifest = (file: string) =>
 // Images for inspect_drawing: the page itself, plus zoomed tiles when it is a large sheet.
 // Tiles are rendered on first use and cached next to the page image.
 export const inspectionImages = async (documentId: string, pageNo: number): Promise<string[]> => {
-  const pdf = documentPdf(documentId);
-  const overview = await access(pageImage(documentId, pageNo)).then(
-    () => pageImage(documentId, pageNo),
-    () => pdfRenderPage(pdf, pageNo, pageImagePrefix(documentId, pageNo)),
+  const pdf = await documentPdf(documentId);
+  const stored = await pageImage(documentId, pageNo);
+  const prefix = await pageImagePrefix(documentId, pageNo);
+  const overview = await access(stored).then(
+    () => stored,
+    () => pdfRenderPage(pdf, pageNo, prefix),
   );
-  const dir = pageTilesDir(documentId, pageNo);
+  const dir = await pageTilesDir(documentId, pageNo);
   const manifest = path.join(dir, "tiles.json");
   const cached = await readManifest(manifest);
   if (cached) return [overview, ...cached];

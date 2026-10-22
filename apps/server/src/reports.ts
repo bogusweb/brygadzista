@@ -181,7 +181,7 @@ reports.get("/r/:token/report.pdf", async (c) => {
 reports.get("/r/:token/photos/:photoId", async (c) => {
   const report = await sharedReport(c.req.param("token"));
   const photo = report?.snapshot.photos.find((candidate) => candidate.id === c.req.param("photoId"));
-  const file = report && photo ? photoFile(report.projectId, photo.id, "thumb") : null;
+  const file = report && photo ? await photoFile(report.projectId, photo.id, "thumb") : null;
   if (!file || !(await exists(file))) return c.body(null, 404);
   c.header("Content-Type", "image/jpeg");
   c.header("Cache-Control", "private, max-age=3600");

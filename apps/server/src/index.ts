@@ -7,8 +7,10 @@ import { migrate } from "./db.js";
 import { resumeDefectSpecs } from "./defect-spec.js";
 import { resumeDiaryEntries } from "./diary.js";
 import { startIngestWorker } from "./ingest.js";
+import { migrateFiles } from "./storage.js";
 
 await migrate();
+await migrateFiles();
 await failInterruptedChecklists();
 await failInterruptedCards();
 await startIngestWorker();

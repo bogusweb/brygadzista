@@ -45,7 +45,7 @@ describe("upload", () => {
     const { id } = (await response.json()) as { id: string };
     const [doc] = await sql`select filename, status, project_id from documents where id = ${id}`;
     expect(doc).toMatchObject({ filename: "hala.pdf", status: "queued", project_id: projectId });
-    expect(new Uint8Array(await readFile(documentPdf(id)))).toEqual(pdf);
+    expect(new Uint8Array(await readFile(await documentPdf(id)))).toEqual(pdf);
   });
 
   it("lists the uploaded document for the app", async () => {
@@ -177,8 +177,8 @@ describe("authorization", () => {
 
   it("accepts ?token= for page images", async () => {
     const documentId = await createDocument(projectId, "ready");
-    await mkdir(documentDir(documentId), { recursive: true });
-    await writeFile(pageImage(documentId, 1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+    await mkdir(await documentDir(documentId), { recursive: true });
+    await writeFile(await pageImage(documentId, 1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 
     const response = await app.request(`/api/documents/${documentId}/pages/1/image?token=test-app`);
 

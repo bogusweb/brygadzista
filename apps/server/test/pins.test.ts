@@ -134,14 +134,14 @@ describe("pins", () => {
 
     expect([deleted.status, again.status]).toEqual([204, 204]);
     expect((await listPins()).pins).toEqual([]);
-    await expect(stat(photoFile(projectId, photoId, "full"))).rejects.toThrow();
+    await expect(stat(await photoFile(projectId, photoId, "full"))).rejects.toThrow();
 
     const secondPin = randomUUID();
     const secondPhoto = randomUUID();
     await putPin(secondPin, pinBody());
     await putPhoto(secondPin, secondPhoto, await photo(100, 100));
     await app.request(`/api/documents/${documentId}`, { method: "DELETE", headers: ADMIN });
-    await expect(stat(photoFile(projectId, secondPhoto, "thumb"))).rejects.toThrow();
+    await expect(stat(await photoFile(projectId, secondPhoto, "thumb"))).rejects.toThrow();
   });
 });
 

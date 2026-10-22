@@ -245,7 +245,7 @@ diary.post("/api/projects/:id/diary", requireRole("app", "admin"), requireProjec
   const [row] = await sql<{ id: string }[]>`
     insert into diary_entries (project_id, client_id, entry_date, source, audio_type, author_id, author_name)
     values (${projectId}, ${clientId}, ${date}, 'audio', ${type.mediaType}, ${user?.id ?? null}, ${author}) returning id`;
-  const file = diaryAudio(row!.id, type.extension);
+  const file = await diaryAudio(projectId, row!.id, type.extension);
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, audio);
   await sql`update diary_entries set audio_file = ${file} where id = ${row!.id}`;

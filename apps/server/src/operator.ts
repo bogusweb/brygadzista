@@ -7,7 +7,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { hashPassword, isUuid, normalizeEmail, requireRole, requireTenantOwner, sessionTokenHash, bearerToken, type AuthEnv, type Principal } from "./auth.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
-import { documentDir, projectDir } from "./storage.js";
+import { tenantDir } from "./storage.js";
 
 // What a firm used, per day (#94): agent runs and indexed pages. The operator panel shows the last 30 days.
 export type UsageKind = "chat_runs" | "indexed_pages";
@@ -29,15 +29,6 @@ const tenantById = async (id: string) => {
   return tenant ?? null;
 };
 
-// Files of a firm on disk: the PDFs and page images of its documents, its projects' photos and diary recordings.
-const tenantFiles = async (tenantId: string) => {
-  const documents = await sql<{ id: string }[]>`select id from documents where tenant_id = ${tenantId}`;
-  const projects = await sql<{ id: string }[]>`select id from projects where tenant_id = ${tenantId}`;
-  const audio = await sql<{ file: string }[]>`
-    select audio_file as file from diary_entries where tenant_id = ${tenantId} and audio_file is not null`;
-  return [...documents.map((doc) => documentDir(doc.id)), ...projects.map((project) => projectDir(project.id)), ...audio.map((row) => row.file)];
-};
-
 // Every row of the firm as JSON, table by table; embeddings are left out (they are rebuilt from the documents).
 const tenantRows = async (tenantId: string) => {
   const tables = await sql<{ table: string }[]>`
@@ -55,20 +46,12 @@ const tenantRows = async (tenantId: string) => {
   return data;
 };
 
-// A .tar.gz with data.json and the firm's files at their paths under DATA_DIR. Uses the system tar.
+// A .tar.gz with data.json and the firm's directory (tenants/<id>/projects/…) as it lies under DATA_DIR. Uses the system tar.
 export const exportTenant = async (tenantId: string): Promise<Readable> => {
   const work = await mkdtemp(path.join(tmpdir(), "brygadzista-export-"));
   await writeFile(path.join(work, "data.json"), JSON.stringify({ exportedAt: new Date().toISOString(), ...(await tenantRows(tenantId)) }, null, 1));
-  const existing: string[] = [];
-  for (const file of await tenantFiles(tenantId)) {
-    const relative = path.relative(config.dataDir, file);
-    if (!relative.startsWith("..") && (await stat(file).catch(() => null))) existing.push(relative);
-  }
-  await writeFile(path.join(work, "files.txt"), existing.join("\n"));
-  const tar = spawn("tar", [
-    "-czf", "-", "-C", work, "data.json",
-    ...(existing.length ? ["-C", config.dataDir, "-T", path.join(work, "files.txt")] : []),
-  ]);
+  const files = (await stat(tenantDir(tenantId)).catch(() => null)) ? [path.relative(config.dataDir, tenantDir(tenantId))] : [];
+  const tar = spawn("tar", ["-czf", "-", "-C", work, "data.json", ...(files.length ? ["-C", config.dataDir, ...files] : [])]);
   tar.on("close", () => rm(work, { recursive: true, force: true }).catch(() => {}));
   tar.stderr.on("data", (chunk: Buffer) => console.error(`export ${tenantId}: ${chunk.toString().trim()}`));
   return tar.stdout;
@@ -76,10 +59,9 @@ export const exportTenant = async (tenantId: string): Promise<Readable> => {
 
 // Removes the firm, all its rows (by cascade), its files, and accounts that belonged to no other firm.
 export const deleteTenant = async (tenantId: string) => {
-  const files = await tenantFiles(tenantId);
   const members = await sql<{ userId: string }[]>`select user_id as "userId" from tenant_members where tenant_id = ${tenantId}`;
   await sql`delete from tenants where id = ${tenantId}`;
-  await Promise.all(files.map((file) => rm(file, { recursive: true, force: true })));
+  await rm(tenantDir(tenantId), { recursive: true, force: true });
   for (const { userId } of members) {
     await sql`delete from users where id = ${userId} and role <> 'operator' and not exists (select 1 from tenant_members where user_id = ${userId})`;
   }

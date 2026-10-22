@@ -96,7 +96,7 @@ export const signatureLines = (pdf: Pdf, roles: { label: string; signature?: { i
 
 // The part of the drawing around a spot, with a ring on it, so the reader sees where it is.
 export const planCrop = async (documentId: string, pageNo: number, x: number, y: number) => {
-  const file = pageImage(documentId, pageNo);
+  const file = await pageImage(documentId, pageNo);
   if (!(await exists(file))) return null;
   const { width = 0, height = 0 } = await sharp(file).metadata();
   if (!width || !height) return null;
@@ -113,7 +113,7 @@ export const planCrop = async (documentId: string, pageNo: number, x: number, y:
 };
 
 export const photoThumb = async (projectId: string, photoId: string) => {
-  const file = photoFile(projectId, photoId, "thumb");
+  const file = await photoFile(projectId, photoId, "thumb");
   return (await exists(file)) ? file : null;
 };
 

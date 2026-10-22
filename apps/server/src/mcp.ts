@@ -109,10 +109,10 @@ const TOOLS = {
       const [page] = await sql<{ title: string | null }[]>`
         select title from pages where project_id = ${projectId} and document_id::text = ${documentId} and page_no = ${pageNo}`;
       if (!page) throw new ToolError(`Nie ma strony ${pageNo} w tym dokumencie`);
-      const stored = pageImage(documentId, pageNo);
+      const stored = await pageImage(documentId, pageNo);
       const file = await access(stored).then(
         () => stored,
-        () => pdfRenderPage(documentPdf(documentId), pageNo, pageImagePrefix(documentId, pageNo)),
+        async () => pdfRenderPage(await documentPdf(documentId), pageNo, await pageImagePrefix(documentId, pageNo)),
       );
       const image = await sharp(file).resize(IMAGE_LONG_EDGE, IMAGE_LONG_EDGE, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
       return {

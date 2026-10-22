@@ -44,9 +44,9 @@ import { pdfPageCount } from "./pdf.js";
 import { projectOutline } from "./project-outline.js";
 import { designerAnswersPrompt, questions } from "./questions.js";
 import { mcp } from "./mcp.js";
-import { pins, removeDocumentPhotos, removeProjectFiles } from "./pins.js";
+import { pins, removeDocumentPhotos } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
-import { documentDir, documentPdf, pageImage } from "./storage.js";
+import { documentDir, documentPdf, pageImage, projectDir } from "./storage.js";
 import { tenants } from "./tenants.js";
 import { users } from "./users.js";
 
@@ -140,13 +140,10 @@ app.patch("/api/projects/:id", requireRole("admin"), requireProjectAccess(), asy
 });
 
 app.delete("/api/projects/:id", requireRole("admin"), requireProjectAccess(), async (c) => {
-  const documents = await sql<{ id: string }[]>`select id from documents where project_id = ${c.req.param("id")}`;
-  const notes = await sql<{ audioFile: string }[]>`
-    select audio_file as "audioFile" from diary_entries where project_id = ${c.req.param("id")} and audio_file is not null`;
+  // Documents, photos and recordings all live in the project's directory.
+  const dir = await projectDir(c.req.param("id"));
   await sql`delete from projects where id = ${c.req.param("id")}`;
-  await Promise.all(documents.map((doc) => rm(documentDir(doc.id), { recursive: true, force: true })));
-  await Promise.all(notes.map((note) => rm(note.audioFile, { force: true })));
-  await removeProjectFiles(c.req.param("id"));
+  await rm(dir, { recursive: true, force: true });
   return c.body(null, 204);
 });
 
@@ -234,25 +231,27 @@ app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAcces
     insert into documents (project_id, filename, status, revision_of)
     values (${c.req.param("id")}, ${filename}, 'uploading', ${revisionOf}) returning id`;
   const id = doc!.id;
+  const dir = await documentDir(id);
+  const pdf = await documentPdf(id);
   const reject = async (status: 400 | 413, error: string) => {
     await sql`delete from documents where id = ${id}`;
-    await rm(documentDir(id), { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
     return c.json({ error }, status);
   };
 
-  await mkdir(documentDir(id), { recursive: true });
+  await mkdir(dir, { recursive: true });
   try {
-    await pipeline(Readable.fromWeb(body as WebReadableStream), limitSize(config.maxUploadBytes), createWriteStream(documentPdf(id)));
+    await pipeline(Readable.fromWeb(body as WebReadableStream), limitSize(config.maxUploadBytes), createWriteStream(pdf));
   } catch (error) {
     if (error instanceof UploadTooLarge) return reject(413, tooLargeMessage());
     await reject(400, "Przerwane wysyłanie pliku");
     throw error;
   }
-  const handle = await open(documentPdf(id));
+  const handle = await open(pdf);
   const { buffer } = await handle.read(Buffer.alloc(5), 0, 5, 0);
   await handle.close();
   if (buffer.toString() !== "%PDF-") return reject(400, "To nie jest plik PDF");
-  const pageCount = await pdfPageCount(documentPdf(id)).catch(() => null);
+  const pageCount = await pdfPageCount(pdf).catch(() => null);
   if (!pageCount) return reject(400, "Nie udało się odczytać PDF");
   if (pageCount > config.maxPages) return reject(413, `PDF ma ${pageCount} stron, limit to ${config.maxPages}`);
 
@@ -283,9 +282,10 @@ app.post("/api/documents/:id/resume", requireRole("admin"), requireDocumentAcces
 });
 
 app.delete("/api/documents/:id", requireRole("admin"), requireDocumentAccess(), async (c) => {
+  const dir = await documentDir(c.req.param("id"));
   await removeDocumentPhotos(c.req.param("id"));
   await sql`delete from documents where id = ${c.req.param("id")}`;
-  await rm(documentDir(c.req.param("id")), { recursive: true, force: true });
+  await rm(dir, { recursive: true, force: true });
   return c.body(null, 204);
 });
 
@@ -318,7 +318,7 @@ app.get("/api/documents/:id/pages/:pageNo/text", requireRole("app", "admin"), re
 });
 
 app.get("/api/documents/:id/pages/:pageNo/image", requireRoleOrQueryToken("app", "admin"), requireDocumentAccess(), async (c) => {
-  const file = pageImage(c.req.param("id"), Number(c.req.param("pageNo")));
+  const file = await pageImage(c.req.param("id"), Number(c.req.param("pageNo")));
   const info = await stat(file).catch(() => null);
   if (!info) return c.json({ error: "Strona nie jest jeszcze gotowa" }, 404);
   c.header("Content-Type", "image/jpeg");

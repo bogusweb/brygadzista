@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/app.js";
+import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { documentDir, documentPdf } from "../src/storage.js";
 import { ADMIN, PASSWORD, createDocument, createOperator, createProject, createTenant, createUser, login, resetDatabase } from "./helpers.js";
@@ -25,8 +26,8 @@ beforeEach(async () => {
   await createProject("Dom A", firmA);
   const projectB = await createProject("Dom B", firmB);
   documentB = await createDocument(projectB, "ready");
-  await mkdir(documentDir(documentB), { recursive: true });
-  await writeFile(documentPdf(documentB), "%PDF-1.4 firma B");
+  await mkdir(await documentDir(documentB), { recursive: true });
+  await writeFile(await documentPdf(documentB), "%PDF-1.4 firma B");
   await createUser("szef@a.pl", "owner", PASSWORD, firmA);
   await createUser("szef@b.pl", "owner", PASSWORD, firmB);
 });
@@ -90,7 +91,10 @@ describe("export and deletion of a firm", () => {
     expect(data.users!.map((user) => user.email)).toEqual(["szef@b.pl"]);
     expect(JSON.stringify(data)).not.toContain("Dom A");
     expect(JSON.stringify(data)).not.toContain("password");
-    expect(await readFile(path.join(dir, "documents", documentB, "source.pdf"), "utf8")).toBe("%PDF-1.4 firma B");
+    // Files keep their place under DATA_DIR: tenants/<firm>/projects/<project>/documents/<document>/.
+    const pdf = path.relative(config.dataDir, await documentPdf(documentB));
+    expect(pdf.startsWith(path.join("tenants", firmB))).toBe(true);
+    expect(await readFile(path.join(dir, pdf), "utf8")).toBe("%PDF-1.4 firma B");
   });
 
   it("lets a firm's owner export only their own firm", async () => {
@@ -106,7 +110,7 @@ describe("export and deletion of a firm", () => {
 
     expect(await sql`select 1 from projects where tenant_id = ${firmB}`).toHaveLength(0);
     expect(await sql`select 1 from users where email = 'szef@b.pl'`).toHaveLength(0);
-    expect(await stat(documentDir(documentB)).catch(() => null)).toBeNull();
+    expect(await stat(await documentDir(documentB)).catch(() => null)).toBeNull();
     expect(await sql`select 1 from projects where tenant_id = ${firmA}`).toHaveLength(1);
     expect(await sql`select tenant_name from operator_audit where action = 'delete'`).toEqual([{ tenant_name: "Firma B" }]);
   });
