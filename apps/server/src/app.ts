@@ -28,6 +28,7 @@ import { chatThreads } from "./chat-threads.js";
 import { revisions } from "./revisions.js";
 import { schedules } from "./schedules.js";
 import { checklists } from "./checklists.js";
+import { operator } from "./operator.js";
 import { citationCheck } from "./citations.js";
 import { config } from "./config.js";
 import { embeddingStatus } from "./embedding-sets.js";
@@ -78,6 +79,7 @@ app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterA
 // The embedding model search uses, and the progress of a change to a new one (#46).
 app.get("/api/admin/embeddings", requireRole("admin"), async (c) => c.json(await embeddingStatus()));
 app.route("/", users);
+app.route("/", operator);
 app.route("/", tenants);
 app.route("/", pins);
 app.route("/", defects);

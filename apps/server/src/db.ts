@@ -556,6 +556,26 @@ const migrateTenants = async () => {
       foreign key (project_id, tenant_id) references projects (id, tenant_id) on delete cascade on update cascade
     )`;
   await sql`create or replace trigger share_links_tenant before insert on share_links for each row execute function tenant_from_project()`;
+  // Usage per firm and day (#94), and what the operator did to which firm. The log keeps the firm's name and survives
+  // the firm being deleted.
+  await sql`
+    create table if not exists tenant_usage (
+      tenant_id uuid not null references tenants(id) on delete cascade,
+      day date not null,
+      kind text not null,
+      amount int not null default 0,
+      primary key (tenant_id, day, kind)
+    )`;
+  await sql`
+    create table if not exists operator_audit (
+      id bigserial primary key,
+      tenant_id uuid,
+      tenant_name text not null,
+      action text not null,
+      operator_id uuid references users(id) on delete set null,
+      operator_name text not null,
+      created_at timestamptz not null default now()
+    )`;
   // Chat threads with their owner (#92): the CopilotKit runtime keeps messages in memory, this keeps who may use them.
   await sql`
     create table if not exists chat_threads (

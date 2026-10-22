@@ -1157,6 +1157,24 @@ select {
   overflow-x: auto;
 }
 
+/* Operator actions on a firm (#94) wrap under the firm's details on a narrow screen. */
+.firm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .card.row:has(.firm-actions) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .firm-actions {
+    justify-content: flex-start;
+  }
+}
+
 /* Changes between versions (#72) */
 .change {
   display: flex;

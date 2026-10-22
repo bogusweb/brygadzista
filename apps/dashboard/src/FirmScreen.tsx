@@ -62,6 +62,35 @@ const FirmList = ({ api, firms, onFirmsChanged, onPickFirm }: FirmListProps) => 
     }
   };
 
+  const act = async (action: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      await onFirmsChanged();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Everything the firm stored, for a RODO request or before deleting it.
+  const exportFirm = async (firm: FirmSummary) => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(await api.exportFirm(firm.id));
+    link.download = `${firm.name.replace(/[^\w.-]+/g, "_")}.tar.gz`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  // Deleting cannot be undone, so the operator types the firm's name.
+  const removeFirm = async (firm: FirmSummary) => {
+    const typed = window.prompt(`Usunąć firmę „${firm.name}” ze wszystkimi budowami, plikami i kontami? Wpisz jej nazwę, żeby potwierdzić.`);
+    if (typed === null) return;
+    await api.deleteFirm(firm.id, typed);
+  };
+
   return (
     <section className="stack">
       <div className="section-head">
@@ -88,20 +117,36 @@ const FirmList = ({ api, firms, onFirmsChanged, onPickFirm }: FirmListProps) => 
             <div className="row-main">
               <span className="row-title">{firm.name}</span>
               <span className="muted small">
-                {pluralize(firm.memberCount, "osoba", "osoby", "osób")} · {pluralize(firm.projectCount, "budowa", "budowy", "budów")}
+                {pluralize(firm.memberCount, "osoba", "osoby", "osób")} · {pluralize(firm.projectCount, "budowa", "budowy", "budów")} ·{" "}
+                {pluralize(firm.pages, "strona", "strony", "stron")}
                 {firm.disabled && " · zablokowana"}
               </span>
+              <span className="muted small">
+                Ostatnie 30 dni: {pluralize(firm.chatRuns30d, "pytanie", "pytania", "pytań")} do agenta,{" "}
+                {pluralize(firm.indexedPages30d, "strona zindeksowana", "strony zindeksowane", "stron zindeksowanych")}
+              </span>
             </div>
-            <button
-              type="button"
-              className="button ghost"
-              onClick={() => {
-                onPickFirm(firm.id);
-                window.location.hash = routeHref({ screen: "firm" });
-              }}
-            >
-              Otwórz firmę
-            </button>
+            <div className="firm-actions">
+              <button type="button" className="button ghost" disabled={busy} onClick={() => act(() => api.setFirmBlocked(firm.id, !firm.disabled))}>
+                {firm.disabled ? "Odblokuj" : "Zablokuj"}
+              </button>
+              <button type="button" className="button ghost" disabled={busy} onClick={() => act(() => exportFirm(firm))}>
+                Pobierz dane
+              </button>
+              <button type="button" className="button ghost danger" disabled={busy} onClick={() => act(() => removeFirm(firm))}>
+                Usuń firmę
+              </button>
+              <button
+                type="button"
+                className="button ghost"
+                onClick={() => {
+                  onPickFirm(firm.id);
+                  window.location.hash = routeHref({ screen: "firm" });
+                }}
+              >
+                Otwórz firmę
+              </button>
+            </div>
           </li>
         ))}
       </ul>
