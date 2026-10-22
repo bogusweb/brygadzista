@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { FlatList, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { protocolUrl } from "../../lib/api";
+import { fetchProtocols, protocolUrl } from "../../lib/api";
+import type { Protocol } from "../../lib/api";
 import {
   STATUS_COLORS,
   assigneesOf,
@@ -23,6 +24,7 @@ import { usePageViewer } from "../chat/PageViewer";
 import { confirm } from "../pins/pickPhotos";
 import { Chip, StatusBadge } from "../pins/DefectPanel";
 import { usePins } from "../pins/PinsProvider";
+import { ProtocolSheet } from "../protocols/ProtocolSheet";
 
 // The punch list (#74): every defect on the drawings, filtered by status, person and floor. It is built from what the
 // phone keeps, so it works without signal; only the PDF protocol needs the server.
@@ -80,6 +82,16 @@ export const ProjectDefects = ({ projectId }: { projectId: string }) => {
   const overdue = defects.filter((pin) => isOverdue(pin)).length;
   const anyDefects = pins.some((pin) => pin.kind === "defect");
   const change = (fields: Partial<DefectFilter>) => setFilter((current) => ({ ...current, ...fields }));
+  // Saved protocols (#82) need the server; without signal the list simply stays empty.
+  const [protocols, setProtocols] = useState<Protocol[]>([]);
+  const [sheet, setSheet] = useState<{ protocol: Protocol | null } | null>(null);
+  useEffect(() => {
+    fetchProtocols(connection, projectId).then(setProtocols, () => undefined);
+  }, [connection, projectId]);
+  const changeProtocol = (protocol: Protocol) => {
+    setSheet({ protocol });
+    setProtocols((current) => [protocol, ...current.filter((candidate) => candidate.id !== protocol.id)]);
+  };
 
   const openProtocol = async () => {
     if (
@@ -140,6 +152,22 @@ export const ProjectDefects = ({ projectId }: { projectId: string }) => {
             {waiting ? ` · ${pluralPl(waiting, "zmiana czeka", "zmiany czekają", "zmian czeka")} na zasięg` : ""}
           </Text>
           <Button label="Protokół odbioru (PDF)" variant="secondary" onPress={() => void openProtocol()} disabled={defects.length === 0} />
+          <Button label="Protokół do podpisu (z kodem QR)" variant="secondary" onPress={() => setSheet({ protocol: null })} disabled={defects.length === 0} />
+          {protocols.length ? (
+            <View style={styles.protocols}>
+              <Text style={styles.summary}>Zapisane protokoły</Text>
+              {protocols.map((protocol) => (
+                <Pressable key={protocol.id} accessibilityRole="button" onPress={() => setSheet({ protocol })} hitSlop={4}>
+                  <Text style={styles.protocolLink}>
+                    {protocol.title} · {formatDay(protocol.createdAt.slice(0, 10))} · podpisy: {protocol.signatures.length}/2
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          {sheet ? (
+            <ProtocolSheet projectId={projectId} filter={filter} protocol={sheet.protocol} onChange={changeProtocol} onClose={() => setSheet(null)} />
+          ) : null}
         </View>
       }
       ListEmptyComponent={<Text style={styles.emptyText}>Żadna usterka nie pasuje do wybranych filtrów.</Text>}
@@ -158,6 +186,8 @@ const styles = StyleSheet.create({
   filters: { gap: spacing.sm, marginBottom: spacing.sm },
   chips: { gap: spacing.sm },
   summary: { fontSize: 14, color: colors.muted },
+  protocols: { gap: spacing.xs },
+  protocolLink: { fontSize: 15, color: colors.link },
   overdue: { color: colors.danger, fontWeight: "600" },
   card: { flexDirection: "row", borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: "hidden" },
   stripe: { width: 5 },

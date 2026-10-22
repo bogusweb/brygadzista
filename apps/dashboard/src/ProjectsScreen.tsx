@@ -4,7 +4,9 @@ import { BuildingTypeSelect, useBuildingTypes } from "./BuildingTypeCard";
 import { dateFormat, pluralize } from "./format";
 import { routeHref } from "./route";
 
-type Props = { api: Api; onUnauthorized: () => void };
+// `tenantId` limits the list to one firm (an operator sees every firm's projects); `firmNames` labels each project
+// with its firm when an operator looks at all of them.
+type Props = { api: Api; onUnauthorized: () => void; tenantId: string | null; firmNames: Map<string, string> | null };
 
 const documentLabel = (count: number) => pluralize(count, "dokument", "dokumenty", "dokumentów");
 
@@ -50,7 +52,8 @@ const EmbeddingModelNote = ({ api }: { api: Api }) => {
   );
 };
 
-export const ProjectsScreen = ({ api, onUnauthorized }: Props) => {
+export const ProjectsScreen = ({ api, onUnauthorized, tenantId, firmNames }: Props) => {
+
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -69,12 +72,13 @@ export const ProjectsScreen = ({ api, onUnauthorized }: Props) => {
 
   const reload = useCallback(async () => {
     try {
-      setProjects(await api.listProjects());
+      const all = await api.listProjects();
+      setProjects(tenantId ? all.filter((project) => project.tenantId === tenantId) : all);
       setError(null);
     } catch (cause) {
       handleError(cause);
     }
-  }, [api, handleError]);
+  }, [api, handleError, tenantId]);
 
   useEffect(() => {
     void reload();
@@ -118,23 +122,27 @@ export const ProjectsScreen = ({ api, onUnauthorized }: Props) => {
       </div>
       <EmbeddingModelNote api={api} />
 
-      <form className="card create-form" onSubmit={create}>
-        <label className="field grow">
-          <span>Nowy projekt</span>
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="np. Dom jednorodzinny, ul. Lipowa 5"
-          />
-        </label>
-        <label className="field">
-          <span>Typ budowy</span>
-          <BuildingTypeSelect types={buildingTypes} value={buildingType} onChange={setBuildingType} />
-        </label>
-        <button type="submit" className="button primary" disabled={creating || !name.trim()}>
-          {creating ? "Tworzę…" : "Utwórz projekt"}
-        </button>
-      </form>
+      {firmNames ? (
+        <p className="card muted">Widzisz budowy wszystkich firm. Żeby założyć nowy projekt, wybierz firmę w nagłówku.</p>
+      ) : (
+        <form className="card create-form" onSubmit={create}>
+          <label className="field grow">
+            <span>Nowy projekt</span>
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="np. Dom jednorodzinny, ul. Lipowa 5"
+            />
+          </label>
+          <label className="field">
+            <span>Typ budowy</span>
+            <BuildingTypeSelect types={buildingTypes} value={buildingType} onChange={setBuildingType} />
+          </label>
+          <button type="submit" className="button primary" disabled={creating || !name.trim()}>
+            {creating ? "Tworzę…" : "Utwórz projekt"}
+          </button>
+        </form>
+      )}
 
       {error && (
         <p className="error" role="alert">
@@ -165,6 +173,7 @@ export const ProjectsScreen = ({ api, onUnauthorized }: Props) => {
                   {project.name}
                 </a>
                 <span className="muted small">
+                  {firmNames && `${firmNames.get(project.tenantId) ?? "Inna firma"} · `}
                   {buildingTypes.find((type) => type.type === project.buildingType)?.label ?? "Budowa"} ·{" "}
                   {documentLabel(project.documentCount)} · utworzono {dateFormat.format(new Date(project.createdAt))}
                 </span>

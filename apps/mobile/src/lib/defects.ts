@@ -101,3 +101,13 @@ export const protocolQuery = (filter: DefectFilter) => {
   }
   return params.join("&");
 };
+
+// The same filter as fields of a saved protocol (#82).
+export const protocolFields = (filter: DefectFilter) => {
+  const [documentId, pageNo] = filter.page?.split(":") ?? [];
+  return {
+    ...(filter.status !== "all" ? { status: filter.status === "active" ? "open,to_check" : filter.status } : {}),
+    ...(filter.assignee !== null ? { assignee: filter.assignee } : {}),
+    ...(documentId && pageNo ? { documentId, pageNo: Number(pageNo) } : {}),
+  };
+};
