@@ -329,6 +329,24 @@ export const migrate = async () => {
       fetched_at timestamptz not null default now(),
       primary key (project_id, day)
     )`;
+  // When a defect was closed (#84), for "closed this week"; a defect closed before this column existed counts from its last change.
+  await sql`alter table pins add column if not exists closed_at timestamptz`;
+  await sql`update pins set closed_at = updated_at where status = 'closed' and closed_at is null`;
+  // Weekly reports for the investor (#84): the facts of the week frozen at the moment the report was made.
+  await sql`
+    create table if not exists reports (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references projects(id) on delete cascade,
+      kind text not null default 'weekly' check (kind in ('weekly')),
+      period_start date not null,
+      period_end date not null,
+      snapshot jsonb not null,
+      summary jsonb not null,
+      created_by uuid references users(id) on delete set null,
+      created_by_name text not null default '',
+      created_at timestamptz not null default now(),
+      unique (project_id, kind, period_start)
+    )`;
   // Questions to the designer (#73): a gap or a contradiction in the project, asked outside the app and answered here.
   await sql`
     create table if not exists designer_questions (
@@ -369,6 +387,7 @@ const PROJECT_TABLES = [
   "checklists",
   "site_weather",
   "designer_questions",
+  "reports",
   "element_cards",
 ];
 // Tables that hang off a checklist and take the firm from it.
@@ -489,6 +508,9 @@ const migrateTenants = async () => {
       created_at timestamptz not null default now(),
       foreign key (project_id, tenant_id) references projects (id, tenant_id) on delete cascade on update cascade
     )`;
+  // A link can open one thing only (#84 a weekly report, #82 a protocol); null target = the project's read-only view.
+  await sql`alter table share_links add column if not exists target_type text`;
+  await sql`alter table share_links add column if not exists target_id uuid`;
 };
 
 // Every table with a tenant_id gets a policy for TENANT_ROLE. The server's own role owns the tables and is not limited,

@@ -192,13 +192,14 @@ pins.put("/api/projects/:id/pins/:pinId", requireRole("app", "admin"), requirePr
   const { user } = c.get("principal");
   await sql`
     insert into pins (id, project_id, document_id, page_no, x, y, kind, note, room, status, assignee, due_date, created_by, author_name,
-      created_at, updated_at)
+      created_at, updated_at, closed_at)
     values (${pinId}, ${projectId}, ${input.documentId}, ${input.pageNo}, ${input.x}, ${input.y}, ${input.kind}, ${input.note},
       ${input.room}, ${input.status}, ${input.assignee}, ${input.dueDate}, ${user?.id ?? null}, ${user?.name || user?.email || ""},
-      ${input.createdAt}, ${input.updatedAt})
+      ${input.createdAt}, ${input.updatedAt}, ${input.status === "closed" ? input.updatedAt : null})
     on conflict (id) do update set document_id = excluded.document_id, page_no = excluded.page_no, x = excluded.x, y = excluded.y,
       kind = excluded.kind, note = excluded.note, room = excluded.room, status = excluded.status, assignee = excluded.assignee,
-      due_date = excluded.due_date, updated_at = excluded.updated_at
+      due_date = excluded.due_date, updated_at = excluded.updated_at,
+      closed_at = case when excluded.status = 'closed' then coalesce(case when pins.status = 'closed' then pins.closed_at end, excluded.updated_at) end
     where pins.updated_at <= excluded.updated_at`;
   // A new or changed defect description is looked up in the project in the background; the phone sees it on its next sync.
   if (input.kind === "defect") detached(() => describeDefect(pinId));
