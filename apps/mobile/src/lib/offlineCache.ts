@@ -1,12 +1,13 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { authHeaders, pageImagePath } from "./api";
-import { notifyPageCacheChanged, pageFileName, pageNoFromFileName, serverFolderName } from "./offline";
+import { notifyPageCacheChanged, pageFileName, pageNoFromFileName, scopeFolders, serverFolderName, userFolderName } from "./offline";
 import type { Connection } from "./settings";
 
 // Drawings live in the document directory, not the cache one: the system may empty the cache exactly when the phone is on site.
 export const offlineSupported = true;
 
-const serverDir = (connection: Connection) => new Directory(Paths.document, "offline", serverFolderName(connection.serverUrl));
+const serverRoot = (serverUrl: string) => new Directory(Paths.document, "offline", serverFolderName(serverUrl));
+const serverDir = (connection: Connection) => new Directory(Paths.document, "offline", ...scopeFolders(connection));
 const documentDir = (connection: Connection, documentId: string) => new Directory(serverDir(connection), "pages", documentId);
 const pageFile = (connection: Connection, documentId: string, pageNo: number) =>
   new File(documentDir(connection, documentId), pageFileName(pageNo));
@@ -77,4 +78,19 @@ export const writeJson = async (connection: Connection, key: string, value: unkn
   file.parentDirectory.create({ intermediates: true, idempotent: true });
   if (!file.exists) file.create();
   await file.write(JSON.stringify(value));
+};
+
+// Logging out leaves nothing of this server on the phone.
+export const clearServerData = (serverUrl: string) => {
+  const root = serverRoot(serverUrl);
+  if (root.exists) root.delete();
+  notifyPageCacheChanged();
+};
+
+// Logging in keeps only this account's data: other accounts' folders and the files from before accounts go.
+export const clearOtherAccounts = (serverUrl: string, userId: string) => {
+  const root = serverRoot(serverUrl);
+  if (!root.exists) return;
+  for (const entry of root.list()) if (entry.name !== userFolderName(userId)) entry.delete();
+  notifyPageCacheChanged();
 };

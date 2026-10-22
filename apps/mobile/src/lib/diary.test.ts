@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { dayLabel, edbDraft, groupByDay, isIsoDate, linesToList, shiftDate } from "./diary";
+import { crewToLines, dayCrew, dayLabel, edbDraft, groupByDay, isIsoDate, linesToCrew, linesToList, shiftDate } from "./diary";
 import type { DiaryEntry, DiaryNote } from "./diary";
 import { flushQueue } from "./diaryQueue";
 import type { QueuedNote } from "./diaryQueue";
@@ -64,7 +64,40 @@ describe("linesToList", () => {
   });
 });
 
+describe("crew lines", () => {
+  it("round-trips a headcount through the editor's text", () => {
+    const crew = [
+      { team: "zbrojarze", company: "Stal-Bud", count: 4 },
+      { team: "betoniarze", company: null, count: 2 },
+    ];
+    expect(crewToLines(crew)).toBe("4 zbrojarze (Stal-Bud)\n2 betoniarze");
+    expect(linesToCrew("4 zbrojarze (Stal-Bud)\n- 2 betoniarze\nktoś bez liczby")).toEqual(crew);
+  });
+
+  it("counts a team named in two notes of a day once, with the higher number", () => {
+    const crew = dayCrew([
+      entry({ crew: [{ team: "Zbrojarze", company: null, count: 3 }] }),
+      entry({ crew: [{ team: "zbrojarze", company: null, count: 4 }, { team: "cieśle", company: null, count: 2 }] }),
+      entry({}),
+    ]);
+    expect(crew).toEqual([
+      { team: "zbrojarze", company: null, count: 4 },
+      { team: "cieśle", company: null, count: 2 },
+    ]);
+  });
+});
+
 describe("edbDraft", () => {
+  it("writes the headcount with a total and the measured weather first", () => {
+    const text = edbDraft(
+      "2026-10-21",
+      [entry({ people: ["sześciu"], crew: [{ team: "zbrojarze", company: null, count: 4 }, { team: "betoniarze", company: null, count: 2 }], weather: "Padało" })],
+      "deszcz, 8–14 °C",
+    );
+    expect(text).toContain(["Zatrudnienie na budowie:", "- 4 zbrojarze", "- 2 betoniarze", "- Razem: 6 os."].join("\n"));
+    expect(text).toContain("Warunki atmosferyczne: deszcz, 8–14 °C; Padało");
+  });
+
   it("lays out the day under the headings of a site log entry", () => {
     const text = edbDraft("2026-10-21", [
       entry({

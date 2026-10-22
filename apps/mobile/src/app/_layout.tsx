@@ -18,7 +18,7 @@ const RootLayout = () => (
         }}
       >
         <Stack.Screen name="index" options={{ title: "Projekty" }} />
-        <Stack.Screen name="settings" options={{ title: "Połączenie z serwerem" }} />
+        <Stack.Screen name="settings" options={{ title: "Konto" }} />
         <Stack.Screen name="projects/[id]" options={{ title: "Projekt" }} />
       </Stack>
     </SettingsProvider>

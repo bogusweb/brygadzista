@@ -4,6 +4,7 @@ import { dateFormat, errorMessage, formatBytes, formatDuration, formatUsd, plura
 import { PageViewerProvider } from "./pageViewer";
 import { QuestionsPanel } from "./questions";
 import { routeHref } from "./route";
+import { SiteCard } from "./SiteCard";
 
 type Props = { api: Api; projectId: string; onUnauthorized: () => void };
 
@@ -300,6 +301,8 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
           })}
         </ul>
       )}
+
+      <SiteCard api={api} projectId={projectId} />
 
       <PageViewerProvider api={api}>
         <QuestionsPanel api={api} projectId={projectId} onUnauthorized={onUnauthorized} />

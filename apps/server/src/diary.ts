@@ -1,7 +1,7 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { canAccessProject, isUuid, requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
+import { canAccessProject, isUuid, requireProjectAccess, requireRole, requireRoleOrQueryToken, type AuthEnv } from "./auth.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
 import { audioType, diaryEntrySchema, fakeOrganize, fakeTranscript, type CandidatePage, type DiaryEntry } from "./diary-entry.js";
@@ -9,6 +9,8 @@ import { organizeTranscript, transcribeAudio } from "./diary-llm.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { statusOf } from "./retry.js";
 import { codeSearch, lexicalSearch } from "./search.js";
+import { diaryReportPdf, type DiaryDay } from "./diary-report.js";
+import { knownWeather, projectSite, siteWeather, warsawToday, withDescription } from "./site.js";
 import { diaryAudio } from "./storage.js";
 
 // Daily site log (#69): a voice note (or typed text) becomes a sorted entry of the day. The note is saved first and
@@ -77,10 +79,14 @@ const transcribe = async (row: { id: string; audio_file: string | null; audio_ty
 };
 
 const sortEntry = async (id: string) => {
-  const [row] = await sql<{ id: string; project_id: string; transcript: string; audio_file: string | null; audio_type: string | null }[]>`
+  const [row] = await sql<
+    { id: string; project_id: string; entry_date: string; transcript: string; audio_file: string | null; audio_type: string | null }[]
+  >`
     update diary_entries set status = 'processing', error = null where id = ${id}
-    returning id, project_id, transcript, audio_file, audio_type`;
+    returning id, project_id, entry_date::text, transcript, audio_file, audio_type`;
   if (!row) return;
+  // The day's weather from the site's location (#81) is written down with the first note of the day.
+  await siteWeather(row.project_id, row.entry_date);
   try {
     if (!config.fakeAgent && !config.openrouterApiKey) throw new DiaryError("Serwer nie ma klucza OpenRouter, więc nie przetworzy nagrania.");
     let transcript = row.transcript.trim();
@@ -141,10 +147,54 @@ const publicEntry = ({ projectId: _projectId, ...row }: EntryRow) => row;
 
 export const diary = new Hono<AuthEnv>();
 
+// Each note carries the measured weather of its day (#81), when it is known.
 diary.get("/api/projects/:id/diary", requireRole("app", "admin"), requireProjectAccess(), async (c) => {
   const rows = await sql<EntryRow[]>`
     select ${entryColumns} from diary_entries where project_id = ${c.req.param("id")} order by entry_date desc, created_at desc`;
-  return c.json(rows.map(publicEntry));
+  const weather = await knownWeather(c.req.param("id"), [...new Set(rows.map((row) => row.entryDate))]);
+  return c.json(rows.map((row) => ({ ...publicEntry(row), siteWeather: withDescription(weather.get(row.entryDate)) })));
+});
+
+const MAX_REPORT_DAYS = 62;
+
+// The log of a day or a period as a PDF (#81). ?token= works too, so the phone can open it in a browser.
+diary.get("/api/projects/:id/diary/report.pdf", requireRoleOrQueryToken("app", "admin"), requireProjectAccess(), async (c) => {
+  const projectId = c.req.param("id");
+  const to = c.req.query("to") ?? warsawToday();
+  const from = c.req.query("from") ?? to;
+  if (!isDate(from) || !isDate(to) || from > to) return c.json({ error: "Nieprawidłowy okres" }, 400);
+  if ((Date.parse(to) - Date.parse(from)) / 86_400_000 >= MAX_REPORT_DAYS) return c.json({ error: `Okres może mieć najwyżej ${MAX_REPORT_DAYS} dni` }, 400);
+  const [project] = await sql<{ name: string }[]>`select name from projects where id = ${projectId}`;
+  const entries = await sql<{ entryDate: string; entry: unknown; authorName: string }[]>`
+    select entry_date::text as "entryDate", entry, author_name as "authorName" from diary_entries
+    where project_id = ${projectId} and status = 'ready' and entry is not null and entry_date between ${from}::date and ${to}::date
+    order by entry_date, created_at`;
+  const photos = await sql<{ id: string; day: string; takenAt: Date; caption: string }[]>`
+    select ph.id, (ph.taken_at at time zone 'Europe/Warsaw')::date::text as day, ph.taken_at as "takenAt",
+      coalesce(nullif(p.note, ''), nullif(p.room, ''), pg.title, 'str. ' || p.page_no) as caption
+    from pin_photos ph join pins p on p.id = ph.pin_id
+      left join pages pg on pg.document_id = p.document_id and pg.page_no = p.page_no
+    where ph.project_id = ${projectId} and (ph.taken_at at time zone 'Europe/Warsaw')::date between ${from}::date and ${to}::date
+    order by ph.taken_at`;
+  const dates = [...new Set([...entries.map((row) => row.entryDate), ...photos.map((photo) => photo.day)])].sort();
+  const days: DiaryDay[] = [];
+  for (const date of dates) {
+    days.push({
+      date,
+      weather: await siteWeather(projectId, date),
+      entries: entries.flatMap((row) => {
+        const parsed = row.entryDate === date ? diaryEntrySchema.safeParse(row.entry) : null;
+        return parsed?.success ? [{ entry: parsed.data, authorName: row.authorName }] : [];
+      }),
+      photos: photos.filter((photo) => photo.day === date),
+    });
+  }
+  const site = await projectSite(projectId);
+  const pdf = await diaryReportPdf({ projectId, projectName: project?.name ?? "", siteAddress: site?.address ?? null, from, to, days });
+  c.header("Content-Type", "application/pdf");
+  c.header("Content-Disposition", `inline; filename="dziennik-${from === to ? from : `${from}_${to}`}.pdf"`);
+  c.header("Cache-Control", "no-store");
+  return c.body(new Uint8Array(pdf));
 });
 
 // A voice note (audio/* body, date and clientId in the query) or a typed one (JSON { text, date, clientId }).

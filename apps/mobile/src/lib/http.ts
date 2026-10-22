@@ -4,9 +4,9 @@ import type { Connection } from "./settings";
 const TIMEOUT_MS = 30_000;
 
 const messageForStatus = async (response: Response) => {
+  if (response.status === 401) return "Sesja wygasła. Zaloguj się ponownie w Ustawieniach.";
   const body = (await response.json().catch(() => null)) as { error?: string } | null;
   if (body?.error) return body.error;
-  if (response.status === 401 || response.status === 403) return "Nieprawidłowy kod dostępu.";
   return `Serwer odpowiedział błędem ${response.status}.`;
 };
 

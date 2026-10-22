@@ -29,6 +29,7 @@ import { defaultTenantId, sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
 import { defects } from "./defects.js";
 import { diary } from "./diary.js";
+import { site } from "./site.js";
 import { FakeProjectAgent } from "./fake-agent.js";
 import { pdfPageCount } from "./pdf.js";
 import { projectOutline } from "./project-outline.js";
@@ -66,6 +67,7 @@ app.route("/", users);
 app.route("/", pins);
 app.route("/", defects);
 app.route("/", diary);
+app.route("/", site);
 app.route("/", checklists);
 app.route("/", questions);
 
