@@ -20,7 +20,8 @@ export class ApiError extends Error {
 const TIMEOUT_MS = 15_000;
 
 const messageForStatus = (status: number) => {
-  if (status === 401 || status === 403) return "Nieprawidłowy kod dostępu.";
+  if (status === 401) return "Sesja wygasła. Zaloguj się ponownie w Ustawieniach.";
+  if (status === 403) return "Nie masz do tego dostępu.";
   if (status === 404) return "Pod tym adresem nie ma serwera Brygadzisty.";
   if (status >= 500) return "Serwer ma problem. Spróbuj za chwilę.";
   return `Serwer odpowiedział błędem ${status}.`;

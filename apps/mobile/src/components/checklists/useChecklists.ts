@@ -9,7 +9,7 @@ import { randomId } from "../../lib/pins";
 import { useConnection } from "../../lib/settings";
 import { useCachedResource } from "../../lib/useCachedResource";
 
-// One queue for all projects of a server, so a tick made in one project still goes out from another.
+// One queue for all projects of the firm, so a tick made in one project still goes out from another.
 const QUEUE_KEY = "checklist-queue";
 const FLUSH_RETRY_MS = 30_000;
 const EMPTY_QUEUE: ChecklistQueue = { events: [], refused: {} };

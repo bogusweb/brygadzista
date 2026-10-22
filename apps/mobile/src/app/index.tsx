@@ -1,7 +1,8 @@
 import { Link, Redirect, Stack, router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Button } from "../components/Button";
+import { fetchAccount } from "../lib/account";
 import { fetchProjects } from "../lib/api";
 import type { Project } from "../lib/api";
 import { pluralPl } from "../lib/format";
@@ -76,7 +77,7 @@ const ProjectList = () => {
         ) : undefined
       }
       ListEmptyComponent={
-        <Text style={styles.message}>Na serwerze nie ma jeszcze projektów. Poproś administratora o dodanie projektu.</Text>
+        <Text style={styles.message}>Nie widzisz jeszcze żadnej budowy. Poproś kierownika lub właściciela firmy, żeby dodał Cię do budowy.</Text>
       }
       renderItem={({ item }) => (
         <ProjectRow project={item} recent={item.id === lastProjectId} onPress={() => open(item)} />
@@ -86,7 +87,17 @@ const ProjectList = () => {
 };
 
 const HomeScreen = () => {
-  const { ready, connection } = useSettings();
+  const { ready, connection, account, updateAccount } = useSettings();
+
+  // Firms the account belongs to change on the server (added, removed, blocked); the session follows on each start.
+  useEffect(() => {
+    if (!connection) return;
+    fetchAccount(connection)
+      .then(updateAccount)
+      .catch(() => undefined);
+    // Once per session and firm, not after every account update it causes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connection?.token, connection?.tenantId]);
 
   if (!ready) {
     return (
@@ -101,9 +112,10 @@ const HomeScreen = () => {
     <>
       <Stack.Screen
         options={{
+          title: account?.tenant?.name ?? "Projekty",
           headerRight: () => (
             <Link href="/settings" style={styles.headerLink}>
-              Ustawienia
+              Konto
             </Link>
           ),
         }}
@@ -135,7 +147,7 @@ const styles = StyleSheet.create({
   message: { fontSize: 16, lineHeight: 22, color: colors.muted, textAlign: "center" },
   offlineNote: { fontSize: 15, lineHeight: 21, color: colors.muted, marginBottom: spacing.sm },
   inlineError: { fontSize: 15, color: colors.danger, marginBottom: spacing.sm },
-  headerLink: { fontSize: 16, color: colors.accent, fontWeight: "600" },
+  headerLink: { fontSize: 16, color: colors.accent, fontWeight: "600", paddingHorizontal: spacing.sm },
 });
 
 export default HomeScreen;

@@ -11,7 +11,7 @@ import { useConnection } from "../../lib/settings";
 import type { Connection } from "../../lib/settings";
 import { useCachedResource } from "../../lib/useCachedResource";
 
-// One queue for all projects of a server, so a note recorded in one project still goes out from another.
+// One queue for all projects of the firm, so a note recorded in one project still goes out from another.
 const QUEUE_KEY = "diary-queue";
 const SORTING_POLL_MS = 3_000;
 const FLUSH_RETRY_MS = 30_000;

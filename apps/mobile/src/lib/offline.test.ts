@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { pluralPl, formatMegabytes } from "./format";
-import { loadWithFallback, pageNoFromFileName, runQueue, serverFolderName } from "./offline";
+import { isForeignKey, loadWithFallback, pageNoFromFileName, runQueue, scopeFolders, serverFolderName, storagePrefix } from "./offline";
 
 class HttpError extends Error {
   constructor(readonly status?: number) {
@@ -100,5 +100,29 @@ describe("format", () => {
   it("shows sizes in megabytes", () => {
     expect(formatMegabytes(1.5 * 1024 * 1024)).toBe("1,5 MB");
     expect(formatMegabytes(42 * 1024 * 1024)).toBe("42 MB");
+  });
+});
+
+describe("data scopes (#91)", () => {
+  const server = "https://budowa.example.pl";
+  const scope = (userId: string, tenantId: string | null) => storagePrefix(scopeFolders({ serverUrl: server, userId, tenantId }));
+
+  it("keeps each account and firm in its own folder", () => {
+    expect(scopeFolders({ serverUrl: server, userId: "u1", tenantId: "t1" })).toEqual(["budowa.example.pl", "user-u1", "firm-t1"]);
+    expect(scope("u1", "t1")).not.toBe(scope("u1", "t2"));
+    expect(scope("u1", null)).toBe("brygadzista:budowa.example.pl:user-u1:firm-none:");
+  });
+
+  it("finds what other accounts and the shared code left on this server", () => {
+    const mine = `${scope("u1", "t1")}projects`;
+    const myOtherFirm = `${scope("u1", "t2")}diary-queue`;
+    const theirs = `${scope("u2", "t1")}projects`;
+    const beforeAccounts = "brygadzista:budowa.example.pl:projects";
+    const otherServer = "brygadzista:inny.example.pl:projects";
+    expect([mine, myOtherFirm, theirs, beforeAccounts, otherServer].filter((key) => isForeignKey(key, server, "u1"))).toEqual([
+      theirs,
+      beforeAccounts,
+    ]);
+    expect([mine, theirs, otherServer].filter((key) => isForeignKey(key, server, null))).toEqual([mine, theirs]);
   });
 });
