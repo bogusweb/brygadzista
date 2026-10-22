@@ -3,6 +3,7 @@ export type Role = "admin" | "app";
 export type Project = {
   id: string;
   name: string;
+  buildingType: string;
   createdAt: string;
   documentCount: number;
 };
@@ -125,6 +126,8 @@ const uploadDocument = (token: string, projectId: string, file: File, onProgress
   return { done, cancel: () => xhr.abort() };
 };
 
+export type BuildingType = { type: string; label: string; stages: string[] };
+
 export type Site = { address: string | null; lat: number | null; lon: number | null; found?: string | null };
 
 export const createApi = (token: string) => ({
@@ -133,8 +136,11 @@ export const createApi = (token: string) => ({
   whoami: () => request<{ role: Role }>(token, "/api/auth/me"),
   listProjects: () => request<Project[]>(token, "/api/projects"),
   embeddingStatus: () => request<EmbeddingStatus>(token, "/api/admin/embeddings"),
-  createProject: (name: string) =>
-    request<Pick<Project, "id" | "name">>(token, "/api/projects", { method: "POST", body: JSON.stringify({ name }) }),
+  createProject: (name: string, buildingType: string) =>
+    request<Pick<Project, "id" | "name" | "buildingType">>(token, "/api/projects", { method: "POST", body: JSON.stringify({ name, buildingType }) }),
+  updateProject: (id: string, changes: { name?: string; buildingType?: string }) =>
+    request<Pick<Project, "id" | "name" | "buildingType">>(token, `/api/projects/${id}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  listBuildingTypes: () => request<BuildingType[]>(token, "/api/building-types"),
   deleteProject: (id: string) => request<void>(token, `/api/projects/${id}`, { method: "DELETE" }),
   getSite: (projectId: string) => request<Site | null>(token, `/api/projects/${projectId}/site`),
   putSite: (projectId: string, address: string) =>
