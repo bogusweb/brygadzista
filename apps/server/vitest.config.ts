@@ -18,6 +18,8 @@ export default defineConfig({
       // Models are mocked in tests; an empty key also keeps any unmocked call from reaching OpenRouter.
       OPENROUTER_API_KEY: "",
       INDEX_CONCURRENCY: "2",
+      // No test reaches Open-Meteo; weather tests stub fetch and switch it back on.
+      WEATHER: "off",
       // Retries in tests wait milliseconds, not seconds.
       LLM_RETRY_BASE_MS: "1",
     },

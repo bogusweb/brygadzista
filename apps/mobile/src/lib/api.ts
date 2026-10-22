@@ -131,6 +131,10 @@ export const transcribe = async (connection: Connection, projectId: string, audi
 export const protocolUrl = (connection: Connection, projectId: string, query: string) =>
   `${connection.serverUrl}${projectPath(projectId)}/defects/protocol.pdf?${query}${query ? "&" : ""}token=${encodeURIComponent(connection.token)}`;
 
+// The daily log of a day or a period as a PDF (#81), opened in the browser like the protocol.
+export const diaryReportUrl = (connection: Connection, projectId: string, from: string, to: string) =>
+  `${connection.serverUrl}${projectPath(projectId)}/diary/report.pdf?from=${from}&to=${to}&token=${encodeURIComponent(connection.token)}`;
+
 export type PhotoSize = "full" | "thumb";
 
 export const photoImagePath = (projectId: string, photoId: string, size: PhotoSize) =>

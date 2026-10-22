@@ -1,8 +1,4 @@
 import { Hono } from "hono";
-import { stat } from "node:fs/promises";
-import path from "node:path";
-import PDFDocument from "pdfkit";
-import sharp from "sharp";
 import { isUuid, requireProjectAccess, requireRole, requireRoleOrQueryToken, type AuthEnv } from "./auth.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
@@ -13,7 +9,7 @@ import { DEFECT_STATUSES, pinColumns, pinPhotosJson, type DefectStatus, type Pin
 import { limiters, rateLimit } from "./rate-limit.js";
 import { statusOf } from "./retry.js";
 import { queryTerms } from "./search.js";
-import { pageImage, photoFile } from "./storage.js";
+import { createPdf, formatDay, imageRows, photoThumb, planCrop, signatureLines, type Pdf } from "./report-pdf.js";
 
 // Defects and fixes pinned to the drawings (#74): a filtered list for the agent and the acceptance protocol as a PDF,
 // plus speech to text for reporting a defect by voice.
@@ -104,37 +100,7 @@ defects.get("/api/projects/:id/defects/protocol.pdf", requireRoleOrQueryToken("a
 
 // --- The protocol PDF ---
 
-const MARGIN = 40;
-const IMAGE_HEIGHT = 130;
 const COLORS: Record<DefectStatus, string> = { open: "#C0392B", to_check: "#B7791F", closed: "#2F7D4A" };
-
-const formatDay = (value: Date | string) =>
-  new Date(value).toLocaleDateString("pl-PL", { timeZone: "Europe/Warsaw", day: "2-digit", month: "2-digit", year: "numeric" });
-
-const exists = (file: string) => stat(file).then(() => true, () => false);
-
-// The part of the drawing around the defect, with a ring on the spot, so the investor sees where it is.
-export const planCrop = async (documentId: string, pageNo: number, x: number, y: number) => {
-  const file = pageImage(documentId, pageNo);
-  if (!(await exists(file))) return null;
-  const { width = 0, height = 0 } = await sharp(file).metadata();
-  if (!width || !height) return null;
-  const side = Math.round(Math.min(width, height) * 0.35);
-  const left = Math.min(Math.max(Math.round(x * width - side / 2), 0), Math.max(width - side, 0));
-  const top = Math.min(Math.max(Math.round(y * height - side / 2), 0), Math.max(height - side, 0));
-  const crop = { left, top, width: Math.min(side, width), height: Math.min(side, height) };
-  const ring = Math.max(Math.round(crop.width * 0.06), 8);
-  const marker = Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${crop.width}" height="${crop.height}">` +
-      `<circle cx="${x * width - left}" cy="${y * height - top}" r="${ring}" fill="none" stroke="#E0301E" stroke-width="${Math.max(ring / 3, 3)}"/></svg>`,
-  );
-  return sharp(file).extract(crop).composite([{ input: marker }]).resize({ width: 400 }).jpeg({ quality: 70 }).toBuffer();
-};
-
-const photoImage = async (projectId: string, photoId: string) => {
-  const file = photoFile(projectId, photoId, "thumb");
-  return (await exists(file)) ? file : null;
-};
 
 const describeFilter = (filter: DefectFilter, found: Defect[]) => {
   const parts = [
@@ -145,22 +111,44 @@ const describeFilter = (filter: DefectFilter, found: Defect[]) => {
   return parts.length ? `Zakres: ${parts.join(" · ")}` : "Zakres: wszystkie usterki";
 };
 
-const protocolPdf = async (projectId: string, projectName: string, found: Defect[], filter: DefectFilter) => {
-  const doc = new PDFDocument({ size: "A4", margin: MARGIN, info: { Title: `Protokół odbioru – ${projectName}`, Author: "Brygadzista" } });
-  doc.registerFont("regular", path.join(config.pdfFontDir, "DejaVuSans.ttf"));
-  doc.registerFont("bold", path.join(config.pdfFontDir, "DejaVuSans-Bold.ttf"));
-  const chunks: Buffer[] = [];
-  doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-  const done = new Promise<Buffer>((resolve, reject) => {
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
-  });
-  const width = doc.page.width - MARGIN * 2;
-  const bottom = () => doc.page.height - MARGIN;
-  const ensureSpace = (height: number) => {
-    if (doc.y + height > bottom()) doc.addPage();
-  };
+// One defect: title with status, who and when, the description, what the project says, the spot and the photos.
+export const defectBlock = async (pdf: Pdf, projectId: string, defect: Defect, index: number) => {
+  const { doc, width } = pdf;
+  const status = defect.status ?? "open";
+  pdf.ensureSpace(120);
+  pdf.rule();
+  doc.moveDown(0.5);
+  doc.font("bold").fontSize(13).fillColor("#111111").text(`${index + 1}. ${defect.room || defect.pageTitle || `Strona ${defect.pageNo}`}  `, { continued: true });
+  doc.fillColor(COLORS[status]).text(STATUS_LABELS[status]);
+  const meta = [
+    `${defect.pageTitle ?? "Strona"} (str. ${defect.pageNo})`,
+    defect.assignee ? `Odpowiedzialny: ${defect.assignee}` : "Odpowiedzialny: nie wskazano",
+    defect.dueDate ? `Termin: ${formatDay(defect.dueDate)}` : "",
+    `Zgłoszono ${formatDay(defect.createdAt)}${defect.authorName ? ` (${defect.authorName})` : ""}`,
+  ].filter(Boolean);
+  doc.font("regular").fontSize(10).fillColor("#555555").text(meta.join(" · "), { width });
+  if (defect.note) doc.moveDown(0.3).fontSize(11).fillColor("#111111").text(defect.note, { width });
+  if (defect.spec?.found) {
+    doc.moveDown(0.3).font("bold").fontSize(10).fillColor("#1F4E79").text("W projekcie: ", { continued: true });
+    doc.font("regular").text(`${defect.spec.statement} – „${defect.spec.quote}”${defect.spec.source ? ` (str. ${defect.spec.source.pageNo})` : ""}`, { width });
+  }
+  const images = [
+    { label: "Miejsce na rzucie", image: await planCrop(defect.documentId, defect.pageNo, defect.x, defect.y) },
+    ...(await Promise.all(
+      defect.photos.map(async (photo) => ({
+        label: `${photo.stage === "after" ? "Po" : "Przed"} · ${formatDay(photo.takenAt)}`,
+        image: await photoThumb(projectId, photo.id),
+      })),
+    )),
+  ].flatMap(({ label, image }) => (image === null ? [] : [{ label, image }]));
+  doc.moveDown(0.5);
+  imageRows(pdf, images);
+  doc.moveDown(0.5);
+};
 
+const protocolPdf = async (projectId: string, projectName: string, found: Defect[], filter: DefectFilter) => {
+  const pdf = createPdf(`Protokół odbioru – ${projectName}`);
+  const { doc } = pdf;
   doc.font("bold").fontSize(18).text("Protokół odbioru – lista usterek");
   doc.font("regular").fontSize(11).fillColor("#333333").text(projectName || "Projekt");
   doc.text(`Stan na ${formatDay(new Date())}. ${describeFilter(filter, found)}`);
@@ -168,68 +156,7 @@ const protocolPdf = async (projectId: string, projectName: string, found: Defect
   doc.text(`Usterek: ${found.length} (${counts.join(", ")})`);
   doc.moveDown();
   if (found.length === 0) doc.text("Brak usterek w tym zakresie.");
-
-  for (const [index, defect] of found.entries()) {
-    const status = defect.status ?? "open";
-    ensureSpace(120);
-    doc.moveTo(MARGIN, doc.y).lineTo(MARGIN + width, doc.y).strokeColor("#DDDDDD").stroke();
-    doc.moveDown(0.5);
-    doc.font("bold").fontSize(13).fillColor("#111111").text(`${index + 1}. ${defect.room || defect.pageTitle || `Strona ${defect.pageNo}`}  `, { continued: true });
-    doc.fillColor(COLORS[status]).text(STATUS_LABELS[status]);
-    const meta = [
-      `${defect.pageTitle ?? "Strona"} (str. ${defect.pageNo})`,
-      defect.assignee ? `Odpowiedzialny: ${defect.assignee}` : "Odpowiedzialny: nie wskazano",
-      defect.dueDate ? `Termin: ${formatDay(defect.dueDate)}` : "",
-      `Zgłoszono ${formatDay(defect.createdAt)}${defect.authorName ? ` (${defect.authorName})` : ""}`,
-    ].filter(Boolean);
-    doc.font("regular").fontSize(10).fillColor("#555555").text(meta.join(" · "), { width });
-    if (defect.note) doc.moveDown(0.3).fontSize(11).fillColor("#111111").text(defect.note, { width });
-    if (defect.spec?.found) {
-      doc.moveDown(0.3).font("bold").fontSize(10).fillColor("#1F4E79").text("W projekcie: ", { continued: true });
-      doc.font("regular").text(`${defect.spec.statement} – „${defect.spec.quote}”${defect.spec.source ? ` (str. ${defect.spec.source.pageNo})` : ""}`, { width });
-    }
-
-    const images = [
-      { label: "Miejsce na rzucie", image: await planCrop(defect.documentId, defect.pageNo, defect.x, defect.y) },
-      ...(await Promise.all(
-        defect.photos.map(async (photo) => ({
-          label: `${photo.stage === "after" ? "Po" : "Przed"} · ${formatDay(photo.takenAt)}`,
-          image: await photoImage(projectId, photo.id),
-        })),
-      )),
-    ].flatMap(({ label, image }) => (image === null ? [] : [{ label, image }]));
-    let left = MARGIN;
-    doc.moveDown(0.5);
-    if (images.length) ensureSpace(IMAGE_HEIGHT + 16);
-    let top = doc.y;
-    for (const { label, image } of images) {
-      const fit: [number, number] = [IMAGE_HEIGHT * 1.35, IMAGE_HEIGHT];
-      if (left + fit[0] > MARGIN + width) {
-        left = MARGIN;
-        top += IMAGE_HEIGHT + 18;
-        if (top + IMAGE_HEIGHT + 16 > bottom()) {
-          doc.addPage();
-          top = doc.y;
-        }
-      }
-      doc.image(image, left, top, { fit, align: "center", valign: "center" });
-      doc.font("regular").fontSize(8).fillColor("#555555").text(label, left, top + IMAGE_HEIGHT + 3, { width: fit[0], align: "center" });
-      left += fit[0] + 8;
-    }
-    doc.x = MARGIN;
-    doc.y = images.length ? top + IMAGE_HEIGHT + 18 : doc.y;
-    doc.moveDown(0.5);
-  }
-
-  ensureSpace(110);
-  doc.moveDown(2);
-  const signatureTop = doc.y;
-  const column = (width - 40) / 2;
-  for (const [i, role] of ["Wykonawca", "Inwestor"].entries()) {
-    const x = MARGIN + i * (column + 40);
-    doc.moveTo(x, signatureTop + 40).lineTo(x + column, signatureTop + 40).strokeColor("#999999").stroke();
-    doc.font("regular").fontSize(10).fillColor("#333333").text(`${role} (data i podpis)`, x, signatureTop + 46, { width: column });
-  }
-  doc.end();
-  return done;
+  for (const [index, defect] of found.entries()) await defectBlock(pdf, projectId, defect, index);
+  signatureLines(pdf, [{ label: "Wykonawca" }, { label: "Inwestor" }]);
+  return pdf.finish();
 };
