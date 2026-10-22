@@ -29,6 +29,7 @@ export type RateLimiter = ReturnType<typeof createRateLimiter>;
 
 export const limiters = {
   chat: createRateLimiter(() => config.chatRequestsPerMinute, 60_000),
+  mcp: createRateLimiter(() => config.mcpCallsPerMinute, 60_000),
   upload: createRateLimiter(() => config.uploadsPerHour, 60 * 60_000),
   diary: createRateLimiter(() => config.diaryNotesPerHour, 60 * 60_000),
   loginEmail: createRateLimiter(() => config.loginAttemptsPer15Min, 15 * 60_000),

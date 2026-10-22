@@ -75,6 +75,10 @@ const assertPageInProject = async (projectId: string, documentId: string, pageNo
 
 export const pageImagePath = (documentId: string, pageNo: number) => `/api/documents/${documentId}/pages/${pageNo}/image`;
 
+// The kind of building (#85) tells the agent what work it is; the project itself stays the only source of values.
+export const buildingPrompt = (building: { label: string; context: string } | undefined) =>
+  building ? `\n\nTyp budowy: ${building.label}. ${building.context}` : "";
+
 // extraPrompt carries what changes per project between requests, such as the designer's answers (#73).
 export const createProjectAgent = (projectId: string, extraPrompt = "") =>
   new BuiltInAgent({

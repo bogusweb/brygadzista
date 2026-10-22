@@ -5,6 +5,7 @@ import { PageViewerProvider } from "./pageViewer";
 import { QuestionsPanel } from "./questions";
 import { SchedulesPanel } from "./schedules";
 import { routeHref } from "./route";
+import { BuildingTypeCard } from "./BuildingTypeCard";
 import { SiteCard } from "./SiteCard";
 
 type Props = { api: Api; projectId: string; onUnauthorized: () => void };
@@ -303,6 +304,7 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
         </ul>
       )}
 
+      <BuildingTypeCard api={api} projectId={projectId} />
       <SiteCard api={api} projectId={projectId} />
 
       <PageViewerProvider api={api}>

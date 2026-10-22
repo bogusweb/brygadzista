@@ -19,6 +19,7 @@ import { A2UI_CATALOG_ID } from "../src/a2ui-catalog.js";
 import { a2uiCatalogSchema } from "../src/a2ui-schema.js";
 import { audioType, fakeOrganize, fakeTranscript, type DiaryEntry } from "../src/diary-entry.js";
 import { STAGE_TEMPLATES, stageTemplate } from "../src/checklist-templates.js";
+import { projectTemplates } from "../src/building-types.js";
 
 const PORT = Number(process.env.PORT ?? 3100);
 const TOKEN = process.env.APP_TOKEN ?? "demo";
@@ -489,6 +490,9 @@ const seenEvents = new Set<string>();
 const source = (pageNo: number, quote: string) => ({ documentId: DOCUMENT_ID, pageNo, quote, imagePath: imagePath(pageNo) });
 app.get("/api/checklist-templates", (c) =>
   c.json(STAGE_TEMPLATES.map(({ stage, title, when, items }) => ({ stage, title, when, items: items.map((item) => item.label) }))),
+);
+app.get("/api/projects/:id/checklist-templates", (c) =>
+  c.json({ buildingType: "dom_murowany", label: "Dom jednorodzinny murowany", templates: projectTemplates("dom_murowany") }),
 );
 app.get("/api/projects/:id/checklists", (c) =>
   c.json([...checklists.values()].reverse().map(({ items, results, ...checklist }) => ({
