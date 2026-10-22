@@ -29,6 +29,7 @@ import { defaultTenantId, sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
 import { defects } from "./defects.js";
 import { diary } from "./diary.js";
+import { reports } from "./reports.js";
 import { site } from "./site.js";
 import { FakeProjectAgent } from "./fake-agent.js";
 import { pdfPageCount } from "./pdf.js";
@@ -65,6 +66,7 @@ app.route("/", pins);
 app.route("/", defects);
 app.route("/", diary);
 app.route("/", site);
+app.route("/", reports);
 app.route("/", checklists);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun));

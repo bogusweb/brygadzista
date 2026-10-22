@@ -57,7 +57,7 @@ export const weekStart = (day: string) => {
 export const weekEnd = (start: string) => addDays(start, 6);
 
 // Site days are Warsaw days: a photo taken at 00:30 on Monday belongs to Monday.
-const inWeek = (column: "ph.taken_at" | "p.created_at" | "p.updated_at" | "r.completed_at", from: string, to: string) =>
+const inWeek = (column: "ph.taken_at" | "p.created_at" | "p.closed_at" | "r.completed_at", from: string, to: string) =>
   sql`(${sql.unsafe(column)} at time zone 'Europe/Warsaw')::date between ${from}::date and ${to}::date`;
 
 const defectTitle = (row: { room: string; note: string; pageTitle: string | null; pageNo: number }) =>
@@ -98,7 +98,7 @@ export const collectWeek = async (projectId: string, from: string): Promise<Week
     select p.id, p.room, p.note, p.status, p.assignee, p.page_no as "pageNo", pg.title as "pageTitle"
     from pins p left join pages pg on pg.document_id = p.document_id and pg.page_no = p.page_no
     where p.project_id = ${projectId} and p.kind = 'defect'
-      and ${event === "opened" ? inWeek("p.created_at", from, to) : sql`p.status = 'closed' and ${inWeek("p.updated_at", from, to)}`}
+      and ${event === "opened" ? inWeek("p.created_at", from, to) : sql`p.status = 'closed' and ${inWeek("p.closed_at", from, to)}`}
     order by p.created_at`;
   const opened = await defectRows("opened");
   const closed = await defectRows("closed");

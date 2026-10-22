@@ -18,6 +18,9 @@ export const config = {
   // accounts (#91). It is off when set to "", and in production unless set explicitly.
   adminToken: requireEnv("ADMIN_TOKEN", "dev-admin"),
   appToken: process.env.APP_TOKEN ?? (process.env.NODE_ENV === "production" ? "" : "dev-app"),
+  // Address of the server as people outside see it, for read-only links and QR codes (#84, #82). Without it the
+  // address is taken from the request (behind a proxy, from X-Forwarded-Proto and Host).
+  publicUrl: (process.env.PUBLIC_URL ?? "").replace(/\/+$/, ""),
   sessionTtlDays: Number(process.env.SESSION_TTL_DAYS ?? 30),
   // Rate limits per user (or per shared token); login attempts per e-mail and per IP.
   chatRequestsPerMinute: Number(process.env.RATE_LIMIT_CHAT_PER_MINUTE ?? 10),

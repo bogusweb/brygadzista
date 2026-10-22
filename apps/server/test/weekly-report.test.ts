@@ -23,9 +23,10 @@ const addEntry = (day: string, value: unknown, status = "ready") =>
 
 const addDefect = async (fields: { createdAt: string; updatedAt?: string; status: string; room: string; dueDate?: string }) => {
   const [pin] = await sql<{ id: string }[]>`
-    insert into pins (id, project_id, document_id, page_no, x, y, kind, room, status, due_date, created_at, updated_at)
+    insert into pins (id, project_id, document_id, page_no, x, y, kind, room, status, due_date, created_at, updated_at, closed_at)
     values (gen_random_uuid(), ${projectId}, ${documentId}, 1, 0.5, 0.5, 'defect', ${fields.room}, ${fields.status},
-      ${fields.dueDate ?? null}, ${fields.createdAt}, ${fields.updatedAt ?? fields.createdAt}) returning id`;
+      ${fields.dueDate ?? null}, ${fields.createdAt}, ${fields.updatedAt ?? fields.createdAt},
+      ${fields.status === "closed" ? (fields.updatedAt ?? fields.createdAt) : null}) returning id`;
   return pin!.id;
 };
 

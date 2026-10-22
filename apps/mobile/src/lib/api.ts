@@ -31,9 +31,9 @@ export const authHeaders = ({ token }: Connection, projectId?: string): Record<s
   ...(projectId ? { "x-project-id": projectId } : {}),
 });
 
-const request = async (connection: Connection, path: string, init: { method?: string; body?: string } = {}) => {
+const request = async (connection: Connection, path: string, init: { method?: string; body?: string } = {}, timeoutMs = TIMEOUT_MS) => {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${connection.serverUrl}${path}`, {
       method: init.method ?? "GET",
@@ -134,6 +134,32 @@ export const protocolUrl = (connection: Connection, projectId: string, query: st
 // The daily log of a day or a period as a PDF (#81), opened in the browser like the protocol.
 export const diaryReportUrl = (connection: Connection, projectId: string, from: string, to: string) =>
   `${connection.serverUrl}${projectPath(projectId)}/diary/report.pdf?from=${from}&to=${to}&token=${encodeURIComponent(connection.token)}`;
+
+// Weekly report for the investor (#84). The model's summary needs time, so the request waits longer than the rest.
+export type WeeklyReport = {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  summary: { paragraphs: { text: string; sources: string[] }[]; byModel: boolean };
+  snapshot: {
+    days: { date: string; crewTotal: number; work: string[] }[];
+    photos: unknown[];
+    defects: { opened: unknown[]; closed: unknown[]; openTotal: number; overdue: number };
+    checklists: unknown[];
+  };
+};
+
+export const createWeeklyReport = async (connection: Connection, projectId: string, weekStart: string) =>
+  (await (await request(connection, `${projectPath(projectId)}/reports`, { method: "POST", body: JSON.stringify({ weekStart }) }, 90_000)).json()) as WeeklyReport;
+
+export const shareWeeklyReport = async (connection: Connection, reportId: string) =>
+  (await (await request(connection, `/api/reports/${encodeURIComponent(reportId)}/share`, { method: "POST", body: "{}" })).json()) as {
+    url: string;
+    expiresAt: string;
+  };
+
+export const weeklyReportPdfUrl = (connection: Connection, reportId: string) =>
+  `${connection.serverUrl}/api/reports/${encodeURIComponent(reportId)}/report.pdf?token=${encodeURIComponent(connection.token)}`;
 
 export type PhotoSize = "full" | "thumb";
 
