@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "@copilotkit/react-native/headless";
-import { inlineSegments, pageDocuments, textBlocks, toChatItems, toolLabel, trimToLastQuestion } from "./chat";
+import { describeUnverified, inlineSegments, pageDocuments, type Citation, textBlocks, toChatItems, toolLabel, trimToLastQuestion } from "./chat";
 
 const toolCall = (id: string, name: string, args: object) => ({
   id,
@@ -28,6 +28,43 @@ const conversation: Message[] = [
 ];
 
 describe("toChatItems", () => {
+  it("marks citations the server could not back and adds a warning after the answer", () => {
+    const checked: Message[] = [
+      ...conversation.slice(0, -1),
+      { id: "a2", role: "assistant", content: "EPS 15 cm (str. 12), mocowanie na str. 31." },
+      {
+        id: "cc",
+        role: "activity",
+        activityType: "citation-check",
+        content: {
+          cited: [],
+          unverified: [
+            { pageNo: 31, in: "text" },
+            { pageNo: 7, documentId: "doc-a", in: "card" },
+          ],
+        },
+      },
+    ] as Message[];
+
+    const items = toChatItems(checked, false);
+
+    expect(items.find((item) => item.id === "a2")).toMatchObject({ kind: "assistant", unverifiedPages: [31] });
+    expect(items.at(-1)).toEqual({
+      kind: "citations",
+      id: "cc",
+      unverified: [
+        { pageNo: 31, in: "text" },
+        { pageNo: 7, documentId: "doc-a", in: "card" },
+      ],
+    });
+    expect(describeUnverified((items.at(-1) as { unverified: Citation[] }).unverified)).toBe("str. 31, str. 7 (na karcie)");
+  });
+
+  it("shows nothing for an answer whose citations all check out", () => {
+    const checked = [...conversation, { id: "cc", role: "activity", activityType: "citation-check", content: { cited: [], unverified: [] } }] as Message[];
+    expect(toChatItems(checked, false).some((item) => item.kind === "citations")).toBe(false);
+  });
+
   it("puts each tool call on its own row, paired with its result", () => {
     const items = toChatItems(conversation, false);
     expect(items.map((item) => item.kind)).toEqual(["user", "tool", "tool", "assistant"]);
