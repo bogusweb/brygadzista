@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { AgentStatus } from "../../components/AgentStatus";
 import { PageViewerProvider } from "../../components/chat/PageViewer";
 import { ProjectChat } from "../../components/chat/ProjectChat";
+import { ProjectChecklists } from "../../components/checklists/ProjectChecklists";
 import { ProjectDefects } from "../../components/defects/ProjectDefects";
 import { ProjectDiary } from "../../components/diary/ProjectDiary";
 import { ProjectPages } from "../../components/pages/ProjectPages";
@@ -13,12 +14,13 @@ import { ProjectCopilot } from "../../components/ProjectCopilot";
 import { useSettings } from "../../lib/settings";
 import { colors, radius, spacing } from "../../lib/theme";
 
-type Tab = "chat" | "pages" | "defects" | "diary";
+type Tab = "chat" | "pages" | "defects" | "checklists" | "diary";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "chat", label: "Czat" },
   { id: "pages", label: "Projekt" },
   { id: "defects", label: "Usterki" },
+  { id: "checklists", label: "Odbiory" },
   { id: "diary", label: "Dziennik" },
 ];
 
@@ -69,6 +71,9 @@ const ProjectScreen = () => {
           <View style={[styles.pane, tab !== "defects" && styles.hidden]}>
             <ProjectDefects projectId={id} />
           </View>
+          <View style={[styles.pane, tab !== "checklists" && styles.hidden]}>
+            <ProjectChecklists projectId={id} />
+          </View>
           <View style={[styles.pane, tab !== "diary" && styles.hidden]}>
             <ProjectDiary projectId={id} />
           </View>
@@ -89,7 +94,7 @@ const styles = StyleSheet.create({
   tabs: { flexDirection: "row", padding: 3, borderRadius: radius.md, backgroundColor: colors.border },
   tab: { flex: 1, minHeight: 40, borderRadius: radius.md - 2, alignItems: "center", justifyContent: "center" },
   tabSelected: { backgroundColor: colors.surface },
-  tabLabel: { fontSize: 15, fontWeight: "500", color: colors.muted },
+  tabLabel: { fontSize: 14, fontWeight: "500", color: colors.muted },
   tabLabelSelected: { color: colors.text, fontWeight: "600" },
   pane: { flex: 1 },
   hidden: { display: "none" },
