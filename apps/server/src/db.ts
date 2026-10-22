@@ -295,6 +295,20 @@ export const migrate = async () => {
   await sql`create index if not exists pages_trgm on pages using gin (search_text gin_trgm_ops)`;
   await sql`create index if not exists pages_codes on pages using gin (codes)`;
   await sql`create index if not exists pages_drawing_no on pages (project_id, drawing_no) where drawing_no is not null`;
+  // Site location (#81): the address as typed and the point the weather is read for (from the address or set by hand).
+  await sql`alter table projects add column if not exists site_address text`;
+  await sql`alter table projects add column if not exists site_lat double precision`;
+  await sql`alter table projects add column if not exists site_lon double precision`;
+  // Weather of each site day (#81), kept so a report does not ask again. `final` once the day is over and measured.
+  await sql`
+    create table if not exists site_weather (
+      project_id uuid not null references projects(id) on delete cascade,
+      day date not null,
+      weather jsonb,
+      final boolean not null default false,
+      fetched_at timestamptz not null default now(),
+      primary key (project_id, day)
+    )`;
   await migrateTenants();
   await backfillCodes();
   await backfillMeta();
@@ -303,7 +317,7 @@ export const migrate = async () => {
 };
 
 // Tables that hang off a project: their firm always comes from the project, through a composite key.
-const PROJECT_TABLES = ["project_members", "documents", "pages", "chunks", "facts", "pins", "pin_photos", "diary_entries", "checklists"];
+const PROJECT_TABLES = ["project_members", "documents", "pages", "chunks", "facts", "pins", "pin_photos", "diary_entries", "checklists", "site_weather"];
 // Tables that hang off a checklist and take the firm from it.
 const CHECKLIST_TABLES = ["checklist_items", "checklist_events", "checklist_results"];
 

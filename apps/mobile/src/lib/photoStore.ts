@@ -1,13 +1,13 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { ApiError, authHeaders, photoUploadUrl } from "./api";
-import { serverFolderName } from "./offline";
+import { scopeFolders } from "./offline";
 import type { PendingPhoto } from "./pins";
 import type { Connection } from "./settings";
 
 // Photos taken on site are copied into the document directory at once: the picker's own file sits in the cache,
 // which the system may empty before the phone gets signal again. Uploaded photos stay there too, so they keep
 // showing without signal.
-const photosDir = (connection: Connection) => new Directory(Paths.document, "offline", serverFolderName(connection.serverUrl), "photos");
+const photosDir = (connection: Connection) => new Directory(Paths.document, "offline", ...scopeFolders(connection), "photos");
 const photoFile = (connection: Connection, photoId: string) => new File(photosDir(connection), `${photoId}.jpg`);
 
 export const keepPhoto = (connection: Connection, photoId: string, pickedUri: string) => {

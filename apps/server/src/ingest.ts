@@ -1,4 +1,5 @@
 import { access } from "node:fs/promises";
+import { chunkPage } from "./chunking.js";
 import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
 import { replacePageFacts, sql, withTenant } from "./db.js";
@@ -20,14 +21,6 @@ const exists = (file: string) =>
     () => false,
   );
 
-const CHUNK_CHARS = 2000;
-
-const chunkText = (text: string) => {
-  const chunks: string[] = [];
-  for (let start = 0; start < text.length; start += CHUNK_CHARS) chunks.push(text.slice(start, start + CHUNK_CHARS));
-  return chunks;
-};
-
 const IMAGE_CHUNK_TEXT_CHARS = 500;
 
 type Chunk = { content: string; vector: number[] };
@@ -35,7 +28,7 @@ type Chunk = { content: string; vector: number[] };
 // One chunk per text fragment plus one for the page image, so a drawing without a text layer is still found.
 const embedPage = async (pageNo: number, title: string | null, raw: string, image: string): Promise<Chunk[]> => {
   const header = title ? `Strona ${pageNo}: ${title}` : `Strona ${pageNo}`;
-  const textChunks = chunkText(raw.replace(/[ \t]+/g, " ")).map((part) => `${header}\n${part}`);
+  const textChunks = chunkPage(raw).map((part) => `${header}\n${part}`);
   const imageChunk = `${header}\n[obraz strony]\n${raw.slice(0, IMAGE_CHUNK_TEXT_CHARS)}`;
   const [textVectors, imageVector] = await Promise.all([embed(textChunks), embedImage(image)]);
   return [...textChunks.map((content, i) => ({ content, vector: textVectors[i]! })), { content: imageChunk, vector: imageVector }];

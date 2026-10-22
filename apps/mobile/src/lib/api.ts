@@ -20,7 +20,8 @@ export class ApiError extends Error {
 const TIMEOUT_MS = 15_000;
 
 const messageForStatus = (status: number) => {
-  if (status === 401 || status === 403) return "Nieprawidłowy kod dostępu.";
+  if (status === 401) return "Sesja wygasła. Zaloguj się ponownie w Ustawieniach.";
+  if (status === 403) return "Nie masz do tego dostępu.";
   if (status === 404) return "Pod tym adresem nie ma serwera Brygadzisty.";
   if (status >= 500) return "Serwer ma problem. Spróbuj za chwilę.";
   return `Serwer odpowiedział błędem ${status}.`;
@@ -130,6 +131,10 @@ export const transcribe = async (connection: Connection, projectId: string, audi
 // Opened in the browser, which cannot send the header, so the token goes in the query like for images.
 export const protocolUrl = (connection: Connection, projectId: string, query: string) =>
   `${connection.serverUrl}${projectPath(projectId)}/defects/protocol.pdf?${query}${query ? "&" : ""}token=${encodeURIComponent(connection.token)}`;
+
+// The daily log of a day or a period as a PDF (#81), opened in the browser like the protocol.
+export const diaryReportUrl = (connection: Connection, projectId: string, from: string, to: string) =>
+  `${connection.serverUrl}${projectPath(projectId)}/diary/report.pdf?from=${from}&to=${to}&token=${encodeURIComponent(connection.token)}`;
 
 export type PhotoSize = "full" | "thumb";
 

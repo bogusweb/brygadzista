@@ -85,7 +85,8 @@ Autoryzacja: `Authorization: Bearer <token>`.
 
 Obca budowa, dokument, strona, zdjęcie czy wpis odpowiada 404, także przez agenta (`x-project-id`). Sesja pamięta aktywną firmę: logowanie zwraca `tenant` i `tenants`, a `POST /api/auth/tenant` (`{tenantId}`) ją przełącza. Rola globalna to tylko `operator` (widzi wszystkie firmy) albo `user`. Hasła to argon2id, sesja to losowy token `bs_…` (w bazie tylko jego SHA-256), ważny `SESSION_TTL_DAYS` dni i przedłużany przy użyciu. Wyłączenie konta lub nowe hasło kończy jego sesje; konto należące też do innej firmy zmienia tylko operator.
 - `ADMIN_TOKEN` z env to operator: widzi wszystkie firmy, zakłada konta (`POST /api/users` z `role` i opcjonalnym `tenantId`) i budowy (`POST /api/projects` z opcjonalnym `tenantId`; bez niego najstarsza firma).
-- `APP_TOKEN` to stary wspólny token aplikacji, działa już tylko w najstarszej firmie i zniknie, gdy aplikacja zacznie logować się kontem (#91). Jest wyłączony, gdy pusty, a w produkcji (`NODE_ENV=production`) także gdy nieustawiony.
+- Aplikacja loguje się kontem (#91). Stary wspólny `APP_TOKEN` nie działa w produkcji (`NODE_ENV=production`); zostaje tylko w testach i lokalnie jako szybki klucz do najstarszej firmy. Pierwsze konto w firmie zakłada operator:
+  `curl -X POST https://<serwer>/api/users -H "authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' -d '{"email":"jan@firma.pl","name":"Jan","password":"…","role":"owner"}'`
 - Linki tylko do odczytu: `POST /api/projects/:id/share-links` (`{days}`, domyślnie 7, max 90) zwraca token `bl_…` przypisany do budowy i firmy; `GET /api/share/:token` działa do terminu ważności.
 - Istniejące dane przy pierwszym starcie trafiają do firmy „Brygadzista (Paweł)” (owner → owner, contractor → worker).
 - Row Level Security (#92): każde żądanie do budowy działa w transakcji jako rola `brygadzista_tenant` z `app.tenant_id` = firma budowy, a polityki na wszystkich tabelach z `tenant_id` pokazują tylko wiersze tej firmy (drugie zabezpieczenie obok sprawdzeń w kodzie). Narzędzia agenta i zapis stron przy indeksowaniu robią to samo. Rolę tworzy migracja; bez prawa do tworzenia ról serwer działa dalej na samych sprawdzeniach w kodzie i pisze ostrzeżenie w logu.
@@ -145,7 +146,7 @@ Bez `OPENROUTER_API_KEY` działa tylko ranking tekstowy (za darmo); z kluczem do
 `Dockerfile` buduje jeden obraz (serwer + zbudowany dashboard; Node 22, poppler, użytkownik non-root). `openship.yaml` (w katalogu głównym, bo Openship nie przyjmuje kontekstu budowania poza katalogiem pliku compose) to compose dla projektu Openship na ruth154: `app` (port 3000, healthcheck `/api/health`, 768 MB) i `postgres` z pgvector (512 MB), wolumeny `app-data` (`/data`) i `postgres-data`.
 
 ```bash
-ADMIN_TOKEN=... APP_TOKEN=... OPENROUTER_API_KEY=... docker compose -f openship.yaml up --build
+ADMIN_TOKEN=... OPENROUTER_API_KEY=... docker compose -f openship.yaml up --build
 ```
 
-Sekrety (`ADMIN_TOKEN`, `APP_TOKEN`, `OPENROUTER_API_KEY`, opcjonalnie `POSTGRES_PASSWORD`) ustawiamy w zmiennych środowiskowych Openship.
+Sekrety (`ADMIN_TOKEN`, `OPENROUTER_API_KEY`, opcjonalnie `POSTGRES_PASSWORD`) ustawiamy w zmiennych środowiskowych Openship.
