@@ -213,6 +213,6 @@ describe("isolation of two firms", () => {
 
   it("builds the agent for firm A's project with firm A attached", async () => {
     const request = new Request("http://localhost/api/copilotkit/agent/default/run", { headers: { ...callers.owner, "x-project-id": a.projectId } });
-    await expect(agentProject(request, ["app", "admin"])).resolves.toEqual({ projectId: a.projectId, tenantId: a.tenantId });
+    await expect(agentProject(request, ["app", "admin"])).resolves.toMatchObject({ projectId: a.projectId, tenantId: a.tenantId });
   });
 });

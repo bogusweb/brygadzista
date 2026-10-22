@@ -13,7 +13,7 @@ import { BUILDING_TYPES, DEFAULT_BUILDING_TYPE, buildingType, isBuildingType } f
 import { A2UI_CATALOG_ID } from "./a2ui-catalog.js";
 import { a2uiCatalogSchema } from "./a2ui-schema.js";
 import {
-  agentProjectId,
+  agentProject,
   isUuid,
   requireDocumentAccess,
   requireProjectAccess,
@@ -24,6 +24,7 @@ import {
   type Role,
 } from "./auth.js";
 import { cards } from "./cards.js";
+import { chatThreads } from "./chat-threads.js";
 import { schedules } from "./schedules.js";
 import { checklists } from "./checklists.js";
 import { citationCheck } from "./citations.js";
@@ -53,11 +54,11 @@ const isAgentRun = (request: Request) => request.method === "POST" && /\/agent\/
 const projectAgents =
   (roles: Role[]) =>
   async ({ request }: { request: Request }) => {
-    const projectId = await agentProjectId(request, roles);
+    const { projectId, tenantId } = await agentProject(request, roles);
     const [project] = await sql<{ buildingType: string }[]>`select building_type as "buildingType" from projects where id = ${projectId}`;
     const agent = config.fakeAgent
       ? new FakeProjectAgent(projectId)
-      : createProjectAgent(projectId, buildingPrompt(buildingType(project?.buildingType)) + (await designerAnswersPrompt(projectId)));
+      : createProjectAgent(projectId, tenantId, buildingPrompt(buildingType(project?.buildingType)) + (await designerAnswersPrompt(projectId)));
     return { default: agent.use(citationCheck) };
   };
 
@@ -89,9 +90,9 @@ app.route("/", cards);
 app.route("/", schedules);
 app.route("/", mcp);
 
-app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun));
+app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun), chatThreads);
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));
-app.use("/api/admin/copilotkit/*", requireRole("admin"), rateLimit(limiters.chat, isAgentRun));
+app.use("/api/admin/copilotkit/*", requireRole("admin"), rateLimit(limiters.chat, isAgentRun), chatThreads);
 app.route("/", createCopilotEndpoint({ runtime: adminRuntime, basePath: "/api/admin/copilotkit" }));
 
 // Projects of the session's firm; a worker sees only the ones they are a member of, an operator every firm's.

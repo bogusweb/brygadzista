@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { sql } from "../src/db.js";
+import { sql, withTenant } from "../src/db.js";
 import { createDocument, createProject, createTenant, resetDatabase } from "./helpers.js";
 
 beforeEach(async () => {
@@ -63,5 +63,58 @@ describe("firms in the database", () => {
 
     await sql`delete from tenants where id = ${tenantId}`;
     expect(await tenantOf("documents", documentId)).toBeUndefined();
+  });
+});
+
+describe("row level security", () => {
+  it("hides another firm's rows inside a firm's transaction, even from a query without a filter", async () => {
+    const firmA = await createTenant("Firma A");
+    const firmB = await createTenant("Firma B");
+    const projectA = await createProject("Dom A", firmA);
+    const projectB = await createProject("Dom B", firmB);
+    await createDocument(projectA);
+    await createDocument(projectB);
+
+    const seen = await withTenant(firmA, async () => ({
+      projects: (await sql<{ id: string }[]>`select id from projects`).map((row) => row.id),
+      documents: (await sql`select 1 from documents`).length,
+    }));
+    expect(seen).toEqual({ projects: [projectA], documents: 1 });
+    // Outside a firm's transaction the server's own role sees everything.
+    expect(await sql`select 1 from documents`).toHaveLength(2);
+  });
+
+  it("refuses to write a row for another firm inside a firm's transaction", async () => {
+    const firmA = await createTenant("Firma A");
+    const firmB = await createTenant("Firma B");
+    const projectB = await createProject("Dom B", firmB);
+
+    await expect(
+      withTenant(firmA, async () => sql`insert into documents (project_id, tenant_id, filename) values (${projectB}, ${firmB}, 'x.pdf')`),
+    ).rejects.toThrow(/row-level security/);
+    await expect(withTenant(firmA, async () => sql`update projects set name = 'przejęty' where id = ${projectB} returning id`)).resolves.toHaveLength(0);
+  });
+
+  it("covers every table with a firm", async () => {
+    const tables = await sql<{ table: string; rls: boolean }[]>`
+      select c.relname as table, c.relrowsecurity as rls from pg_class c
+      join information_schema.columns col on col.table_name = c.relname and col.column_name = 'tenant_id' and col.table_schema = 'public'
+      where c.relkind = 'r' and c.relname not in ('sessions', 'tenant_members')`;
+    expect(tables.length).toBeGreaterThan(10);
+    expect(tables.filter((table) => !table.rls)).toEqual([]);
+  });
+});
+
+describe("background work started by a request", () => {
+  // `void job()` inside a request runs in the request's firm transaction before it commits; detached() waits for it.
+  it("goes through detached(), never a bare void call", async () => {
+    const { readdir, readFile } = await import("node:fs/promises");
+    const bare: string[] = [];
+    for (const file of await readdir("src")) {
+      if (!file.endsWith(".ts") || file === "index.ts" || file === "ingest.ts") continue;
+      const source = await readFile(`src/${file}`, "utf8");
+      for (const match of source.matchAll(/\bvoid [A-Za-z]+\(/g)) bare.push(`${file}: ${match[0]}`);
+    }
+    expect(bare).toEqual([]);
   });
 });
