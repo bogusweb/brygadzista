@@ -1,8 +1,12 @@
 import { useRenderTool } from "@copilotkit/react-native/headless";
 import { z } from "zod";
+import type { ElementCard } from "../../lib/cards";
 import { parseJson, toolLabel } from "../../lib/chat";
+import { ChatCard } from "../cards/ChatCard";
 import { PhotoResults } from "../pins/PhotoResults";
 import type { FoundPin } from "../pins/PhotoResults";
+import type { QuestionDraft } from "../../lib/questions";
+import { QuestionDraftCard } from "../questions/QuestionDraftCard";
 import { PageCard } from "./PageCard";
 import { ToolStatus } from "./ToolStatus";
 
@@ -18,6 +22,19 @@ const searchPhotosParameters = z.object({
   pageNo: z.number().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+});
+
+const buildCardParameters = z.object({
+  kind: z.enum(["room", "partition"]),
+  name: z.string(),
+  refresh: z.boolean().optional(),
+});
+
+const draftQuestionParameters = z.object({
+  documentId: z.string(),
+  pageNo: z.number(),
+  question: z.string(),
+  reason: z.string().optional(),
 });
 
 type ShowPageResult = { documentId: string; pageNo: number; title?: string | null; caption?: string };
@@ -47,6 +64,35 @@ export const useChatToolRenderers = () => {
         if (status !== "complete") return <ToolStatus label={label} done={false} />;
         const found = (parseJson(result) as { photos?: FoundPin[] } | undefined)?.photos ?? [];
         return found.length ? <PhotoResults pins={found} /> : <ToolStatus label={label} done />;
+      },
+    },
+    [],
+  );
+
+  useRenderTool(
+    {
+      name: "build_element_card",
+      parameters: buildCardParameters,
+      render: ({ status, parameters, result }) => {
+        const label = toolLabel("build_element_card", parameters, status === "complete");
+        if (status !== "complete") return <ToolStatus label={label} done={false} />;
+        const card = parseJson(result) as ElementCard | undefined;
+        if (!card?.id || card.status !== "ready") return <ToolStatus label={`Nie udało się zebrać karty: ${parameters.name}`} done />;
+        return <ChatCard card={card} />;
+      },
+    },
+    [],
+  );
+
+  useRenderTool(
+    {
+      name: "draft_designer_question",
+      parameters: draftQuestionParameters,
+      render: ({ status, result }) => {
+        if (status !== "complete") return <ToolStatus label={toolLabel("draft_designer_question", {}, false)} done={false} />;
+        const draft = (parseJson(result) as { draft?: QuestionDraft } | undefined)?.draft;
+        if (!draft) return <ToolStatus label="Nie udało się przygotować pytania" done />;
+        return <QuestionDraftCard draft={draft} />;
       },
     },
     [],

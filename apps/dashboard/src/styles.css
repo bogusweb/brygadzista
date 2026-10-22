@@ -850,3 +850,89 @@ section.a2ui-block {
 .a2ui-source {
   padding: 0;
 }
+
+/* Questions to the designer (#73) */
+.question-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--chat-border, var(--border));
+  border-radius: var(--chat-radius, var(--radius));
+  background: var(--chat-surface, var(--surface));
+}
+
+.question-crop {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  background: #fff;
+}
+
+.question-draft textarea,
+.question-answer-form textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  resize: vertical;
+  width: 100%;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.question-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.question-status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.question-status.open {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.question-text,
+.question-answer p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.question-answer {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.question-answer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.link.danger {
+  color: var(--danger);
+}

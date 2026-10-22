@@ -1,6 +1,7 @@
 import { abbreviationOf, expandAbbreviations, extractCodes } from "./codes.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
+import { activeEmbeddingSet } from "./embedding-sets.js";
 import { formatFact } from "./facts.js";
 import { embed } from "./llm.js";
 import { drawingRefOf, levelOf, type PageBranch, type PageKind } from "./page-meta.js";
@@ -80,13 +81,19 @@ export const lexicalSearch = async (projectId: string, query: string, limit: num
     limit ${limit}`;
 };
 
+// Reads the active embedding set only (#46): during a model change the new set is still incomplete, so the question is
+// embedded with the old model and compared with the old vectors until the switch.
 export const semanticSearch = async (projectId: string, query: string, limit: number, filter: PageFilter = {}) => {
   if (!config.openrouterApiKey) return [];
-  const [vector] = await embed([expandAbbreviations(query)]);
+  const set = await activeEmbeddingSet();
+  if (!set) return [];
+  const [vector] = await embed([expandAbbreviations(query)], set);
+  // The vector size is part of the index expression, so it is written into the query rather than sent as a parameter.
+  const sized = sql.unsafe(`vector(${Math.trunc(set.dimensions)})`);
   return sql<{ page_id: string; distance: number }[]>`
     select page_id, distance from (
-      select page_id, min(embedding <=> ${`[${vector!.join(",")}]`}::vector) as distance
-      from chunks where project_id = ${projectId}
+      select page_id, min(embedding::${sized} <=> ${`[${vector!.join(",")}]`}::${sized}) as distance
+      from chunks where project_id = ${projectId} and embedding_set = ${set.id}
       ${hasFilter(filter) ? sql`and page_id in (select id from pages where project_id = ${projectId} ${pageConditions(filter)})` : sql``}
       group by page_id
     ) ranked order by distance limit ${limit}`;

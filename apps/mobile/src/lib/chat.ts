@@ -89,13 +89,17 @@ export const parseJson = (value: string | undefined): unknown => {
   }
 };
 
-type ToolArgs = { query?: string; pageNo?: number; question?: string };
+type ToolArgs = { query?: string; pageNo?: number; question?: string; name?: string };
 
 export const toolLabel = (name: string, args: ToolArgs, done: boolean) => {
   const page = args.pageNo ? `str. ${args.pageNo}` : "stronę";
   switch (name) {
     case "search_project":
       return done ? `Przeszukałem projekt${args.query ? `: „${args.query}”` : ""}` : `Szukam w projekcie${args.query ? `: „${args.query}”` : "…"}`;
+    case "draft_designer_question":
+      return done ? "Przygotowałem pytanie do projektanta" : "Przygotowuję pytanie do projektanta…";
+    case "list_designer_questions":
+      return done ? "Przejrzałem pytania do projektanta" : "Przeglądam pytania do projektanta…";
     case "get_project_outline":
       return done ? "Przejrzałem spis treści projektu" : "Przeglądam spis treści projektu…";
     case "get_pages":
@@ -108,6 +112,8 @@ export const toolLabel = (name: string, args: ToolArgs, done: boolean) => {
       return done ? `Obejrzałem rysunek, ${page}` : `Oglądam rysunek, ${page}…`;
     case "show_page":
       return done ? `Pokazuję ${page}` : `Przygotowuję ${page}…`;
+    case "build_element_card":
+      return done ? `Karta: ${args.name ?? ""}` : `Zbieram kartę${args.name ? `: ${args.name}` : ""}…`;
     case "search_photos":
       return done ? `Przejrzałem zdjęcia z budowy${args.query ? `: „${args.query}”` : ""}` : "Szukam zdjęć z budowy…";
     default:

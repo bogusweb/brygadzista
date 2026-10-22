@@ -1,5 +1,6 @@
 import { BuiltInAgent, defineTool } from "@copilotkit/runtime/v2";
 import { z } from "zod";
+import { CARD_KINDS, cardSettled, cardView, requestCard } from "./cards.js";
 import { sql } from "./db.js";
 import { inspectionImages } from "./drawing.js";
 import { agentLanguageModel, askAboutPage } from "./llm.js";
@@ -7,6 +8,7 @@ import { listDefects } from "./defects.js";
 import { DEFECT_STATUSES, photoImagePath, searchPins } from "./pins.js";
 import { MAX_PAGES_PER_CALL, projectOutline, readPages } from "./project-outline.js";
 import { PAGE_BRANCHES, PAGE_KINDS } from "./page-meta.js";
+import { cropPath, listQuestions, QUESTION_STATUSES, regionSchema } from "./questions.js";
 import { searchPages } from "./search.js";
 
 const SYSTEM_PROMPT = `Jesteś Brygadzistą: asystentem wykonawcy na budowie. Odpowiadasz wyłącznie na podstawie projektu technicznego,
@@ -27,7 +29,15 @@ do którego masz dostęp przez narzędzia. Zasady:
 - Usterki i poprawki to pinezki na rzutach ze statusem (otwarta, do sprawdzenia, zamknięta), osobą odpowiedzialną i terminem.
   Na pytania w rodzaju „co jeszcze otwarte u Kowalskiego?” albo „usterki na parterze” użyj search_defects i wypisz je krótko
   (pomieszczenie, opis, osoba, termin, strona). Protokół odbioru w PDF wykonawca pobiera w zakładce Usterki.
+- Gdy wykonawca prosi o kartę pomieszczenia („karta łazienki 1.04”) albo przegrody („co jest w ścianie SZ1”, „warstwy dachu”),
+  wywołaj build_element_card: karta zbiera wymiary, wysokość, powierzchnię, rzędną, okna, drzwi i instalacje albo warstwy
+  z grubościami i współczynnik U, każdą wartość ze stroną, i zapisuje się w telefonie do pracy bez zasięgu. Aplikacja sama ją
+  pokaże: napisz tylko krótko, co jest na karcie, i wymień wprost, czego projekt nie podaje (missing).
 - Jeśli projekt czegoś nie określa, powiedz to wprost i zaproponuj, kogo zapytać (projektant, kierownik budowy).
+- Gdy po sprawdzeniu projektu brakuje danych, których wykonawca potrzebuje do pracy, albo dwie strony sobie przeczą
+  (np. inna grubość w opisie i na detalu), przygotuj pytanie do projektanta narzędziem draft_designer_question: konkretne,
+  z numerami stron i tym, co dokładnie jest niejasne; jeśli wiesz, w której części arkusza to jest, podaj region.
+  Aplikacja pokaże szkic, a wykonawca sam go wyśle. Najpierw sprawdź list_designer_questions, czy takie pytanie już padło.
 - Pisz krótko, konkretnie, po polsku, jak do fachowca.`;
 
 // Both runtimes inject render_a2ui (A2UI middleware), and both clients render the catalog.
@@ -60,13 +70,14 @@ const assertPageInProject = async (projectId: string, documentId: string, pageNo
 export const pageImagePath = (documentId: string, pageNo: number) => `/api/documents/${documentId}/pages/${pageNo}/image`;
 
 // The kind of building (#85) tells the agent what work it is; the project itself stays the only source of values.
-const buildingPrompt = (building: { label: string; context: string } | undefined) =>
+export const buildingPrompt = (building: { label: string; context: string } | undefined) =>
   building ? `\n\nTyp budowy: ${building.label}. ${building.context}` : "";
 
-export const createProjectAgent = (projectId: string, building?: { label: string; context: string }) =>
+// extraPrompt carries what changes per project between requests, such as the designer's answers (#73).
+export const createProjectAgent = (projectId: string, extraPrompt = "") =>
   new BuiltInAgent({
     model: agentLanguageModel(),
-    prompt: SYSTEM_PROMPT + buildingPrompt(building) + A2UI_PROMPT,
+    prompt: SYSTEM_PROMPT + A2UI_PROMPT + extraPrompt,
     maxSteps: 12,
     tools: [
       defineTool({
@@ -182,6 +193,57 @@ export const createProjectAgent = (projectId: string, building?: { label: string
               photosAfter: photos.filter((photo) => photo.stage === "after").length,
             })),
             total: found.length,
+            ...(found.length ? {} : { noMatch: true }),
+          };
+        },
+      }),
+      defineTool({
+        name: "build_element_card",
+        description:
+          "Buduje kartę pomieszczenia (kind=room, np. 'Łazienka 1.04') albo przegrody (kind=partition, np. 'Ściana zewnętrzna SZ1', " +
+          "'Dach') z wartościami z projektu i stronami źródłowymi; karta zapisuje się w aplikacji do pracy offline. Ta sama nazwa " +
+          "zwraca istniejącą kartę; refresh=true zbiera dane od nowa.",
+        parameters: z.object({
+          kind: z.enum(CARD_KINDS).describe("room = pomieszczenie, partition = przegroda (ściana, strop, dach, podłoga)"),
+          name: z.string().min(1).max(120).describe("Nazwa jak w projekcie, z numerem pomieszczenia albo symbolem przegrody"),
+          refresh: z.boolean().optional(),
+        }),
+        execute: async (request) => {
+          const id = await requestCard(projectId, request, { id: null, name: "Asystent" });
+          await cardSettled(id);
+          const card = await cardView(id);
+          if (!card || card.status !== "ready") throw new Error(card?.error ?? "Nie udało się zbudować karty");
+          return card;
+        },
+      }),
+      defineTool({
+        name: "draft_designer_question",
+        description:
+          "Przygotowuje szkic pytania do projektanta o brak danych albo sprzeczność w projekcie: treść, strona i wycinek " +
+          "rysunku. Nic nie wysyła i niczego nie zapisuje; wykonawca zobaczy szkic, poprawi go i sam wyśle.",
+        parameters: pageRef.extend({
+          question: z.string().describe("Treść pytania do projektanta, po polsku, uprzejmie i konkretnie, z numerami stron"),
+          reason: z.string().describe("Krótko: czego brakuje albo co się nie zgadza (np. 'opis: 15 cm, detal 3: 12 cm')"),
+          region: regionSchema
+            .optional()
+            .describe("Część arkusza do wycięcia, ułamki szerokości i wysokości od lewego górnego rogu; pomiń, gdy nie wiesz"),
+        }),
+        execute: async ({ documentId, pageNo, question, reason, region }) => {
+          const page = await assertPageInProject(projectId, documentId, pageNo);
+          return {
+            draft: { documentId, pageNo, pageTitle: page.title, question, reason, region: region ?? null },
+            cropPath: cropPath(documentId, pageNo, region ?? null),
+          };
+        },
+      }),
+      defineTool({
+        name: "list_designer_questions",
+        description: "Rejestr pytań do projektanta w tym projekcie: treść, strona, status (open, answered) i odpowiedź.",
+        parameters: z.object({ status: z.enum(QUESTION_STATUSES).optional() }),
+        execute: async ({ status }) => {
+          const found = await listQuestions(projectId, status);
+          return {
+            questions: found.map(({ region: _region, updatedAt: _updatedAt, ...question }) => question),
             ...(found.length ? {} : { noMatch: true }),
           };
         },

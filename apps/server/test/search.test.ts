@@ -2,10 +2,13 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config.js";
 import { migrate, sql } from "../src/db.js";
 import { prefixQuery, searchPages } from "../src/search.js";
+import { configuredEmbedding, embeddingSetId } from "../src/embedding-model.js";
 import { axisVector, createDocument, createProject, insertPage, resetDatabase } from "./helpers.js";
 
 const embed = vi.hoisted(() => vi.fn<(texts: string[]) => Promise<number[][]>>());
 vi.mock("../src/llm.js", () => ({ embed }));
+
+const ACTIVE_SET = embeddingSetId(configuredEmbedding());
 
 describe("prefixQuery", () => {
   it("turns each word into a prefix of its stem-ish head", () => {
@@ -77,14 +80,14 @@ describe("searchPages", () => {
     config.openrouterApiKey = "test-key";
     const lexicalPage = await insertPage(projectId, documentId, 2, { searchText: "Zestawienie stolarki: okna PCV" });
     const semanticPage = await insertPage(projectId, documentId, 9, { searchText: "Detal attyki" });
-    await sql`insert into chunks (page_id, project_id, content, embedding) values
-      (${semanticPage}, ${projectId}, 'attyka', ${`[${axisVector(0).join(",")}]`}::vector),
-      (${lexicalPage}, ${projectId}, 'okna', ${`[${axisVector(1).join(",")}]`}::vector)`;
+    await sql`insert into chunks (page_id, project_id, content, embedding, embedding_set) values
+      (${semanticPage}, ${projectId}, 'attyka', ${`[${axisVector(0).join(",")}]`}::vector, ${ACTIVE_SET}),
+      (${lexicalPage}, ${projectId}, 'okna', ${`[${axisVector(1).join(",")}]`}::vector, ${ACTIVE_SET})`;
     embed.mockResolvedValue([axisVector(0)]);
 
     const hits = await searchPages(projectId, "okna", 2);
 
-    expect(embed).toHaveBeenCalledWith(["okna"]);
+    expect(embed).toHaveBeenCalledWith(["okna"], expect.objectContaining({ id: ACTIVE_SET }));
     expect(hits.map((hit) => hit.pageNo).sort()).toEqual([2, 9]);
   });
 

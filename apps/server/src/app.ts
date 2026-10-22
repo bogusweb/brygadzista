@@ -8,7 +8,7 @@ import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
-import { createProjectAgent } from "./agent.js";
+import { buildingPrompt, createProjectAgent } from "./agent.js";
 import { BUILDING_TYPES, DEFAULT_BUILDING_TYPE, buildingType, isBuildingType } from "./building-types.js";
 import { A2UI_CATALOG_ID } from "./a2ui-catalog.js";
 import { a2uiCatalogSchema } from "./a2ui-schema.js";
@@ -23,9 +23,11 @@ import {
   type AuthEnv,
   type Role,
 } from "./auth.js";
+import { cards } from "./cards.js";
 import { checklists } from "./checklists.js";
 import { citationCheck } from "./citations.js";
 import { config } from "./config.js";
+import { embeddingStatus } from "./embedding-sets.js";
 import { defaultTenantId, sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
 import { defects } from "./defects.js";
@@ -34,6 +36,7 @@ import { site } from "./site.js";
 import { FakeProjectAgent } from "./fake-agent.js";
 import { pdfPageCount } from "./pdf.js";
 import { projectOutline } from "./project-outline.js";
+import { designerAnswersPrompt, questions } from "./questions.js";
 import { pins, removeDocumentPhotos, removeProjectFiles } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { documentDir, documentPdf, pageImage } from "./storage.js";
@@ -47,7 +50,9 @@ const projectAgents =
   async ({ request }: { request: Request }) => {
     const projectId = await agentProjectId(request, roles);
     const [project] = await sql<{ buildingType: string }[]>`select building_type as "buildingType" from projects where id = ${projectId}`;
-    const agent = config.fakeAgent ? new FakeProjectAgent(projectId) : createProjectAgent(projectId, buildingType(project?.buildingType));
+    const agent = config.fakeAgent
+      ? new FakeProjectAgent(projectId)
+      : createProjectAgent(projectId, buildingPrompt(buildingType(project?.buildingType)) + (await designerAnswersPrompt(projectId)));
     return { default: agent.use(citationCheck) };
   };
 
@@ -62,12 +67,17 @@ app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-t
 
 // `llm` tells an operator at a glance whether the OpenRouter key reached the server.
 app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterApiKey) }));
+
+// The embedding model search uses, and the progress of a change to a new one (#46).
+app.get("/api/admin/embeddings", requireRole("admin"), async (c) => c.json(await embeddingStatus()));
 app.route("/", users);
 app.route("/", pins);
 app.route("/", defects);
 app.route("/", diary);
 app.route("/", site);
 app.route("/", checklists);
+app.route("/", questions);
+app.route("/", cards);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun));
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));

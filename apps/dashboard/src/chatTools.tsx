@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Api } from "./api";
 import { PageImage } from "./PageImage";
 import { usePageViewer } from "./pageViewer";
+import { QuestionDraftCard, type QuestionDraft } from "./questions";
 
 // Mirrors the show_page tool on the server (apps/server/src/agent.ts).
 const pageRef = z.object({ documentId: z.string(), pageNo: z.number() });
@@ -64,7 +65,41 @@ const ShowPageCard = ({
   );
 };
 
-export const useChatToolRenderers = (api: Api) => {
+const questionDraft = z.object({
+  draft: z.object({
+    documentId: z.string(),
+    pageNo: z.number(),
+    pageTitle: z.string().nullable(),
+    question: z.string(),
+    reason: z.string(),
+    region: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }).nullable(),
+  }),
+});
+
+const parseDraft = (result: string | undefined): QuestionDraft | null => {
+  try {
+    const parsed = questionDraft.safeParse(JSON.parse(result ?? ""));
+    return parsed.success ? parsed.data.draft : null;
+  } catch {
+    return null;
+  }
+};
+
+export const useChatToolRenderers = (api: Api, projectId: string) => {
+  useRenderTool(
+    {
+      name: "draft_designer_question",
+      parameters: pageRef.extend({ question: z.string() }),
+      render: ({ status, result }) => {
+        if (status !== "complete") return <ToolStatus done={false}>Przygotowuję pytanie do projektanta…</ToolStatus>;
+        const draft = parseDraft(result);
+        if (!draft) return <ToolStatus done>Nie udało się przygotować pytania</ToolStatus>;
+        return <QuestionDraftCard api={api} projectId={projectId} draft={draft} />;
+      },
+    },
+    [api, projectId],
+  );
+
   useRenderTool(
     {
       name: "show_page",
