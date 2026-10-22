@@ -305,6 +305,34 @@ export const migrate = async () => {
   await sql`alter table pins add column if not exists closed_at timestamptz`;
   await sql`update pins set closed_at = updated_at where status = 'closed' and closed_at is null`;
   // Weekly reports for the investor (#84): the facts of the week frozen at the moment the report was made.
+  // Saved acceptance protocols (#82): the defects as they were when it was made, a read-only link for its QR code, and
+  // the signatures. The link's token is kept (not only its hash) because every print of the protocol carries it.
+  await sql`
+    create table if not exists protocols (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references projects(id) on delete cascade,
+      title text not null,
+      scope text not null check (scope in ('stage', 'final')),
+      filter jsonb not null default '{}',
+      snapshot jsonb not null,
+      share_token text not null,
+      share_expires_at timestamptz not null,
+      created_by uuid references users(id) on delete set null,
+      created_by_name text not null default '',
+      created_at timestamptz not null default now()
+    )`;
+  // A finger signature as strokes, drawn into the PDF by the server. Signing again replaces the role's signature.
+  await sql`
+    create table if not exists protocol_signatures (
+      protocol_id uuid not null references protocols(id) on delete cascade,
+      project_id uuid not null references projects(id) on delete cascade,
+      role text not null check (role in ('contractor', 'investor')),
+      name text not null,
+      strokes jsonb not null,
+      signed_by uuid references users(id) on delete set null,
+      signed_at timestamptz not null default now(),
+      primary key (protocol_id, role)
+    )`;
   await sql`
     create table if not exists reports (
       id uuid primary key default gen_random_uuid(),
@@ -360,6 +388,8 @@ const PROJECT_TABLES = [
   "designer_questions",
   "reports",
   "element_cards",
+  "protocols",
+  "protocol_signatures",
   "schedule_items",
 ];
 // Tables that hang off a checklist and take the firm from it.

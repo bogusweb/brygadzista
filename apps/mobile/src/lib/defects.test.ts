@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assigneesOf, daysFrom, emptyFilter, filterDefects, formatDay, isOverdue, pagesOf, parseDay, protocolQuery } from "./defects";
+import { assigneesOf, daysFrom, emptyFilter, filterDefects, formatDay, isOverdue, pagesOf, parseDay, protocolFields, protocolQuery } from "./defects";
 import type { Pin } from "./pins";
 
 const defect = (fields: Partial<Pin>): Pin => ({
@@ -83,5 +83,12 @@ describe("protocolQuery", () => {
   it("asks the server for the same defects as the list shows", () => {
     expect(protocolQuery(emptyFilter)).toBe("status=open,to_check");
     expect(protocolQuery({ status: "all", assignee: "Jan Kowalski", page: "doc:6" })).toBe("assignee=Jan%20Kowalski&documentId=doc&pageNo=6");
+  });
+});
+
+describe("protocolFields", () => {
+  it("turns the on-screen filter into the fields of a saved protocol", () => {
+    expect(protocolFields(emptyFilter)).toEqual({ status: "open,to_check" });
+    expect(protocolFields({ status: "all", assignee: "Jan", page: "doc-1:3" })).toEqual({ assignee: "Jan", documentId: "doc-1", pageNo: 3 });
   });
 });

@@ -9,7 +9,7 @@ import { DEFECT_STATUSES, pinColumns, pinPhotosJson, type DefectStatus, type Pin
 import { limiters, rateLimit } from "./rate-limit.js";
 import { statusOf } from "./retry.js";
 import { queryTerms } from "./search.js";
-import { createPdf, formatDay, imageRows, photoThumb, planCrop, signatureLines, type Pdf } from "./report-pdf.js";
+import { MARGIN, createPdf, formatDay, imageRows, photoThumb, planCrop, signatureLines, type Pdf } from "./report-pdf.js";
 
 // Defects and fixes pinned to the drawings (#74): a filtered list for the agent and the acceptance protocol as a PDF,
 // plus speech to text for reporting a defect by voice.
@@ -102,7 +102,7 @@ defects.get("/api/projects/:id/defects/protocol.pdf", requireRoleOrQueryToken("a
 
 const COLORS: Record<DefectStatus, string> = { open: "#C0392B", to_check: "#B7791F", closed: "#2F7D4A" };
 
-const describeFilter = (filter: DefectFilter, found: Defect[]) => {
+export const describeFilter = (filter: DefectFilter, found: Defect[]) => {
   const parts = [
     filter.statuses?.length ? `status: ${filter.statuses.map((status) => STATUS_LABELS[status].toLowerCase()).join(", ")}` : "",
     filter.assignee?.trim() ? `odpowiedzialny: ${filter.assignee.trim()}` : "",
@@ -146,17 +146,57 @@ export const defectBlock = async (pdf: Pdf, projectId: string, defect: Defect, i
   doc.moveDown(0.5);
 };
 
-const protocolPdf = async (projectId: string, projectName: string, found: Defect[], filter: DefectFilter) => {
-  const pdf = createPdf(`Protokół odbioru – ${projectName}`);
-  const { doc } = pdf;
-  doc.font("bold").fontSize(18).text("Protokół odbioru – lista usterek");
-  doc.font("regular").fontSize(11).fillColor("#333333").text(projectName || "Projekt");
-  doc.text(`Stan na ${formatDay(new Date())}. ${describeFilter(filter, found)}`);
+export type ProtocolSignature = { role: "contractor" | "investor"; name: string; signedAt: Date; image: Buffer };
+
+export type ProtocolOptions = {
+  heading: string;
+  scope: string;
+  asOf: Date;
+  link?: { url: string; qr: Buffer } | undefined;
+  signatures?: ProtocolSignature[] | undefined;
+};
+
+const SIGNATURE_ROLES = [
+  { role: "contractor", label: "Wykonawca" },
+  { role: "investor", label: "Inwestor" },
+] as const;
+
+const signedAt = (value: Date) =>
+  `${formatDay(value)} ${value.toLocaleTimeString("pl-PL", { timeZone: "Europe/Warsaw", hour: "2-digit", minute: "2-digit" })}`;
+
+// The acceptance protocol: defects with the spot on the drawing and the photos, then the signatures. A saved protocol
+// (#82) adds a QR code to its online version and the signatures made with a finger in the app.
+export const protocolDocument = async (projectId: string, projectName: string, found: Defect[], options: ProtocolOptions) => {
+  const pdf = createPdf(`${options.heading} – ${projectName}`);
+  const { doc, width } = pdf;
+  if (options.link) {
+    doc.image(options.link.qr, MARGIN + width - 80, MARGIN, { fit: [80, 80] });
+    doc.font("regular").fontSize(7.5).fillColor("#666666").text("Wersja online", MARGIN + width - 80, MARGIN + 82, { width: 80, align: "center" });
+    doc.x = MARGIN;
+    doc.y = MARGIN;
+  }
+  const textWidth = options.link ? width - 96 : width;
+  doc.font("bold").fontSize(18).fillColor("#111111").text(options.heading, { width: textWidth });
+  doc.font("regular").fontSize(11).fillColor("#333333").text(projectName || "Projekt", { width: textWidth });
+  doc.text(`Stan na ${formatDay(options.asOf)}. ${options.scope}`, { width: textWidth });
   const counts = DEFECT_STATUSES.map((status) => `${STATUS_LABELS[status]}: ${found.filter((defect) => defect.status === status).length}`);
-  doc.text(`Usterek: ${found.length} (${counts.join(", ")})`);
+  doc.text(`Usterek: ${found.length} (${counts.join(", ")})`, { width: textWidth });
+  if (options.link) doc.y = Math.max(doc.y, MARGIN + 100);
   doc.moveDown();
   if (found.length === 0) doc.text("Brak usterek w tym zakresie.");
   for (const [index, defect] of found.entries()) await defectBlock(pdf, projectId, defect, index);
-  signatureLines(pdf, [{ label: "Wykonawca" }, { label: "Inwestor" }]);
+  signatureLines(
+    pdf,
+    SIGNATURE_ROLES.map(({ role, label }) => {
+      const signature = options.signatures?.find((candidate) => candidate.role === role);
+      return { label, signature: signature && { image: signature.image, caption: `${signature.name}, ${signedAt(signature.signedAt)}` } };
+    }),
+  );
+  if (options.link) {
+    doc.moveDown(2).font("regular").fontSize(8.5).fillColor("#666666").text(`Wersja online: ${options.link.url}`, MARGIN, doc.y, { width, link: options.link.url });
+  }
   return pdf.finish();
 };
+
+const protocolPdf = (projectId: string, projectName: string, found: Defect[], filter: DefectFilter) =>
+  protocolDocument(projectId, projectName, found, { heading: "Protokół odbioru – lista usterek", scope: describeFilter(filter, found), asOf: new Date() });
