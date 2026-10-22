@@ -235,6 +235,23 @@ export const migrate = async () => {
   await sql`alter table pages add column if not exists branch text`;
   await sql`alter table pages add column if not exists level text`;
   await sql`alter table pages add column if not exists meta_version int`;
+  // Cards of a room or a partition (#71): values from the project with their pages, one card per place.
+  await sql`
+    create table if not exists element_cards (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references projects(id) on delete cascade,
+      kind text not null check (kind in ('room', 'partition')),
+      name text not null,
+      status text not null default 'generating',
+      error text,
+      fields jsonb not null default '[]',
+      layers jsonb not null default '[]',
+      created_by uuid references users(id) on delete set null,
+      created_by_name text not null default '',
+      created_at timestamptz not null default now(),
+      generated_at timestamptz
+    )`;
+  await sql`create unique index if not exists element_cards_name on element_cards (project_id, kind, lower(name))`;
   await sql`create index if not exists sessions_user on sessions (user_id)`;
   await sql`create index if not exists project_members_user on project_members (user_id)`;
   await sql`create index if not exists chunks_project on chunks (project_id)`;
@@ -314,6 +331,7 @@ const PROJECT_TABLES = [
   "site_weather",
   "designer_questions",
   "reports",
+  "element_cards",
 ];
 // Tables that hang off a checklist and take the firm from it.
 const CHECKLIST_TABLES = ["checklist_items", "checklist_events", "checklist_results"];
