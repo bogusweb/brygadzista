@@ -230,8 +230,8 @@ describe("contractor access", () => {
     const mine = await createDocument(assigned, "ready");
     const theirs = await createDocument(other, "ready");
     for (const doc of [mine, theirs]) {
-      await mkdir(documentDir(doc), { recursive: true });
-      await writeFile(pageImage(doc, 1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+      await mkdir(await documentDir(doc), { recursive: true });
+      await writeFile(await pageImage(doc, 1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
     }
 
     expect((await app.request(`/api/documents/${mine}/pages/1/image?token=${token}`)).status).toBe(200);

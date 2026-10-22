@@ -37,10 +37,10 @@ const embedPage = async (pageNo: number, title: string | null, raw: string, imag
   return [...textChunks.map((content, i) => ({ content, vector: textVectors[i]! })), { content: imageChunk, vector: imageVector }];
 };
 
-const imageOf = async (documentId: string, pageNo: number) =>
-  (await exists(pageImage(documentId, pageNo)))
-    ? pageImage(documentId, pageNo)
-    : await pdfRenderPage(documentPdf(documentId), pageNo, pageImagePrefix(documentId, pageNo));
+const imageOf = async (documentId: string, pageNo: number) => {
+  const stored = await pageImage(documentId, pageNo);
+  return (await exists(stored)) ? stored : pdfRenderPage(await documentPdf(documentId), pageNo, await pageImagePrefix(documentId, pageNo));
+};
 
 // Vectors of one page in one set, replacing what the page had there; other sets keep theirs, so search on the old
 // model is untouched while a new one is built.
@@ -53,7 +53,7 @@ const saveChunks = async (tx: TransactionSql, page: { id: string; projectId: str
 };
 
 const indexOnePage = async (doc: { id: string; project_id: string; tenant_id: string }, pageNo: number) => {
-  const pdf = documentPdf(doc.id);
+  const pdf = await documentPdf(doc.id);
   const image = await imageOf(doc.id, pageNo);
   const raw = await pdfPageText(pdf, pageNo);
   const meta = extractPageMeta(raw, pageNo);
@@ -126,7 +126,7 @@ const pauseReason = (error: unknown) => {
 };
 
 const processDocument = async (doc: { id: string; project_id: string; tenant_id: string }) => {
-  const pageCount = await pdfPageCount(documentPdf(doc.id));
+  const pageCount = await pdfPageCount(await documentPdf(doc.id));
   await sql`update documents set page_count = ${pageCount}, status = 'processing', error = null where id = ${doc.id}`;
   await sql`
     insert into pages (document_id, project_id, page_no)

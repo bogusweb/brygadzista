@@ -107,13 +107,13 @@ const exists = (file: string) =>
 
 // A crop is rendered from the PDF at a resolution that keeps small dimensions legible, then cached.
 export const renderCrop = async (documentId: string, pageNo: number, region: Region | null) => {
-  const pdf = documentPdf(documentId);
+  const pdf = await documentPdf(documentId);
   if (!region) {
-    const image = pageImage(documentId, pageNo);
-    return (await exists(image)) ? image : pdfRenderPage(pdf, pageNo, pageImagePrefix(documentId, pageNo));
+    const image = await pageImage(documentId, pageNo);
+    return (await exists(image)) ? image : pdfRenderPage(pdf, pageNo, await pageImagePrefix(documentId, pageNo));
   }
   const key = [region.x, region.y, region.width, region.height].map((value) => value.toFixed(4)).join("_");
-  const prefix = path.join(documentDir(documentId), "crops", `page-${pageNo}-${key}`);
+  const prefix = path.join(await documentDir(documentId), "crops", `page-${pageNo}-${key}`);
   if (await exists(`${prefix}.jpg`)) return `${prefix}.jpg`;
   const size = await pdfPageSize(pdf, pageNo);
   const longEdgeInches = Math.max(region.width * size.width, region.height * size.height) / POINTS_PER_INCH;

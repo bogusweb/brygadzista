@@ -33,8 +33,8 @@ const seedFirm = async (name: string): Promise<FirmData> => {
   const projectId = await createProject(`Budowa ${name}`, tenantId);
   const documentId = await createDocument(projectId, "ready");
   await insertPage(projectId, documentId, 1, { title: "Rzut parteru", searchText: `Rzut parteru ${name} strop 24 cm`, indexed: true });
-  await mkdir(documentDir(documentId), { recursive: true });
-  await writeFile(pageImage(documentId, 1), JPEG);
+  await mkdir(await documentDir(documentId), { recursive: true });
+  await writeFile(await pageImage(documentId, 1), JPEG);
 
   const pinId = randomUUID();
   const photoId = randomUUID();
@@ -44,9 +44,9 @@ const seedFirm = async (name: string): Promise<FirmData> => {
   await sql`
     insert into pin_photos (id, pin_id, project_id, width, height, bytes, taken_at)
     values (${photoId}, ${pinId}, ${projectId}, 1, 1, ${JPEG.length}, now())`;
-  await mkdir(path.dirname(photoFile(projectId, photoId, "full")), { recursive: true });
-  await writeFile(photoFile(projectId, photoId, "full"), JPEG);
-  await writeFile(photoFile(projectId, photoId, "thumb"), JPEG);
+  await mkdir(path.dirname(await photoFile(projectId, photoId, "full")), { recursive: true });
+  await writeFile(await photoFile(projectId, photoId, "full"), JPEG);
+  await writeFile(await photoFile(projectId, photoId, "thumb"), JPEG);
 
   const [diary] = await sql<{ id: string }[]>`
     insert into diary_entries (project_id, entry_date, source, transcript, status) values (${projectId}, current_date, 'text', 'Beton', 'ready')

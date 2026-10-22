@@ -10,7 +10,7 @@ import { config } from "./config.js";
 import { detached, sql } from "./db.js";
 import { queryTerms } from "./search.js";
 import { describeDefect } from "./defect-spec.js";
-import { photoFile, projectDir } from "./storage.js";
+import { photoFile } from "./storage.js";
 
 // The server runs in 768 MB next to indexing, so photos are processed one at a time without libvips' cache.
 sharp.cache(false);
@@ -128,8 +128,10 @@ const parsePin = (body: Record<string, unknown>): PinInput | string => {
   };
 };
 
-const removePhotoFiles = (projectId: string, photoIds: string[]) =>
-  Promise.all(photoIds.flatMap((id) => [photoFile(projectId, id, "full"), photoFile(projectId, id, "thumb")].map((file) => rm(file, { force: true }))));
+const removePhotoFiles = async (projectId: string, photoIds: string[]) => {
+  const files = await Promise.all(photoIds.flatMap((id) => [photoFile(projectId, id, "full"), photoFile(projectId, id, "thumb")]));
+  await Promise.all(files.map((file) => rm(file, { force: true })));
+};
 
 // Called before a document is deleted: its pins go with it by cascade, their photo files have to be removed by hand.
 export const removeDocumentPhotos = async (documentId: string) => {
@@ -137,8 +139,6 @@ export const removeDocumentPhotos = async (documentId: string) => {
     select ph.id, ph.project_id as "projectId" from pin_photos ph join pins p on p.id = ph.pin_id where p.document_id = ${documentId}`;
   await Promise.all(photos.map((photo) => removePhotoFiles(photo.projectId, [photo.id])));
 };
-
-export const removeProjectFiles = (projectId: string) => rm(projectDir(projectId), { recursive: true, force: true });
 
 // Writes under a temporary name first, so an interrupted write never leaves half a photo under the real name.
 const writeAtomically = async (file: string, data: Buffer) => {
@@ -242,8 +242,8 @@ pins.put(
     const body = Buffer.from(await c.req.arrayBuffer());
     const processed = await processPhoto(body).catch(() => null);
     if (!processed) return c.json({ error: "To nie jest zdjęcie albo plik jest uszkodzony" }, 400);
-    await writeAtomically(photoFile(projectId, photoId, "full"), processed.full);
-    await writeAtomically(photoFile(projectId, photoId, "thumb"), processed.thumb);
+    await writeAtomically(await photoFile(projectId, photoId, "full"), processed.full);
+    await writeAtomically(await photoFile(projectId, photoId, "thumb"), processed.thumb);
     const [photo] = await sql<PinPhoto[]>`
       insert into pin_photos (id, pin_id, project_id, width, height, bytes, taken_at, stage)
       values (${photoId}, ${pinId}, ${projectId}, ${processed.width}, ${processed.height}, ${processed.full.length}, ${takenAt}, ${stage})
@@ -271,7 +271,7 @@ pins.get("/api/projects/:id/photos/:photoId/image", requireRoleOrQueryToken("app
   if (!isUuid(photoId)) return missing();
   const [photo] = await sql`select 1 from pin_photos where id = ${photoId} and project_id = ${projectId}`;
   if (!photo) return missing();
-  const file = photoFile(projectId, photoId, c.req.query("size") === "thumb" ? "thumb" : "full");
+  const file = await photoFile(projectId, photoId, c.req.query("size") === "thumb" ? "thumb" : "full");
   if (!(await stat(file).catch(() => null))) return missing();
   c.header("Content-Type", "image/jpeg");
   // A photo never changes under its id.

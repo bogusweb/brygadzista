@@ -23,7 +23,7 @@ const addPhoto = async (takenAt: string) => {
   const [photo] = await sql<{ id: string }[]>`
     insert into pin_photos (id, pin_id, project_id, width, height, bytes, taken_at)
     values (gen_random_uuid(), ${pin!.id}, ${projectId}, 10, 10, 100, ${takenAt}) returning id`;
-  const file = photoFile(projectId, photo!.id, "thumb");
+  const file = await photoFile(projectId, photo!.id, "thumb");
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, await sharp({ create: { width: 10, height: 10, channels: 3, background: "#888" } }).jpeg().toBuffer());
   return photo!.id;

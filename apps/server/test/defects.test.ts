@@ -190,8 +190,8 @@ describe("listDefects", () => {
 
 describe("acceptance protocol", () => {
   it("is a PDF with the defects, the spot on the drawing and Polish letters", async () => {
-    await mkdir(path.dirname(pageImage(documentId, 5)), { recursive: true });
-    await sharp({ create: { width: 1200, height: 800, channels: 3, background: "#ffffff" } }).jpeg().toFile(pageImage(documentId, 5));
+    await mkdir(path.dirname(await pageImage(documentId, 5)), { recursive: true });
+    await sharp({ create: { width: 1200, height: 800, channels: 3, background: "#ffffff" } }).jpeg().toFile(await pageImage(documentId, 5));
     const pinId = randomUUID();
     await putPin(pinId, defectBody());
     await putPin(randomUUID(), defectBody({ room: "Kuchnia", status: "closed" }));

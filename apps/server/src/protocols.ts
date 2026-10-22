@@ -245,7 +245,7 @@ const jpeg = (body: Uint8Array<ArrayBuffer> | ReadableStream) =>
 protocols.get("/p/:token/photos/:photoId", async (c) => {
   const row = await sharedProtocol(c.req.param("token"));
   const known = row?.snapshot.defects.some((defect) => defect.photos.some((photo) => photo.id === c.req.param("photoId")));
-  const file = row && known ? photoFile(row.projectId, c.req.param("photoId"), "thumb") : null;
+  const file = row && known ? await photoFile(row.projectId, c.req.param("photoId"), "thumb") : null;
   if (!file || !(await exists(file))) return c.body(null, 404);
   return jpeg(Readable.toWeb(createReadStream(file)) as ReadableStream);
 });
