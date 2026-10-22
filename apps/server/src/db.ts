@@ -1,10 +1,64 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import postgres from "postgres";
 import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
 import { FACTS_VERSION, extractFacts, formatFact } from "./facts.js";
 import { META_VERSION, displayTitle, extractPageMeta, titleFromText } from "./page-meta.js";
 
-export const sql = postgres(config.databaseUrl, { max: 10, onnotice: () => {} });
+const rootSql = postgres(config.databaseUrl, { max: 10, onnotice: () => {} });
+
+// Row Level Security (#92): a request for a project runs in a transaction as TENANT_ROLE with app.tenant_id set to the
+// project's firm, and policies on every data table let that role see only rows of that firm. `sql` below routes each
+// query into that transaction while the request runs, so the code reads the same as without it.
+const TENANT_ROLE = "brygadzista_tenant";
+type Scope = { tx: postgres.TransactionSql; tenantId: string; done: boolean; afterCommit: (() => unknown)[] };
+const scope = new AsyncLocalStorage<Scope>();
+let rowLevelSecurity = false;
+
+const activeScope = () => {
+  const current = scope.getStore();
+  return current && !current.done ? current : null;
+};
+
+export const sql = new Proxy(rootSql, {
+  apply: (_target, _this, args: unknown[]) => (activeScope()?.tx ?? rootSql)(...(args as Parameters<typeof rootSql>)),
+  get: (_target, property) => {
+    const current = activeScope();
+    // Inside the request's transaction a nested transaction is a savepoint.
+    if (current && property === "begin") return (fn: (tx: postgres.TransactionSql) => unknown) => current.tx.savepoint(fn);
+    const target = (current && property in current.tx ? current.tx : rootSql) as unknown as Record<string | symbol, unknown>;
+    const value = target[property];
+    return typeof value === "function" ? value.bind(target) : value;
+  },
+}) as typeof rootSql;
+
+// Runs fn in a transaction limited to one firm. Nested calls for the same firm reuse the transaction.
+export const withTenant = async <T>(tenantId: string, fn: (tx: postgres.TransactionSql) => Promise<T>): Promise<T> => {
+  const current = activeScope();
+  if (current?.tenantId === tenantId) return fn(current.tx);
+  const afterCommit: (() => unknown)[] = [];
+  const result = (await rootSql.begin(async (tx) => {
+    await tx`select set_config('app.tenant_id', ${tenantId}, true)`;
+    if (rowLevelSecurity) await tx.unsafe(`set local role ${TENANT_ROLE}`);
+    const store: Scope = { tx, tenantId, done: false, afterCommit };
+    try {
+      return await scope.run(store, () => fn(tx));
+    } finally {
+      store.done = true;
+    }
+  })) as T;
+  afterCommit.forEach(detached);
+  return result;
+};
+
+// Work started from a request that outlives it (indexing a diary note, filling a checklist) leaves the request's
+// transaction and runs on the pool.
+// It starts once the transaction has committed, so it sees what the request wrote.
+export const detached = (fn: () => unknown) => {
+  const current = activeScope();
+  if (current) current.afterCommit.push(fn);
+  else void scope.exit(fn);
+};
 
 export const migrate = async () => {
   await sql`create extension if not exists pg_trgm`;
@@ -245,6 +299,7 @@ export const migrate = async () => {
   await backfillCodes();
   await backfillMeta();
   await backfillFacts();
+  await enableRowLevelSecurity();
 };
 
 // Tables that hang off a project: their firm always comes from the project, through a composite key.
@@ -356,6 +411,49 @@ const migrateTenants = async () => {
       foreign key (project_id, tenant_id) references projects (id, tenant_id) on delete cascade on update cascade
     )`;
   await sql`create or replace trigger share_links_tenant before insert on share_links for each row execute function tenant_from_project()`;
+  // Chat threads with their owner (#92): the CopilotKit runtime keeps messages in memory, this keeps who may use them.
+  await sql`
+    create table if not exists chat_threads (
+      id text primary key,
+      project_id uuid not null,
+      tenant_id uuid not null,
+      owner text not null,
+      user_id uuid references users(id) on delete cascade,
+      created_at timestamptz not null default now(),
+      foreign key (project_id, tenant_id) references projects (id, tenant_id) on delete cascade on update cascade
+    )`;
+};
+
+// Every table with a tenant_id gets a policy for TENANT_ROLE. The server's own role owns the tables and is not limited,
+// so migrations, the operator and background work see everything. Without the right to create roles the server
+// keeps running on the checks in code alone.
+const enableRowLevelSecurity = async () => {
+  try {
+    await sql.unsafe(`
+      do $$ begin
+        if not exists (select from pg_roles where rolname = '${TENANT_ROLE}') then create role ${TENANT_ROLE} nologin; end if;
+      end $$`);
+    await sql.unsafe(`grant ${TENANT_ROLE} to current_user`).catch(() => {});
+  } catch (error) {
+    console.warn(`db: cannot create role ${TENANT_ROLE}, row level security is off`, error);
+    rowLevelSecurity = false;
+    return;
+  }
+  await sql.unsafe(`grant usage on schema public to ${TENANT_ROLE}`);
+  await sql.unsafe(`grant select, insert, update, delete on all tables in schema public to ${TENANT_ROLE}`);
+  await sql.unsafe(`grant usage, select on all sequences in schema public to ${TENANT_ROLE}`);
+  const tables = await sql<{ table: string }[]>`
+    select table_name as table from information_schema.columns
+    where table_schema = 'public' and column_name = 'tenant_id' and table_name not in ('sessions', 'tenant_members')`;
+  for (const { table } of tables) {
+    await sql.unsafe(`alter table ${table} enable row level security`);
+    await sql.unsafe(`drop policy if exists tenant_isolation on ${table}`);
+    await sql.unsafe(`
+      create policy tenant_isolation on ${table} to ${TENANT_ROLE}
+      using (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+      with check (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)`);
+  }
+  rowLevelSecurity = true;
 };
 
 const starterTenantId = async () => {

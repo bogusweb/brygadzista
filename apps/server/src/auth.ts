@@ -2,7 +2,7 @@ import { hash, verify } from "@node-rs/argon2";
 import type { Context, MiddlewareHandler } from "hono";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
-import { sql } from "./db.js";
+import { sql, withTenant } from "./db.js";
 
 // "admin" and "app" are the roles clients already know from the shared tokens. In a firm (#88) an owner or a manager
 // acts as admin, a worker as app and only on the projects they are a member of. An operator runs the service and
@@ -104,23 +104,18 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (value: string) => UUID.test(value);
 
 // An operator sees every project. Anyone else only projects of their firm: owners and managers all of them, a worker
-// only those they were added to.
-export const canAccessProject = async (principal: Principal, projectId: string) => {
-  if (!isUuid(projectId)) return false;
-  if (principal.operator) {
-    const [project] = await sql`select 1 from projects where id = ${projectId}`;
-    return Boolean(project);
-  }
+// only those they were added to. Returns the project's firm, or null when the caller cannot see it.
+export const canAccessProject = async (principal: Principal, projectId: string): Promise<string | null> => {
+  if (!isUuid(projectId)) return null;
+  const [project] = await sql<{ tenantId: string }[]>`select tenant_id as "tenantId" from projects where id = ${projectId}`;
+  if (!project) return null;
+  if (principal.operator) return project.tenantId;
   const { tenant, user } = principal;
-  if (!tenant) return false;
-  if (tenant.role !== "worker") {
-    const [project] = await sql`select 1 from projects where id = ${projectId} and tenant_id = ${tenant.id}`;
-    return Boolean(project);
-  }
-  if (!user) return false;
-  const [member] = await sql`
-    select 1 from project_members where project_id = ${projectId} and user_id = ${user.id} and tenant_id = ${tenant.id}`;
-  return Boolean(member);
+  if (!tenant || tenant.id !== project.tenantId) return null;
+  if (tenant.role !== "worker") return project.tenantId;
+  if (!user) return null;
+  const [member] = await sql`select 1 from project_members where project_id = ${projectId} and user_id = ${user.id}`;
+  return member ? project.tenantId : null;
 };
 
 // Projects the principal can see, as a condition on `projects p`.
@@ -157,15 +152,18 @@ export const requireRoleOrQueryToken = (...allowed: Role[]): MiddlewareHandler<A
 const notFound = (c: Context, what: "projektu" | "dokumentu") => c.json({ error: `Nie ma takiego ${what}` }, 404);
 
 // Run after requireRole. A project the caller cannot see answers 404, the same as one that does not exist.
+// The rest of the request runs limited to the project's firm (#92), also in the database.
 export const requireProjectAccess = (param = "id"): MiddlewareHandler<AuthEnv> => async (c, next) => {
-  if (!(await canAccessProject(c.get("principal"), c.req.param(param) ?? ""))) return notFound(c, "projektu");
-  await next();
+  const tenantId = await canAccessProject(c.get("principal"), c.req.param(param) ?? "");
+  if (!tenantId) return notFound(c, "projektu");
+  await withTenant(tenantId, next);
 };
 
 export const requireDocumentAccess = (param = "id"): MiddlewareHandler<AuthEnv> => async (c, next) => {
   const projectId = await projectOfDocument(c.req.param(param) ?? "");
-  if (!projectId || !(await canAccessProject(c.get("principal"), projectId))) return notFound(c, "dokumentu");
-  await next();
+  const tenantId = projectId ? await canAccessProject(c.get("principal"), projectId) : null;
+  if (!tenantId) return notFound(c, "dokumentu");
+  await withTenant(tenantId, next);
 };
 
 // The CopilotKit runtime builds the agent from the raw request, so the agent factory checks access on its own
@@ -175,9 +173,9 @@ export const agentProject = async (request: Request, allowed: Role[]) => {
   if (!principal || !allowed.includes(principal.role)) throw new Error("Brak dostępu");
   const projectId = request.headers.get("x-project-id");
   if (!projectId) throw new Error("Brak nagłówka x-project-id");
-  if (!(await canAccessProject(principal, projectId))) throw new Error("Nieznany projekt");
-  const [project] = await sql<{ tenantId: string }[]>`select tenant_id as "tenantId" from projects where id = ${projectId}`;
-  return { projectId, tenantId: project!.tenantId };
+  const tenantId = await canAccessProject(principal, projectId);
+  if (!tenantId) throw new Error("Nieznany projekt");
+  return { projectId, tenantId, principal };
 };
 
 export const agentProjectId = async (request: Request, allowed: Role[]) => (await agentProject(request, allowed)).projectId;

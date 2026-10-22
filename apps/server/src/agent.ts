@@ -1,6 +1,6 @@
-import { BuiltInAgent, defineTool } from "@copilotkit/runtime/v2";
+import { BuiltInAgent, defineTool, type ToolDefinition } from "@copilotkit/runtime/v2";
 import { z } from "zod";
-import { sql } from "./db.js";
+import { sql, withTenant } from "./db.js";
 import { inspectionImages } from "./drawing.js";
 import { agentLanguageModel, askAboutPage } from "./llm.js";
 import { listDefects } from "./defects.js";
@@ -59,7 +59,14 @@ const assertPageInProject = async (projectId: string, documentId: string, pageNo
 
 export const pageImagePath = (documentId: string, pageNo: number) => `/api/documents/${documentId}/pages/${pageNo}/image`;
 
-export const createProjectAgent = (projectId: string) =>
+// Every tool call reads the database as the project's firm, under row level security (#92).
+const inTenant = (tenantId: string, tool: ToolDefinition): ToolDefinition => {
+  const { execute } = tool;
+  if (!execute) return tool;
+  return { ...tool, execute: (...args: Parameters<typeof execute>) => withTenant(tenantId, async () => execute(...args)) };
+};
+
+export const createProjectAgent = (projectId: string, tenantId: string) =>
   new BuiltInAgent({
     model: agentLanguageModel(),
     prompt: SYSTEM_PROMPT + A2UI_PROMPT,
@@ -191,5 +198,5 @@ export const createProjectAgent = (projectId: string) =>
           return { documentId, pageNo, title: page.title, caption, imagePath: pageImagePath(documentId, pageNo) };
         },
       }),
-    ],
+    ].map((tool) => inTenant(tenantId, tool as ToolDefinition)),
   });

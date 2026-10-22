@@ -4,7 +4,7 @@ import { pageImagePath } from "./agent.js";
 import { canAccessProject, isUuid, requireProjectAccess, requireRole, type AuthEnv, type Principal } from "./auth.js";
 import { stageTemplate, STAGE_TEMPLATES, type ChecklistItemTemplate } from "./checklist-templates.js";
 import { config } from "./config.js";
-import { sql } from "./db.js";
+import { detached, sql, withTenant } from "./db.js";
 import { readChecklistValue, type ChecklistSourcePage } from "./llm.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { bestSnippet, searchPages } from "./search.js";
@@ -204,8 +204,9 @@ const projectOfChecklist = async (checklistId: string) => {
 
 const requireChecklistAccess = (): MiddlewareHandler<AuthEnv> => async (c, next) => {
   const projectId = await projectOfChecklist(c.req.param("id") ?? "");
-  if (!projectId || !(await canAccessProject(c.get("principal"), projectId))) return c.json({ error: "Nie ma takiej checklisty" }, 404);
-  await next();
+  const tenantId = projectId ? await canAccessProject(c.get("principal"), projectId) : null;
+  if (!tenantId) return c.json({ error: "Nie ma takiej checklisty" }, 404);
+  await withTenant(tenantId, next);
 };
 
 export const checklists = new Hono<AuthEnv>();
@@ -238,7 +239,7 @@ checklists.post("/api/projects/:id/checklists", requireRole("app", "admin"), req
   const [checklist] = await sql<{ id: string }[]>`
     insert into checklists (project_id, stage, title, created_by, created_by_name)
     values (${projectId}, ${template.stage}, ${template.title}, ${who.id}, ${who.name}) returning id`;
-  void generateChecklist(checklist!.id);
+  detached(() => generateChecklist(checklist!.id));
   return c.json(await checklistView(checklist!.id), 202);
 });
 

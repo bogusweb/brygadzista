@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { canAccessProject, isUuid, requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
 import { config } from "./config.js";
-import { sql } from "./db.js";
+import { detached, sql, withTenant } from "./db.js";
 import { audioType, diaryEntrySchema, fakeOrganize, fakeTranscript, type CandidatePage, type DiaryEntry } from "./diary-entry.js";
 import { organizeTranscript, transcribeAudio } from "./diary-llm.js";
 import { limiters, rateLimit } from "./rate-limit.js";
@@ -133,8 +133,9 @@ export const readLimited = async (body: ReadableStream<Uint8Array>, maxBytes: nu
 const requireEntryAccess: MiddlewareHandler<AuthEnv> = async (c, next) => {
   const id = c.req.param("id") ?? "";
   const [row] = isUuid(id) ? await sql<{ projectId: string }[]>`select project_id as "projectId" from diary_entries where id = ${id}` : [];
-  if (!row || !(await canAccessProject(c.get("principal"), row.projectId))) return c.json({ error: "Nie ma takiego wpisu" }, 404);
-  await next();
+  const tenantId = row ? await canAccessProject(c.get("principal"), row.projectId) : null;
+  if (!tenantId) return c.json({ error: "Nie ma takiego wpisu" }, 404);
+  await withTenant(tenantId, next);
 };
 
 const publicEntry = ({ projectId: _projectId, ...row }: EntryRow) => row;
@@ -177,7 +178,7 @@ diary.post("/api/projects/:id/diary", requireRole("app", "admin"), requireProjec
       values (${projectId}, ${clientId}, ${date}, 'text', ${text}, ${user?.id ?? null}, ${author}) returning id`;
     // Read the row before processing starts, so the response shows the entry as queued.
     const created = publicEntry((await entryById(row!.id))!);
-    void processDiaryEntry(row!.id);
+    detached(() => processDiaryEntry(row!.id));
     return c.json(created, 201);
   }
 
@@ -200,7 +201,7 @@ diary.post("/api/projects/:id/diary", requireRole("app", "admin"), requireProjec
   await sql`update diary_entries set audio_file = ${file} where id = ${row!.id}`;
   // Read the row before processing starts, so the response shows the entry as queued.
   const created = publicEntry((await entryById(row!.id))!);
-  void processDiaryEntry(row!.id);
+  detached(() => processDiaryEntry(row!.id));
   return c.json(created, 201);
 });
 
@@ -237,7 +238,7 @@ diary.post("/api/diary/:id/retry", requireRole("app", "admin"), requireEntryAcce
   const [row] = await sql<{ id: string }[]>`
     update diary_entries set status = 'queued', error = null where id = ${id} and status <> 'processing' returning id`;
   if (!row) return c.json({ error: "Wpis jest właśnie porządkowany" }, 409);
-  void processDiaryEntry(id);
+  detached(() => processDiaryEntry(id));
   return c.json(publicEntry((await entryById(id))!), 202);
 });
 

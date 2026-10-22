@@ -7,7 +7,7 @@ import { Readable } from "node:stream";
 import sharp from "sharp";
 import { isUuid, requireProjectAccess, requireRole, requireRoleOrQueryToken, type AuthEnv } from "./auth.js";
 import { config } from "./config.js";
-import { sql } from "./db.js";
+import { detached, sql } from "./db.js";
 import { queryTerms } from "./search.js";
 import { describeDefect } from "./defect-spec.js";
 import { photoFile, projectDir } from "./storage.js";
@@ -201,7 +201,7 @@ pins.put("/api/projects/:id/pins/:pinId", requireRole("app", "admin"), requirePr
       due_date = excluded.due_date, updated_at = excluded.updated_at
     where pins.updated_at <= excluded.updated_at`;
   // A new or changed defect description is looked up in the project in the background; the phone sees it on its next sync.
-  if (input.kind === "defect") void describeDefect(pinId);
+  if (input.kind === "defect") detached(() => describeDefect(pinId));
   const [pin] = await pinRows(sql`p.id = ${pinId}`);
   return c.json(pin);
 });
