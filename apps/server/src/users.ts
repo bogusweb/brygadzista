@@ -214,20 +214,20 @@ users.delete("/api/users/:id", requireRole("admin"), requireTenantOwner, async (
   const id = c.req.param("id");
   const principal = c.get("principal");
   if (principal.user?.id === id) return c.json({ error: "Nie możesz usunąć własnego konta" }, 400);
-  if (!isUuid(id)) return c.body(null, 204);
+  if (!isUuid(id)) return c.json({ error: "Nie ma takiego użytkownika" }, 404);
   const tenantId = scopeTenant(principal, c.req.query("tenantId"));
   if (!tenantId) {
     await sql`delete from users where id = ${id}`;
     return c.body(null, 204);
   }
-  await sql.begin(async (tx) => {
+  const removed = await sql.begin(async (tx) => {
+    const [member] = await tx`delete from tenant_members where user_id = ${id} and tenant_id = ${tenantId} returning 1`;
+    if (!member) return false;
     await tx`delete from project_members where user_id = ${id} and tenant_id = ${tenantId}`;
-    const removed = await tx`delete from tenant_members where user_id = ${id} and tenant_id = ${tenantId} returning 1`;
-    if (removed.length > 0) {
-      await tx`delete from users where id = ${id} and role <> 'operator' and not exists (select 1 from tenant_members where user_id = ${id})`;
-    }
+    await tx`delete from users where id = ${id} and role <> 'operator' and not exists (select 1 from tenant_members where user_id = ${id})`;
+    return true;
   });
-  return c.body(null, 204);
+  return removed ? c.body(null, 204) : c.json({ error: "Nie ma takiego użytkownika" }, 404);
 });
 
 users.get("/api/projects/:id/members", requireRole("admin"), requireProjectAccess(), async (c) =>

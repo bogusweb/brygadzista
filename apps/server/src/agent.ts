@@ -75,7 +75,8 @@ export const createProjectAgent = (projectId: string, extraPrompt = "") =>
         name: "search_project",
         description:
           "Wyszukuje w projekcie technicznym strony pasujące do pytania (po znaczeniu i po słowach). Numer rysunku w pytaniu " +
-          "(„rys. nr 5”) od razu wskazuje ten arkusz. Filtry są opcjonalne: używaj ich, gdy pytanie wyraźnie dotyczy rysunku, " +
+          "(„rys. nr 5”) od razu wskazuje ten arkusz. Wynik może mieć facts: parametry ze strony (wartość z jednostką) pasujące " +
+          "do pytania, odczytane automatycznie z tekstu; potwierdź je we fragmencie albo read_page, zanim podasz. Filtry są opcjonalne: używaj ich, gdy pytanie wyraźnie dotyczy rysunku, " +
           "branży albo kondygnacji.",
         parameters: z.object({
           query: z.string().describe("Czego szukasz, np. 'grubość ocieplenia ścian'"),

@@ -1,7 +1,8 @@
 import { access } from "node:fs/promises";
+import { chunkPage } from "./chunking.js";
 import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
-import { sql } from "./db.js";
+import { replacePageFacts, sql } from "./db.js";
 import { titleFromText } from "./outline.js";
 import { saveOutline } from "./project-outline.js";
 import { META_VERSION, displayTitle, extractPageMeta } from "./page-meta.js";
@@ -20,14 +21,6 @@ const exists = (file: string) =>
     () => false,
   );
 
-const CHUNK_CHARS = 2000;
-
-const chunkText = (text: string) => {
-  const chunks: string[] = [];
-  for (let start = 0; start < text.length; start += CHUNK_CHARS) chunks.push(text.slice(start, start + CHUNK_CHARS));
-  return chunks;
-};
-
 const IMAGE_CHUNK_TEXT_CHARS = 500;
 
 type Chunk = { content: string; vector: number[] };
@@ -35,7 +28,7 @@ type Chunk = { content: string; vector: number[] };
 // One chunk per text fragment plus one for the page image, so a drawing without a text layer is still found.
 const embedPage = async (pageNo: number, title: string | null, raw: string, image: string): Promise<Chunk[]> => {
   const header = title ? `Strona ${pageNo}: ${title}` : `Strona ${pageNo}`;
-  const textChunks = chunkText(raw.replace(/[ \t]+/g, " ")).map((part) => `${header}\n${part}`);
+  const textChunks = chunkPage(raw).map((part) => `${header}\n${part}`);
   const imageChunk = `${header}\n[obraz strony]\n${raw.slice(0, IMAGE_CHUNK_TEXT_CHARS)}`;
   const [textVectors, imageVector] = await Promise.all([embed(textChunks), embedImage(image)]);
   return [...textChunks.map((content, i) => ({ content, vector: textVectors[i]! })), { content: imageChunk, vector: imageVector }];
@@ -69,7 +62,6 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
         meta_version = ${META_VERSION},
         raw_text = ${raw},
         summary = null,
-        facts = ${tx.json([])},
         keywords = ${[]},
         search_text = ${searchText},
         codes = ${extractCodes(`${title ?? ""}\n${raw}`)},
@@ -77,7 +69,9 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
         indexed = ${chunks !== null}
       where document_id = ${doc.id} and page_no = ${pageNo}
       returning id`;
-    if (!page || !chunks) return;
+    if (!page) return;
+    await replacePageFacts(tx, page.id, doc.project_id, raw);
+    if (!chunks) return;
     await tx`delete from chunks where page_id = ${page.id}`;
     for (const chunk of chunks) {
       await tx`insert into chunks (page_id, project_id, content, embedding)
