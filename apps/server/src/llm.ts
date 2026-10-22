@@ -3,6 +3,7 @@ import { generateText, Output } from "ai";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { config } from "./config.js";
+import { configuredEmbedding, type EmbeddingModel } from "./embedding-model.js";
 import { HttpError, parseRetryAfter, withRetry } from "./retry.js";
 
 // Every request is pinned to one EU endpoint, with no fallback and only to providers
@@ -107,8 +108,8 @@ export const readChecklistValue = async (ask: string, pages: ChecklistSourcePage
 };
 
 // Gemini Embedding is Matryoshka-trained, so a longer vector can be truncated and renormalised.
-const fitDimensions = (vector: number[]) => {
-  const head = vector.slice(0, config.embeddingDimensions);
+const fitDimensions = (vector: number[], dimensions: number) => {
+  const head = vector.slice(0, dimensions);
   const norm = Math.hypot(...head) || 1;
   return head.map((value) => value / norm);
 };
@@ -119,16 +120,16 @@ const EMBED_CONCURRENCY = 4;
 
 type EmbeddingInput = string | { content: { type: "image_url"; image_url: { url: string } }[] };
 
-const requestEmbedding = async (label: string, input: EmbeddingInput): Promise<number[]> => {
+const requestEmbedding = async (label: string, input: EmbeddingInput, target: EmbeddingModel): Promise<number[]> => {
   const body = await callModel(label, async (signal) => {
     const response = await fetch("https://openrouter.ai/api/v1/embeddings", {
       method: "POST",
       signal,
       headers: { Authorization: `Bearer ${config.openrouterApiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: config.embeddingModel,
+        model: target.model,
         input: typeof input === "string" ? input : [input],
-        dimensions: config.embeddingDimensions,
+        dimensions: target.dimensions,
         provider: embeddingRouting(),
       }),
     });
@@ -143,23 +144,23 @@ const requestEmbedding = async (label: string, input: EmbeddingInput): Promise<n
   });
   const [item] = body.data;
   if (!item) throw new Error("Embedding: pusta odpowiedź");
-  return fitDimensions(item.embedding);
+  return fitDimensions(item.embedding, target.dimensions);
 };
 
-const embedOne = (text: string) => requestEmbedding("embed", text);
+const embedOne = (text: string, target: EmbeddingModel) => requestEmbedding("embed", text, target);
 
 // The page image goes into the same vector space as the text (Gemini Embedding 2 is multimodal),
 // so a question can find a drawing even when the PDF has no text layer.
-export const embedImage = async (imagePath: string): Promise<number[]> => {
+export const embedImage = async (imagePath: string, target = configuredEmbedding()): Promise<number[]> => {
   const url = `data:image/jpeg;base64,${(await readFile(imagePath)).toString("base64")}`;
-  return requestEmbedding("embed image", { content: [{ type: "image_url", image_url: { url } }] });
+  return requestEmbedding("embed image", { content: [{ type: "image_url", image_url: { url } }] }, target);
 };
 
-export const embed = async (texts: string[]): Promise<number[][]> => {
+export const embed = async (texts: string[], target = configuredEmbedding()): Promise<number[][]> => {
   const vectors: number[][] = new Array(texts.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(EMBED_CONCURRENCY, texts.length) }, async () => {
-    for (let i = next++; i < texts.length; i = next++) vectors[i] = await embedOne(texts[i]!);
+    for (let i = next++; i < texts.length; i = next++) vectors[i] = await embedOne(texts[i]!, target);
   });
   await Promise.all(workers);
   return vectors;
