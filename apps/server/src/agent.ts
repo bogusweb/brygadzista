@@ -1,6 +1,8 @@
 import { BuiltInAgent, defineTool } from "@copilotkit/runtime/v2";
 import { z } from "zod";
 import { CARD_KINDS, cardSettled, cardView, requestCard } from "./cards.js";
+import { SCHEDULE_CATEGORIES } from "./schedule-categories.js";
+import { projectSchedule, schedulesSettled } from "./schedules.js";
 import { sql } from "./db.js";
 import { inspectionImages } from "./drawing.js";
 import { agentLanguageModel, askAboutPage } from "./llm.js";
@@ -33,6 +35,10 @@ do którego masz dostęp przez narzędzia. Zasady:
   wywołaj build_element_card: karta zbiera wymiary, wysokość, powierzchnię, rzędną, okna, drzwi i instalacje albo warstwy
   z grubościami i współczynnik U, każdą wartość ze stroną, i zapisuje się w telefonie do pracy bez zasięgu. Aplikacja sama ją
   pokaże: napisz tylko krótko, co jest na karcie, i wymień wprost, czego projekt nie podaje (missing).
+- Pytania o ilości do zamówienia („ile stali fi 12 na strop nad parterem?”, „lista nadproży”, „okna: wymiary w świetle muru”)
+  sprawdzaj w zestawieniach narzędziem get_material_schedule. Sumy (totals) liczy serwer tylko z pozycji, których liczby są
+  na stronie; pozycje verified=false wymień osobno jako do sprawdzenia. Przy każdej pozycji podaj stronę. Gdy zestawienia
+  nie ma (noSchedule), powiedz to wprost i nie licz niczego na oko z rysunków.
 - Jeśli projekt czegoś nie określa, powiedz to wprost i zaproponuj, kogo zapytać (projektant, kierownik budowy).
 - Gdy po sprawdzeniu projektu brakuje danych, których wykonawca potrzebuje do pracy, albo dwie strony sobie przeczą
   (np. inna grubość w opisie i na detalu), przygotuj pytanie do projektanta narzędziem draft_designer_question: konkretne,
@@ -190,6 +196,34 @@ export const createProjectAgent = (projectId: string, extraPrompt = "") =>
             })),
             total: found.length,
             ...(found.length ? {} : { noMatch: true }),
+          };
+        },
+      }),
+      defineTool({
+        name: "get_material_schedule",
+        description:
+          "Pozycje zestawień materiałów z projektu (stal zbrojeniowa, nadproża, stolarka okienna i drzwiowa, prefabrykaty) ze " +
+          "stroną źródłową, oraz sumy po średnicy stali albo symbolu. Filtry opcjonalne: category, element (np. 'strop nad " +
+          "parterem', 'wieniec'), mark (symbol lub opis, np. 'O1', 'Ø12').",
+        parameters: z.object({
+          category: z.enum(SCHEDULE_CATEGORIES).optional().describe("stal, nadproza, okna, drzwi, prefabrykaty, inne"),
+          element: z.string().optional().describe("Element lub kondygnacja, np. 'strop nad parterem'"),
+          mark: z.string().optional().describe("Symbol pozycji albo średnica, np. 'O1', 'N2', 'Ø12'"),
+        }),
+        execute: async (filter) => {
+          await schedulesSettled(projectId);
+          let schedule = await projectSchedule(projectId, filter);
+          if (schedule.status === "reading") {
+            await schedulesSettled(projectId);
+            schedule = await projectSchedule(projectId, filter);
+          }
+          const { items, ...rest } = schedule;
+          return {
+            ...rest,
+            items: items.slice(0, 80).map(({ id: _id, pageTitle: _pageTitle, ...item }) => item),
+            total: items.length,
+            ...(schedule.pages.length ? {} : { noSchedule: true }),
+            ...(schedule.status === "no_model" ? { note: "Zestawienia nie są odczytane: brak klucza modelu na serwerze" } : {}),
           };
         },
       }),

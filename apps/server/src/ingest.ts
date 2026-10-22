@@ -82,6 +82,7 @@ const indexOnePage = async (doc: { id: string; project_id: string }, pageNo: num
         search_text = ${searchText},
         codes = ${extractCodes(`${title ?? ""}\n${raw}`)},
         codes_version = ${CODES_VERSION},
+        schedule_version = null,
         indexed = ${chunks !== null}
       where document_id = ${doc.id} and page_no = ${pageNo}
       returning id`;

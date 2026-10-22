@@ -3,6 +3,7 @@ import { ApiError, type Api, type Project, type ProjectDocument } from "./api";
 import { dateFormat, errorMessage, formatBytes, formatDuration, formatUsd, pluralize } from "./format";
 import { PageViewerProvider } from "./pageViewer";
 import { QuestionsPanel } from "./questions";
+import { SchedulesPanel } from "./schedules";
 import { routeHref } from "./route";
 import { SiteCard } from "./SiteCard";
 
@@ -305,6 +306,7 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
       <SiteCard api={api} projectId={projectId} />
 
       <PageViewerProvider api={api}>
+        <SchedulesPanel api={api} projectId={projectId} onUnauthorized={onUnauthorized} />
         <QuestionsPanel api={api} projectId={projectId} onUnauthorized={onUnauthorized} />
       </PageViewerProvider>
     </section>

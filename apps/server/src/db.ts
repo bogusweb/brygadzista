@@ -252,6 +252,30 @@ export const migrate = async () => {
       generated_at timestamptz
     )`;
   await sql`create unique index if not exists element_cards_name on element_cards (project_id, kind, lower(name))`;
+  // Rows of the material schedules (#67), read from a page by the model; verified = its numbers are on the page.
+  await sql`
+    create table if not exists schedule_items (
+      id bigserial primary key,
+      page_id uuid not null references pages(id) on delete cascade,
+      project_id uuid not null references projects(id) on delete cascade,
+      document_id uuid not null references documents(id) on delete cascade,
+      page_no int not null,
+      position int not null,
+      category text not null,
+      element text not null default '',
+      level text not null default '',
+      mark text not null default '',
+      description text not null default '',
+      dimensions text not null default '',
+      quantity numeric,
+      unit text not null default '',
+      quote text not null default '',
+      verified boolean not null default false
+    )`;
+  await sql`create index if not exists schedule_items_project on schedule_items (project_id)`;
+  await sql`create index if not exists schedule_items_page on schedule_items (page_id)`;
+  await sql`alter table pages add column if not exists schedule_version int`;
+  await sql`alter table pages add column if not exists schedule_error text`;
   await sql`create index if not exists sessions_user on sessions (user_id)`;
   await sql`create index if not exists project_members_user on project_members (user_id)`;
   await sql`create index if not exists chunks_project on chunks (project_id)`;
@@ -313,6 +337,7 @@ const PROJECT_TABLES = [
   "site_weather",
   "designer_questions",
   "element_cards",
+  "schedule_items",
 ];
 // Tables that hang off a checklist and take the firm from it.
 const CHECKLIST_TABLES = ["checklist_items", "checklist_events", "checklist_results"];
