@@ -162,6 +162,37 @@ export const shareWeeklyReport = async (connection: Connection, reportId: string
 export const weeklyReportPdfUrl = (connection: Connection, reportId: string) =>
   `${connection.serverUrl}/api/reports/${encodeURIComponent(reportId)}/report.pdf?token=${encodeURIComponent(connection.token)}`;
 
+// Saved acceptance protocols (#82), signed with a finger in the app.
+export type SignatureRole = "contractor" | "investor";
+
+export type Protocol = {
+  id: string;
+  title: string;
+  scope: "stage" | "final";
+  scopeText: string;
+  defectCount: number;
+  openCount: number;
+  url: string;
+  signatures: { role: SignatureRole; name: string; signedAt: string }[];
+  createdAt: string;
+};
+
+export const fetchProtocols = (connection: Connection, projectId: string) => getJson<Protocol[]>(connection, `${projectPath(projectId)}/protocols`);
+
+export const createProtocol = async (connection: Connection, projectId: string, fields: Record<string, unknown>) =>
+  (await (await request(connection, `${projectPath(projectId)}/protocols`, { method: "POST", body: JSON.stringify(fields) }, 60_000)).json()) as Protocol;
+
+export const signProtocol = async (
+  connection: Connection,
+  protocolId: string,
+  role: SignatureRole,
+  body: { name: string; signature: { aspect: number; strokes: [number, number][][] } },
+) =>
+  (await (await request(connection, `/api/protocols/${encodeURIComponent(protocolId)}/signatures/${role}`, { method: "PUT", body: JSON.stringify(body) })).json()) as Protocol;
+
+export const protocolPdfUrl = (connection: Connection, protocolId: string) =>
+  `${connection.serverUrl}/api/protocols/${encodeURIComponent(protocolId)}/protocol.pdf?token=${encodeURIComponent(connection.token)}`;
+
 export type PhotoSize = "full" | "thumb";
 
 export const photoImagePath = (projectId: string, photoId: string, size: PhotoSize) =>

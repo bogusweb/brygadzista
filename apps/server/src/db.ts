@@ -359,6 +359,34 @@ export const migrate = async () => {
   await sql`alter table pins add column if not exists closed_at timestamptz`;
   await sql`update pins set closed_at = updated_at where status = 'closed' and closed_at is null`;
   // Weekly reports for the investor (#84): the facts of the week frozen at the moment the report was made.
+  // Saved acceptance protocols (#82): the defects as they were when it was made, a read-only link for its QR code, and
+  // the signatures. The link's token is kept (not only its hash) because every print of the protocol carries it.
+  await sql`
+    create table if not exists protocols (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references projects(id) on delete cascade,
+      title text not null,
+      scope text not null check (scope in ('stage', 'final')),
+      filter jsonb not null default '{}',
+      snapshot jsonb not null,
+      share_token text not null,
+      share_expires_at timestamptz not null,
+      created_by uuid references users(id) on delete set null,
+      created_by_name text not null default '',
+      created_at timestamptz not null default now()
+    )`;
+  // A finger signature as strokes, drawn into the PDF by the server. Signing again replaces the role's signature.
+  await sql`
+    create table if not exists protocol_signatures (
+      protocol_id uuid not null references protocols(id) on delete cascade,
+      project_id uuid not null references projects(id) on delete cascade,
+      role text not null check (role in ('contractor', 'investor')),
+      name text not null,
+      strokes jsonb not null,
+      signed_by uuid references users(id) on delete set null,
+      signed_at timestamptz not null default now(),
+      primary key (protocol_id, role)
+    )`;
   await sql`
     create table if not exists reports (
       id uuid primary key default gen_random_uuid(),
@@ -415,6 +443,8 @@ const PROJECT_TABLES = [
   "designer_questions",
   "reports",
   "element_cards",
+  "protocols",
+  "protocol_signatures",
   "schedule_items",
 ];
 // Tables that hang off a checklist and take the firm from it.
@@ -535,6 +565,24 @@ const migrateTenants = async () => {
       created_at timestamptz not null default now(),
       foreign key (project_id, tenant_id) references projects (id, tenant_id) on delete cascade on update cascade
     )`;
+  // A firm can block one of its people without touching the account, which may belong to other firms too (#90).
+  await sql`alter table tenant_members add column if not exists blocked_at timestamptz`;
+  // Invitations to a firm (#90): a one-time link with an expiry. Only a hash of the token is stored.
+  await sql`
+    create table if not exists tenant_invites (
+      id uuid primary key default gen_random_uuid(),
+      token_hash text not null unique,
+      tenant_id uuid not null references tenants(id) on delete cascade,
+      email text,
+      role text not null check (role in ('owner', 'manager', 'worker')),
+      project_ids uuid[] not null default '{}',
+      created_by uuid references users(id) on delete set null,
+      created_at timestamptz not null default now(),
+      expires_at timestamptz not null,
+      accepted_at timestamptz,
+      accepted_by uuid references users(id) on delete set null
+    )`;
+  await sql`create index if not exists tenant_invites_tenant on tenant_invites (tenant_id)`;
   // A link can open one thing only (#84 a weekly report, #82 a protocol); null target = the project's read-only view.
   await sql`alter table share_links add column if not exists target_type text`;
   await sql`alter table share_links add column if not exists target_id uuid`;

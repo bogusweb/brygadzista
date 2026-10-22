@@ -21,6 +21,7 @@ type FirmData = {
   checklistId: string;
   questionId: string;
   userId: string;
+  inviteId: string;
 };
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
@@ -56,7 +57,10 @@ const seedFirm = async (name: string): Promise<FirmData> => {
   const [question] = await sql<{ id: string }[]>`
     insert into designer_questions (project_id, document_id, page_no, question) values (${projectId}, ${documentId}, 1, 'Jaki strop?')
     returning id`;
-  return { tenantId, projectId, documentId, pinId, photoId, diaryId: diary!.id, checklistId: checklist!.id, questionId: question!.id, userId };
+  const [invite] = await sql<{ id: string }[]>`
+    insert into tenant_invites (token_hash, tenant_id, role, expires_at) values (${`invite-${slug}`}, ${tenantId}, 'worker', now() + interval '1 day')
+    returning id`;
+  return { tenantId, projectId, documentId, pinId, photoId, diaryId: diary!.id, checklistId: checklist!.id, questionId: question!.id, userId, inviteId: invite!.id };
 };
 
 // Fills a route's parameters with firm B's ids; null when the route does not point at data of a firm.
@@ -72,7 +76,9 @@ const pathFor = (routePath: string, b: FirmData) => {
           ? b.checklistId
           : routePath.startsWith("/api/users/")
             ? b.userId
-            : null;
+            : routePath.startsWith("/api/invites/")
+              ? b.inviteId
+              : null;
   if (!idFor) return null;
   return routePath
     .replace(":id", idFor)
@@ -106,6 +112,7 @@ const countsOf = async (b: FirmData) => {
       (select count(*)::int from designer_questions where tenant_id = ${b.tenantId}) as questions,
       (select count(*)::int from checklist_items where tenant_id = ${b.tenantId}) as items,
       (select count(*)::int from tenant_members where tenant_id = ${b.tenantId}) as people,
+      (select count(*)::int from tenant_invites where tenant_id = ${b.tenantId}) as invites,
       (select disabled_at is null from users where id = ${b.userId}) as "userActive"`;
   return row;
 };
@@ -138,7 +145,7 @@ describe("isolation of two firms", () => {
   it("covers every route with firm data", () => {
     const routes = dataRoutes(b).map((route) => `${route.method} ${route.routePath}`);
     expect(routes.length).toBeGreaterThan(25);
-    for (const expected of ["GET /api/documents/:id/pages/:pageNo/image", "GET /api/projects/:id/photos/:photoId/image", "DELETE /api/projects/:id"]) {
+    for (const expected of ["GET /api/documents/:id/pages/:pageNo/image", "GET /api/projects/:id/photos/:photoId/image", "DELETE /api/projects/:id", "DELETE /api/invites/:id"]) {
       expect(routes).toContain(expected);
     }
   });
