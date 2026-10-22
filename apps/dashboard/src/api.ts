@@ -11,7 +11,19 @@ export type Me = { role: Role; user: SessionUser | null; operator: boolean; tena
 
 export type LoginResult = Me & { token: string; expiresAt: string };
 
-export type FirmSummary = { id: string; name: string; createdAt: string; disabled: boolean; memberCount: number; projectCount: number };
+export type FirmSummary = {
+  id: string;
+  name: string;
+  createdAt: string;
+  disabled: boolean;
+  memberCount: number;
+  projectCount: number;
+  // The operator panel (#94): size and use of the firm in the last 30 days.
+  documents: number;
+  pages: number;
+  chatRuns30d: number;
+  indexedPages30d: number;
+};
 
 export type Member = {
   id: string;
@@ -223,7 +235,15 @@ export const createApi = (token: string, operatorTenantId: string | null = null)
     whoami: () => request<Me>(token, "/api/auth/me"),
     logout: () => request<void>(token, "/api/auth/logout", { method: "POST" }),
     switchTenant: (tenantId: string) => request<Me>(token, "/api/auth/tenant", post({ tenantId })),
-    listFirms: () => request<FirmSummary[]>(token, "/api/tenants"),
+    listFirms: () => request<FirmSummary[]>(token, "/api/operator/tenants"),
+    setFirmBlocked: (id: string, disabled: boolean) => request<void>(token, `/api/operator/tenants/${id}`, post({ disabled }, "PATCH")),
+    deleteFirm: (id: string, confirm: string) => request<void>(token, `/api/operator/tenants/${id}`, post({ confirm }, "DELETE")),
+    // All data and files of a firm as .tar.gz (RODO).
+    exportFirm: async (id: string) => {
+      const response = await fetch(`/api/operator/tenants/${id}/export`, { headers: { authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new ApiError(`Błąd serwera (${response.status})`, response.status);
+      return response.blob();
+    },
     createFirm: (name: string) => request<{ id: string; name: string }>(token, "/api/tenants", post({ name })),
     renameFirm: (name: string) => request<{ id: string; name: string }>(token, scoped("/api/tenant"), post({ name }, "PATCH")),
     listMembers: () => request<Member[]>(token, scoped("/api/users")),

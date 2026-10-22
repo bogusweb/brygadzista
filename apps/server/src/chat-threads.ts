@@ -1,7 +1,8 @@
 import type { MiddlewareHandler } from "hono";
 import { canAccessProject, type AuthEnv } from "./auth.js";
 import { sql } from "./db.js";
-import { principalKey } from "./rate-limit.js";
+import { recordUsage } from "./operator.js";
+import { limiters, principalKey, tooManyRequests } from "./rate-limit.js";
 
 // Chat threads (#92): the runtime keeps them in memory by thread id alone, so the first run of a thread claims it for
 // the caller, the project and its firm, and nobody else can run, connect to or stop it. Thread listing and clearing
@@ -36,6 +37,12 @@ export const chatThreads: MiddlewareHandler<AuthEnv> = async (c, next) => {
   const threadId = tenantId ? await threadIdOf(c.req.raw, route[1]!, route[2]) : null;
   if (tenantId && threadId && !(await claimThread(threadId, projectId, tenantId, principalKey(principal), principal.user?.id ?? null))) {
     return c.json({ error: "Nie ma takiej rozmowy", message: "Nie ma takiej rozmowy" }, 404);
+  }
+  // Agent runs count per firm too (#94): a shared limit and the usage the operator sees.
+  if (tenantId && (route[1] === "run" || route[1] === "suggest")) {
+    const retryAfter = limiters.chatTenant.hit(tenantId);
+    if (retryAfter !== null) return tooManyRequests(retryAfter);
+    await recordUsage(tenantId, "chat_runs");
   }
   await next();
 };

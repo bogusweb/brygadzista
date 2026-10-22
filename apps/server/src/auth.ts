@@ -76,6 +76,12 @@ const activeTenant = async (userId: string, tenantId: string | null) => {
   return tenants.find((tenant) => tenant.id === tenantId) ?? tenants[0] ?? null;
 };
 
+const enteredTenant = async (tenantId: string | null): Promise<Tenant | null> => {
+  if (!tenantId) return null;
+  const [tenant] = await sql<{ id: string; name: string }[]>`select id, name from tenants where id = ${tenantId}`;
+  return tenant ? { ...tenant, role: "owner" } : null;
+};
+
 // The legacy APP_TOKEN works in the oldest firm only, and only outside production (#91).
 const legacyAppTenant = async (): Promise<Tenant | null> => {
   const [tenant] = await sql<{ id: string; name: string }[]>`
@@ -92,7 +98,8 @@ export const principalFromToken = async (token: string | undefined): Promise<Pri
   if (!session) return null;
   const { tenantId, ...user } = session;
   const operator = user.role === "operator";
-  const tenant = await activeTenant(user.id, tenantId);
+  // An operator works inside a firm only after entering it (#94), and then acts as its owner.
+  const tenant = operator ? await enteredTenant(tenantId) : await activeTenant(user.id, tenantId);
   return { role: operator ? "admin" : roleOf(tenant?.role), user, operator, tenant };
 };
 

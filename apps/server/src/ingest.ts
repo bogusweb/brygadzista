@@ -4,6 +4,7 @@ import { chunkPage } from "./chunking.js";
 import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
 import { replacePageFacts, sql, withTenant } from "./db.js";
+import { recordUsage } from "./operator.js";
 import { buildingEmbeddingSet, pagesMissingFrom, recordSetError, switchToSet, writeEmbeddingSet, type EmbeddingSet } from "./embedding-sets.js";
 import { titleFromText } from "./outline.js";
 import { saveOutline } from "./project-outline.js";
@@ -92,6 +93,7 @@ const indexOnePage = async (doc: { id: string; project_id: string; tenant_id: st
     if (target && chunks) await saveChunks(tx, { id: page.id, projectId: doc.project_id }, target, chunks);
   });
   await sql`update documents set indexed_pages = (select count(*) from pages where document_id = ${doc.id} and search_text <> '') where id = ${doc.id}`;
+  await recordUsage(doc.tenant_id, "indexed_pages");
 };
 
 const recordPageFailure = async (documentId: string, pageNo: number, error: unknown) => {
