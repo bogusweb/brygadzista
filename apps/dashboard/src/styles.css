@@ -639,6 +639,21 @@ a.button {
   font-weight: 500;
 }
 
+.source-link.unverified-source,
+.unverified-source {
+  color: var(--danger);
+  text-decoration: underline dotted;
+}
+
+.citation-warning {
+  margin: 4px 0 12px;
+  padding: 8px 12px;
+  border-radius: var(--chat-radius);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+
 .lightbox {
   position: fixed;
   inset: 0;

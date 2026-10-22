@@ -1,5 +1,6 @@
 import { CopilotChatAssistantMessage } from "@copilotkit/react-core/v2";
 import { createContext, useContext, useMemo, type ComponentProps } from "react";
+import { citationCheckFor, unverifiedTextPages } from "./citationCheck";
 import { usePageViewer } from "./pageViewer";
 
 // The agent ends answers with "Źródło: str. N – tytuł". Those page references become links
@@ -13,6 +14,8 @@ export const linkPageReferences = (markdown: string) =>
   markdown.replace(pageReference, (_match, prefix: string, pageNo: string) => `[${prefix}${pageNo}](${SOURCE_HREF}${pageNo})`);
 
 const SourceDocumentContext = createContext<string | null>(null);
+// Pages this answer cites that no tool returned (#57).
+const UnverifiedPagesContext = createContext<Set<number>>(new Set());
 
 type AssistantMessageProps = ComponentProps<typeof CopilotChatAssistantMessage>;
 type Message = NonNullable<AssistantMessageProps["messages"]>[number];
@@ -39,13 +42,22 @@ const lastDocumentId = (messages: Message[], upToId: string) => {
 
 const SourceLink = ({ href, children, ...rest }: ComponentProps<"a">) => {
   const documentId = useContext(SourceDocumentContext);
+  const unverified = useContext(UnverifiedPagesContext);
   const viewer = usePageViewer();
   if (href?.startsWith(SOURCE_HREF)) {
     const pageNo = Number(href.slice(SOURCE_HREF.length));
-    if (!documentId) return <span>{children}</span>;
+    const flagged = unverified.has(pageNo);
+    const title = flagged ? "Tej strony nie było w wynikach narzędzi agenta. Sprawdź ją w projekcie." : undefined;
+    if (!documentId) return <span className={flagged ? "unverified-source" : undefined} title={title}>{children}</span>;
     return (
-      <button type="button" className="link source-link" onClick={() => viewer.open(documentId, pageNo)}>
+      <button
+        type="button"
+        className={`link source-link${flagged ? " unverified-source" : ""}`}
+        title={title}
+        onClick={() => viewer.open(documentId, pageNo)}
+      >
         {children}
+        {flagged && <span aria-hidden="true"> ⚠</span>}
       </button>
     );
   }
@@ -70,9 +82,15 @@ export const makeAssistantMessage = (fallbackDocumentId: string | null) =>
       () => lastDocumentId(props.messages ?? [], props.message.id) ?? fallbackDocumentId,
       [props.messages, props.message.id],
     );
+    const unverified = useMemo(
+      () => unverifiedTextPages(citationCheckFor(props.messages ?? [], props.message.id)),
+      [props.messages, props.message.id],
+    );
     return (
       <SourceDocumentContext.Provider value={documentId}>
-        <CopilotChatAssistantMessage {...props} markdownRenderer={SourceMarkdown} />
+        <UnverifiedPagesContext.Provider value={unverified}>
+          <CopilotChatAssistantMessage {...props} markdownRenderer={SourceMarkdown} />
+        </UnverifiedPagesContext.Provider>
       </SourceDocumentContext.Provider>
     );
   }, CopilotChatAssistantMessage);
