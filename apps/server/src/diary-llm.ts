@@ -37,6 +37,15 @@ const organizedSchema = z.object({
   summary: z.string().describe("Jedno zdanie: najważniejsze, co zrobiono tego dnia."),
   work: z.array(z.string()).describe("Wykonane prace, każda osobno, w stylu dziennika budowy (np. „Zabetonowano ławy fundamentowe w osiach A–C”)."),
   people: z.array(z.string()).describe("Ludzie na budowie: liczba i branże albo nazwiska, jeśli padły (np. „4 zbrojarzy”)."),
+  crew: z
+    .array(
+      z.object({
+        team: z.string().describe("Branża albo ekipa (np. „zbrojarze”, „murarze”, „elektrycy”)."),
+        company: z.string().nullable().describe("Firma, jeśli padła jej nazwa; inaczej null."),
+        count: z.number().int().describe("Liczba osób tej ekipy na budowie."),
+      }),
+    )
+    .describe("Obsada: ile osób było z każdej ekipy lub firmy. Tylko liczby, które padły w notatce; bez zgadywania."),
   deliveries: z.array(z.string()).describe("Dostawy: materiał, ilość, dostawca, jeśli padły."),
   weather: z.string().nullable().describe("Pogoda i jej wpływ na prace; null, jeśli nie padło nic o pogodzie."),
   problems: z.array(z.string()).describe("Problemy, braki, przestoje, usterki i to, co trzeba załatwić."),
@@ -65,5 +74,8 @@ export const organizeTranscript = async (transcript: string, pages: CandidatePag
     const candidate = pages[page - 1];
     return candidate ? [{ ...candidate, note }] : [];
   });
-  return { ...output, references: references.slice(0, 10) };
+  const crew = output.crew
+    .filter((member) => member.team.trim() && member.count >= 0)
+    .map((member) => ({ team: member.team.trim().slice(0, 120), company: member.company?.trim().slice(0, 120) || null, count: Math.min(member.count, 500) }));
+  return { ...output, crew: crew.slice(0, 30), references: references.slice(0, 10) };
 };

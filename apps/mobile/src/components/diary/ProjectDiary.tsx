@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import { dayLabel, edbDraft, formatDay, groupByDay, isSorting } from "../../lib/diary";
+import { crewTotal, dayLabel, edbDraft, formatDay, groupByDay, isSorting } from "../../lib/diary";
 import type { DiaryEntry, DiaryNote } from "../../lib/diary";
 import type { QueuedNote } from "../../lib/diaryQueue";
 import { colors, radius, spacing } from "../../lib/theme";
@@ -32,6 +32,7 @@ const QueuedRow = ({ note, onRemove }: { note: QueuedNote; onRemove: () => void 
 
 const counts = (entry: DiaryEntry) =>
   [
+    entry.crew?.length ? `obsada: ${crewTotal(entry.crew)} os.` : null,
     entry.work.length ? `prace: ${entry.work.length}` : null,
     entry.deliveries.length ? `dostawy: ${entry.deliveries.length}` : null,
     entry.problems.length ? `problemy: ${entry.problems.length}` : null,

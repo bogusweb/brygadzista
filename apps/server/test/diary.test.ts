@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/app.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
-import { audioType, fakeOrganize, type DiaryEntry } from "../src/diary-entry.js";
+import { audioType, diaryEntrySchema, fakeOrganize, type DiaryEntry } from "../src/diary-entry.js";
 import { diaryIdle, resumeDiaryEntries } from "../src/diary.js";
 import { HttpError } from "../src/retry.js";
 import { ADMIN, APP, addMember, createDocument, createProject, createUser, insertPage, login, resetDatabase } from "./helpers.js";
@@ -20,6 +20,7 @@ const ENTRY: DiaryEntry = {
   summary: "Zabetonowano ławy fundamentowe",
   work: ["Zabetonowano ławy fundamentowe"],
   people: [],
+  crew: [],
   deliveries: ["Bloczki betonowe"],
   weather: "Opady deszczu od 14:00",
   problems: [],
@@ -260,6 +261,22 @@ describe("fakeOrganize", () => {
       deliveries: ["Przyszła dostawa bloczków"],
       weather: "Padało od 14",
       problems: ["Brakuje stali"],
+      crew: [],
     });
+  });
+
+  it("counts crews named with a number", () => {
+    const entry = fakeOrganize("Było nas sześciu, czterech zbrojarzy i dwóch na betonie. Przyszły dwie palety bloczków.", []);
+    expect(entry.crew).toEqual([
+      { team: "zbrojarzy", company: null, count: 4 },
+      { team: "betonie", company: null, count: 2 },
+    ]);
+  });
+});
+
+describe("diaryEntrySchema", () => {
+  it("gives entries saved before crews an empty crew list", () => {
+    const { crew: _crew, ...old } = ENTRY;
+    expect(diaryEntrySchema.parse(old).crew).toEqual([]);
   });
 });

@@ -49,7 +49,12 @@ export const config = {
   maxPhotoBytes: Number(process.env.MAX_PHOTO_MB ?? 25) * 1024 * 1024,
   // Fonts with Polish letters for the defect protocol PDF (#74); the image installs fonts-dejavu-core.
   pdfFontDir: path.resolve(process.env.PDF_FONT_DIR ?? "/usr/share/fonts/truetype/dejavu"),
-  photoMaxEdge: Number(process.env.PHOTO_MAX_EDGE ?? 2560),
+  // Weather of a site day (#81): Open-Meteo, no key. WEATHER=off stops every call (tests, or a server without internet).
+  weatherEnabled: process.env.WEATHER !== "off",
+  weatherForecastUrl: process.env.WEATHER_FORECAST_URL ?? "https://api.open-meteo.com/v1/forecast",
+  weatherArchiveUrl: process.env.WEATHER_ARCHIVE_URL ?? "https://archive-api.open-meteo.com/v1/archive",
+  weatherGeocodingUrl: process.env.WEATHER_GEOCODING_URL ?? "https://geocoding-api.open-meteo.com/v1/search",
+  photoMaxEdge:Number(process.env.PHOTO_MAX_EDGE ?? 2560),
   photoThumbEdge: 480,
   // Estimate shown before indexing starts. A page is one image embedding plus a few text embeddings;
   // tune both from real runs.
