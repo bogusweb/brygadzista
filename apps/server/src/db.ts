@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
+import { FACTS_VERSION, extractFacts, formatFact } from "./facts.js";
 import { META_VERSION, displayTitle, extractPageMeta, titleFromText } from "./page-meta.js";
 
 export const sql = postgres(config.databaseUrl, { max: 10, onnotice: () => {} });
@@ -210,6 +211,21 @@ export const migrate = async () => {
   await sql`create index if not exists checklists_project on checklists (project_id)`;
   await sql`create index if not exists checklist_items_checklist on checklist_items (checklist_id)`;
   await sql`alter table pages add column if not exists codes_version int`;
+  // Parameters read from the page text by rules (#53): a value with its unit and the words naming it.
+  await sql`
+    create table if not exists facts (
+      id bigserial primary key,
+      page_id uuid not null references pages(id) on delete cascade,
+      project_id uuid not null references projects(id) on delete cascade,
+      label text not null,
+      value text not null,
+      unit text not null default '',
+      quote text not null default ''
+    )`;
+  await sql`create index if not exists facts_page on facts (page_id)`;
+  await sql`create index if not exists facts_project on facts (project_id)`;
+  await sql`create index if not exists facts_label on facts using gin (to_tsvector('simple', label))`;
+  await sql`alter table pages add column if not exists facts_version int`;
   // Page metadata from the PDF text (#55): the drawing's title block, trade and storey; null = not extracted yet.
   await sql`alter table pages add column if not exists drawing_no text`;
   await sql`alter table pages add column if not exists scale text`;
@@ -228,10 +244,11 @@ export const migrate = async () => {
   await migrateTenants();
   await backfillCodes();
   await backfillMeta();
+  await backfillFacts();
 };
 
 // Tables that hang off a project: their firm always comes from the project, through a composite key.
-const PROJECT_TABLES = ["project_members", "documents", "pages", "chunks", "pins", "pin_photos", "diary_entries", "checklists"];
+const PROJECT_TABLES = ["project_members", "documents", "pages", "chunks", "facts", "pins", "pin_photos", "diary_entries", "checklists"];
 // Tables that hang off a checklist and take the firm from it.
 const CHECKLIST_TABLES = ["checklist_items", "checklist_events", "checklist_results"];
 
@@ -384,5 +401,30 @@ const backfillMeta = async () => {
           level = ${meta.level}, meta_version = ${META_VERSION}
         where id = ${page.id}`;
     }
+  }
+};
+
+// Facts shown with a page on the dashboard; the facts table holds all of them.
+const PAGE_FACTS_SHOWN = 40;
+
+// Replaces the facts of one page with those read from its text (inside the caller's transaction).
+export const replacePageFacts = async (q: postgres.TransactionSql, pageId: string, projectId: string, raw: string) => {
+  const facts = extractFacts(raw);
+  await q`delete from facts where page_id = ${pageId}`;
+  if (facts.length) {
+    await q`insert into facts ${q(facts.map((fact) => ({ page_id: pageId, project_id: projectId, ...fact })))}`;
+  }
+  const shown = facts.slice(0, PAGE_FACTS_SHOWN).map((fact) => ({ label: fact.label, value: formatFact(fact) }));
+  await q`update pages set facts = ${q.json(shown)}, facts_version = ${FACTS_VERSION} where id = ${pageId}`;
+};
+
+// Pages indexed before facts existed, or with an older extraction, get them from their stored text without reindexing.
+const backfillFacts = async () => {
+  for (;;) {
+    const pages = await sql<{ id: string; project_id: string; raw_text: string }[]>`
+      select id, project_id, raw_text from pages
+      where facts_version is distinct from ${FACTS_VERSION} and search_text <> '' limit ${BACKFILL_BATCH}`;
+    if (pages.length === 0) return;
+    for (const page of pages) await sql.begin((tx) => replacePageFacts(tx, page.id, page.project_id, page.raw_text));
   }
 };

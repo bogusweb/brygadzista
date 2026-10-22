@@ -1,10 +1,21 @@
 import { abbreviationOf, expandAbbreviations, extractCodes } from "./codes.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
+import { formatFact } from "./facts.js";
 import { embed } from "./llm.js";
 import { drawingRefOf, levelOf, type PageBranch, type PageKind } from "./page-meta.js";
 
-export type PageHit = { documentId: string; filename: string; pageNo: number; title: string | null; snippet: string };
+export type PageFact = { label: string; value: string };
+
+export type PageHit = {
+  documentId: string;
+  filename: string;
+  pageNo: number;
+  title: string | null;
+  snippet: string;
+  // Parameters of the page whose names match the question (#53), best first.
+  facts?: PageFact[];
+};
 
 // Question words carry no content, but on a long page they always match and pull in pages that say nothing on the topic.
 const STOPWORDS = new Set(
@@ -93,6 +104,49 @@ export const codeSearch = async (projectId: string, query: string, limit: number
     limit ${limit}`;
 };
 
+// Pages with a parameter named by the question's words ("grubość styropianu" → "styropian gr. 15 cm"). Unlike the
+// word ranking of the whole page, the words must meet in one parameter's name, so a long page that mentions them
+// apart does not count.
+export const factSearch = async (projectId: string, query: string, limit: number, filter: PageFilter = {}) => {
+  const terms = queryTerms(query);
+  if (terms.length === 0) return [];
+  return sql<{ page_id: string; coverage: number }[]>`
+    select page_id, max(coverage) as coverage from (
+      select f.page_id,
+        (select count(*) from unnest(${terms}::text[]) term where to_tsvector('simple', f.label) @@ to_tsquery('simple', term))::float
+          / ${terms.length}::int as coverage
+      from facts f join pages on pages.id = f.page_id
+      where f.project_id = ${projectId} and to_tsvector('simple', f.label) @@ to_tsquery('simple', ${terms.join(" | ")})
+        ${pageConditions(filter)}
+    ) matched
+    group by page_id
+    order by max(coverage) desc, count(*) desc
+    limit ${limit}`;
+};
+
+const FACTS_PER_HIT = 3;
+
+// The parameters of each found page that match the question, for the agent to see next to the snippet.
+const matchingFacts = async (pageIds: string[], query: string) => {
+  const terms = queryTerms(query);
+  const byPage = new Map<string, PageFact[]>();
+  if (terms.length === 0 || pageIds.length === 0) return byPage;
+  const rows = await sql<{ page_id: string; label: string; value: string; unit: string }[]>`
+    select page_id, label, value, unit from (
+      select f.page_id, f.label, f.value, f.unit, row_number() over (
+        partition by f.page_id order by
+          (select count(*) from unnest(${terms}::text[]) term where to_tsvector('simple', f.label) @@ to_tsquery('simple', term)) desc,
+          f.id
+      ) as position
+      from facts f
+      where f.page_id in ${sql(pageIds)} and to_tsvector('simple', f.label) @@ to_tsquery('simple', ${terms.join(" | ")})
+    ) ranked where position <= ${FACTS_PER_HIT} order by page_id, position`;
+  for (const row of rows) {
+    byPage.set(row.page_id, [...(byPage.get(row.page_id) ?? []), { label: row.label, value: formatFact(row) }]);
+  }
+  return byPage;
+};
+
 // The sheet whose title block carries the drawing number the question names ("rys. nr 5"). The table of contents
 // lists every number too, so without this it often beats the drawing itself.
 export const drawingSearch = async (projectId: string, query: string, filter: PageFilter = {}) => {
@@ -136,19 +190,24 @@ export const bestSnippet = (text: string, query: string) => {
 // relevance test are returned (an exact code, enough of the question's words, or a close vector), so a question the
 // project does not answer gets no results instead of the six least bad pages. A drawing named by its number comes first.
 export const searchPages = async (projectId: string, query: string, limit = 6, filter: PageFilter = {}): Promise<PageHit[]> => {
-  const [semantic, lexical, codes, drawings] = await Promise.all([
+  const [semantic, lexical, codes, facts, drawings] = await Promise.all([
     semanticSearch(projectId, query, limit * 2, filter),
     lexicalSearch(projectId, query, limit * 2, filter),
     codeSearch(projectId, query, limit * 2, filter),
+    factSearch(projectId, query, limit * 2, filter),
     drawingSearch(projectId, query, filter),
   ]);
   const relevant = new Set([
     ...codes.map((row) => row.page_id),
     ...lexical.filter((row) => row.coverage >= MIN_COVERAGE).map((row) => row.page_id),
+    ...facts.filter((row) => row.coverage >= MIN_COVERAGE).map((row) => row.page_id),
     ...semantic.filter((row) => row.distance <= config.searchMaxDistance).map((row) => row.page_id),
   ]);
   const scores = new Map<string, number>();
-  for (const ranking of [semantic, lexical, codes]) {
+  // A parameter only votes when its name holds enough of the question's words: drawings are full of short labels,
+  // and partial matches on them push the description pages down.
+  const namedFacts = facts.filter((row) => row.coverage >= MIN_COVERAGE);
+  for (const ranking of [semantic, lexical, codes, namedFacts]) {
     ranking.forEach((row, rank) => scores.set(row.page_id, (scores.get(row.page_id) ?? 0) + 1 / (60 + rank)));
   }
   const named = drawings.map((row) => row.page_id);
@@ -158,9 +217,12 @@ export const searchPages = async (projectId: string, query: string, limit = 6, f
     .map(([id]) => id);
   const ids = [...named, ...fused].slice(0, limit);
   if (ids.length === 0) return [];
-  const rows = await sql<{ id: string; document_id: string; filename: string; page_no: number; title: string | null; raw_text: string }[]>`
-    select p.id, p.document_id, d.filename, p.page_no, p.title, p.raw_text
-    from pages p join documents d on d.id = p.document_id where p.id in ${sql(ids)}`;
+  const [rows, factsByPage] = await Promise.all([
+    sql<{ id: string; document_id: string; filename: string; page_no: number; title: string | null; raw_text: string }[]>`
+      select p.id, p.document_id, d.filename, p.page_no, p.title, p.raw_text
+      from pages p join documents d on d.id = p.document_id where p.id in ${sql(ids)}`,
+    matchingFacts(ids, query),
+  ]);
   const byId = new Map(rows.map((row) => [row.id, row]));
   return ids.flatMap((id) => {
     const row = byId.get(id);
@@ -171,6 +233,7 @@ export const searchPages = async (projectId: string, query: string, limit = 6, f
       pageNo: row.page_no,
       title: row.title,
       snippet: bestSnippet(row.raw_text, query),
+      ...(factsByPage.has(id) ? { facts: factsByPage.get(id) } : {}),
     }];
   });
 };
