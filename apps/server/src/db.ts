@@ -317,6 +317,8 @@ export const migrate = async () => {
   await sql`alter table projects add column if not exists site_address text`;
   await sql`alter table projects add column if not exists site_lat double precision`;
   await sql`alter table projects add column if not exists site_lon double precision`;
+  // Kind of building (#85): sets the order of stage checklists and the agent's context. Validated in building-types.ts.
+  await sql`alter table projects add column if not exists building_type text not null default 'dom_murowany'`;
   // Weather of each site day (#81), kept so a report does not ask again. `final` once the day is over and measured.
   await sql`
     create table if not exists site_weather (

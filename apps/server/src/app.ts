@@ -8,7 +8,8 @@ import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
-import { createProjectAgent } from "./agent.js";
+import { buildingPrompt, createProjectAgent } from "./agent.js";
+import { BUILDING_TYPES, DEFAULT_BUILDING_TYPE, buildingType, isBuildingType } from "./building-types.js";
 import { A2UI_CATALOG_ID } from "./a2ui-catalog.js";
 import { a2uiCatalogSchema } from "./a2ui-schema.js";
 import {
@@ -37,6 +38,7 @@ import { FakeProjectAgent } from "./fake-agent.js";
 import { pdfPageCount } from "./pdf.js";
 import { projectOutline } from "./project-outline.js";
 import { designerAnswersPrompt, questions } from "./questions.js";
+import { mcp } from "./mcp.js";
 import { pins, removeDocumentPhotos, removeProjectFiles } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { documentDir, documentPdf, pageImage } from "./storage.js";
@@ -49,9 +51,10 @@ const projectAgents =
   (roles: Role[]) =>
   async ({ request }: { request: Request }) => {
     const { projectId, tenantId } = await agentProject(request, roles);
+    const [project] = await sql<{ buildingType: string }[]>`select building_type as "buildingType" from projects where id = ${projectId}`;
     const agent = config.fakeAgent
       ? new FakeProjectAgent(projectId)
-      : createProjectAgent(projectId, tenantId, await designerAnswersPrompt(projectId));
+      : createProjectAgent(projectId, tenantId, buildingPrompt(buildingType(project?.buildingType)) + (await designerAnswersPrompt(projectId)));
     return { default: agent.use(citationCheck) };
   };
 
@@ -77,6 +80,7 @@ app.route("/", site);
 app.route("/", checklists);
 app.route("/", questions);
 app.route("/", cards);
+app.route("/", mcp);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun), chatThreads);
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));
@@ -86,22 +90,41 @@ app.route("/", createCopilotEndpoint({ runtime: adminRuntime, basePath: "/api/ad
 // Projects of the session's firm; a worker sees only the ones they are a member of, an operator every firm's.
 app.get("/api/projects", requireRole("app", "admin"), async (c) =>
   c.json(await sql`
-    select p.id, p.name, p.tenant_id as "tenantId", p.created_at as "createdAt",
+    select p.id, p.name, p.tenant_id as "tenantId", p.building_type as "buildingType", p.created_at as "createdAt",
       (select count(*)::int from documents d where d.project_id = p.id) as "documentCount"
     from projects p where ${visibleProjects(c.get("principal"))} order by p.created_at desc`),
 );
 
 // A new project belongs to the session's firm. An operator outside a firm names one, or it goes to the oldest.
 app.post("/api/projects", requireRole("admin"), async (c) => {
-  const { name, tenantId } = await c.req.json<{ name?: string; tenantId?: unknown }>();
+  const { name, tenantId, buildingType: type } = await c.req.json<{ name?: string; tenantId?: unknown; buildingType?: unknown }>();
   if (!name?.trim()) return c.json({ error: "Podaj nazwę projektu" }, 400);
+  if (type !== undefined && !isBuildingType(type)) return c.json({ error: "Nieznany typ budowy" }, 400);
   const principal = c.get("principal");
   const requested = principal.operator && typeof tenantId === "string" && isUuid(tenantId) ? tenantId : null;
   const tenant = principal.tenant?.id ?? requested ?? (principal.operator ? await defaultTenantId() : null);
   if (!tenant) return c.json({ error: "Brak firmy" }, 403);
   const [project] = await sql`
-    insert into projects (name, tenant_id) select ${name.trim()}, id from tenants where id = ${tenant} returning id, name`;
+    insert into projects (name, tenant_id, building_type) select ${name.trim()}, id, ${type ?? DEFAULT_BUILDING_TYPE} from tenants
+    where id = ${tenant} returning id, name, building_type as "buildingType"`;
   return project ? c.json(project, 201) : c.json({ error: "Nie ma takiej firmy" }, 404);
+});
+
+app.get("/api/building-types", requireRole("app", "admin"), (c) =>
+  c.json(BUILDING_TYPES.map(({ type, label, stages }) => ({ type, label, stages }))),
+);
+
+// Changing the type later keeps everything made so far; it only changes which stages come first and the agent's context.
+app.patch("/api/projects/:id", requireRole("admin"), requireProjectAccess(), async (c) => {
+  const body = await c.req.json<{ name?: unknown; buildingType?: unknown }>().catch(() => ({}) as Record<string, unknown>);
+  if (body.buildingType !== undefined && !isBuildingType(body.buildingType)) return c.json({ error: "Nieznany typ budowy" }, 400);
+  if (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim())) return c.json({ error: "Podaj nazwę projektu" }, 400);
+  const name = typeof body.name === "string" ? body.name.trim() : null;
+  const type = isBuildingType(body.buildingType) ? body.buildingType : null;
+  const [project] = await sql`
+    update projects set name = coalesce(${name}, name), building_type = coalesce(${type}, building_type)
+    where id = ${c.req.param("id")} returning id, name, building_type as "buildingType"`;
+  return c.json(project);
 });
 
 app.delete("/api/projects/:id", requireRole("admin"), requireProjectAccess(), async (c) => {

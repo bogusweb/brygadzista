@@ -76,6 +76,10 @@ const inTenant = (tenantId: string, tool: ToolDefinition): ToolDefinition => {
   return { ...tool, execute: (...args: Parameters<typeof execute>) => withTenant(tenantId, async () => execute(...args)) };
 };
 
+// The kind of building (#85) tells the agent what work it is; the project itself stays the only source of values.
+export const buildingPrompt = (building: { label: string; context: string } | undefined) =>
+  building ? `\n\nTyp budowy: ${building.label}. ${building.context}` : "";
+
 // extraPrompt carries what changes per project between requests, such as the designer's answers (#73).
 export const createProjectAgent = (projectId: string, tenantId: string, extraPrompt = "") =>
   new BuiltInAgent({
