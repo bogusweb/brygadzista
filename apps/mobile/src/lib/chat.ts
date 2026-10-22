@@ -89,7 +89,7 @@ export const parseJson = (value: string | undefined): unknown => {
   }
 };
 
-type ToolArgs = { query?: string; pageNo?: number; question?: string };
+type ToolArgs = { query?: string; pageNo?: number; question?: string; name?: string };
 
 export const toolLabel = (name: string, args: ToolArgs, done: boolean) => {
   const page = args.pageNo ? `str. ${args.pageNo}` : "stronę";
@@ -112,6 +112,8 @@ export const toolLabel = (name: string, args: ToolArgs, done: boolean) => {
       return done ? `Obejrzałem rysunek, ${page}` : `Oglądam rysunek, ${page}…`;
     case "show_page":
       return done ? `Pokazuję ${page}` : `Przygotowuję ${page}…`;
+    case "build_element_card":
+      return done ? `Karta: ${args.name ?? ""}` : `Zbieram kartę${args.name ? `: ${args.name}` : ""}…`;
     case "search_photos":
       return done ? `Przejrzałem zdjęcia z budowy${args.query ? `: „${args.query}”` : ""}` : "Szukam zdjęć z budowy…";
     default:

@@ -1,8 +1,10 @@
 import { access } from "node:fs/promises";
+import type { TransactionSql } from "postgres";
 import { chunkPage } from "./chunking.js";
 import { CODES_VERSION, extractCodes } from "./codes.js";
 import { config } from "./config.js";
 import { replacePageFacts, sql, withTenant } from "./db.js";
+import { buildingEmbeddingSet, pagesMissingFrom, recordSetError, switchToSet, writeEmbeddingSet, type EmbeddingSet } from "./embedding-sets.js";
 import { titleFromText } from "./outline.js";
 import { saveOutline } from "./project-outline.js";
 import { META_VERSION, displayTitle, extractPageMeta } from "./page-meta.js";
@@ -26,19 +28,32 @@ const IMAGE_CHUNK_TEXT_CHARS = 500;
 type Chunk = { content: string; vector: number[] };
 
 // One chunk per text fragment plus one for the page image, so a drawing without a text layer is still found.
-const embedPage = async (pageNo: number, title: string | null, raw: string, image: string): Promise<Chunk[]> => {
+const embedPage = async (pageNo: number, title: string | null, raw: string, image: string, target: EmbeddingSet): Promise<Chunk[]> => {
   const header = title ? `Strona ${pageNo}: ${title}` : `Strona ${pageNo}`;
   const textChunks = chunkPage(raw).map((part) => `${header}\n${part}`);
   const imageChunk = `${header}\n[obraz strony]\n${raw.slice(0, IMAGE_CHUNK_TEXT_CHARS)}`;
-  const [textVectors, imageVector] = await Promise.all([embed(textChunks), embedImage(image)]);
+  const [textVectors, imageVector] = await Promise.all([embed(textChunks, target), embedImage(image, target)]);
   return [...textChunks.map((content, i) => ({ content, vector: textVectors[i]! })), { content: imageChunk, vector: imageVector }];
+};
+
+const imageOf = async (documentId: string, pageNo: number) =>
+  (await exists(pageImage(documentId, pageNo)))
+    ? pageImage(documentId, pageNo)
+    : await pdfRenderPage(documentPdf(documentId), pageNo, pageImagePrefix(documentId, pageNo));
+
+// Vectors of one page in one set, replacing what the page had there; other sets keep theirs, so search on the old
+// model is untouched while a new one is built.
+const saveChunks = async (tx: TransactionSql, page: { id: string; projectId: string }, target: EmbeddingSet, chunks: Chunk[]) => {
+  await tx`delete from chunks where page_id = ${page.id} and embedding_set = ${target.id}`;
+  for (const chunk of chunks) {
+    await tx`insert into chunks (page_id, project_id, content, embedding, embedding_set)
+      values (${page.id}, ${page.projectId}, ${chunk.content}, ${`[${chunk.vector.join(",")}]`}::vector, ${target.id})`;
+  }
 };
 
 const indexOnePage = async (doc: { id: string; project_id: string; tenant_id: string }, pageNo: number) => {
   const pdf = documentPdf(doc.id);
-  const image = (await exists(pageImage(doc.id, pageNo)))
-    ? pageImage(doc.id, pageNo)
-    : await pdfRenderPage(pdf, pageNo, pageImagePrefix(doc.id, pageNo));
+  const image = await imageOf(doc.id, pageNo);
   const raw = await pdfPageText(pdf, pageNo);
   const meta = extractPageMeta(raw, pageNo);
   const title = displayTitle(meta, titleFromText(raw));
@@ -47,7 +62,8 @@ const indexOnePage = async (doc: { id: string; project_id: string; tenant_id: st
 
   // Without an API key the page is searchable by its PDF text only; embeddings run on the next reindex.
   // Embeddings come first, so a page whose call fails is left untouched and counts as not done.
-  const chunks = config.openrouterApiKey ? await embedPage(pageNo, title, raw, image) : null;
+  const target = config.openrouterApiKey ? await writeEmbeddingSet() : null;
+  const chunks = target ? await embedPage(pageNo, title, raw, image, target) : null;
 
   // The page is written as the document's firm, under the same row level security as a request (#92).
   await withTenant(doc.tenant_id, async (tx) => {
@@ -72,12 +88,7 @@ const indexOnePage = async (doc: { id: string; project_id: string; tenant_id: st
       returning id`;
     if (!page) return;
     await replacePageFacts(tx, page.id, doc.project_id, raw);
-    if (!chunks) return;
-    await tx`delete from chunks where page_id = ${page.id}`;
-    for (const chunk of chunks) {
-      await tx`insert into chunks (page_id, project_id, content, embedding)
-        values (${page.id}, ${doc.project_id}, ${chunk.content}, ${`[${chunk.vector.join(",")}]`}::vector)`;
-    }
+    if (target && chunks) await saveChunks(tx, { id: page.id, projectId: doc.project_id }, target, chunks);
   });
   await sql`update documents set indexed_pages = (select count(*) from pages where document_id = ${doc.id} and search_text <> '') where id = ${doc.id}`;
 };
@@ -200,10 +211,48 @@ export const processNextDocument = async () => {
   return true;
 };
 
+const REEMBED_BATCH = 4;
+// After OpenRouter refuses for credit or rate limits, the re-embed waits this long before trying again.
+const REEMBED_PAUSE_MS = 5 * 60_000;
+
+// One step of a model change (#46): a few pages get vectors from the new model, and once every indexed page has them,
+// search switches to the new set in one transaction and the old vectors are deleted. Search keeps reading the old set
+// until then. A page that fails is marked as not indexed, so resuming its document redoes it with the new model and the
+// switch is not held up. Returns whether there was work.
+export const reembedNextPages = async () => {
+  if (!config.openrouterApiKey) return false;
+  const target = await buildingEmbeddingSet();
+  if (!target || (target.retryAt && target.retryAt > new Date())) return false;
+  const pages = await pagesMissingFrom(target.id, REEMBED_BATCH);
+  if (pages.length === 0) {
+    if (await switchToSet(target.id)) console.log(`embeddings: search now uses ${target.id}`);
+    return true;
+  }
+  for (const page of pages) {
+    try {
+      const chunks = await embedPage(page.page_no, page.title, page.raw_text, await imageOf(page.document_id, page.page_no), target);
+      await sql.begin((tx) => saveChunks(tx, { id: page.id, projectId: page.project_id }, target, chunks));
+    } catch (error) {
+      const reason = pauseReason(error);
+      if (reason) {
+        await recordSetError(target.id, reason, new Date(Date.now() + REEMBED_PAUSE_MS));
+        return false;
+      }
+      console.error(`embeddings: page ${page.id} failed to re-embed`, error);
+      await sql`update pages set indexed = false, error = ${String(error)}, attempts = attempts + 1 where id = ${page.id}`;
+    }
+  }
+  if (target.error) await recordSetError(target.id, null, null);
+  return true;
+};
+
 export const startIngestWorker = async () => {
   await requeueInterrupted();
   const tick = async () => {
-    const found = await processNextDocument();
+    const found = (await processNextDocument()) || (await reembedNextPages().catch((error) => {
+      console.error("embeddings: re-embed step failed", error);
+      return false;
+    }));
     setTimeout(tick, found ? 0 : POLL_MS);
   };
   void tick();

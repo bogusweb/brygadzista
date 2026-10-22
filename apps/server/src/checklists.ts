@@ -28,7 +28,7 @@ type FilledItem = {
 
 const normalize = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
 
-const sourcePages = async (projectId: string, hits: { documentId: string; pageNo: number }[]) => {
+export const sourcePages = async (projectId: string, hits: { documentId: string; pageNo: number }[]) => {
   const rows = await sql<ChecklistSourcePage[]>`
     select document_id as "documentId", page_no as "pageNo", title, left(raw_text, ${PAGE_TEXT_CHARS}) as text
     from pages where project_id = ${projectId}
@@ -58,7 +58,7 @@ export const fillItem = async (projectId: string, item: ChecklistItemTemplate): 
     : { ...lead, value: finding.value };
 };
 
-const mapLimit = async <T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> => {
+export const mapLimit = async <T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> => {
   const results: R[] = new Array(items.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -98,7 +98,7 @@ export const generateChecklist = async (checklistId: string) => {
 export const failInterruptedChecklists = () =>
   sql`update checklists set status = 'error', error = 'Generowanie przerwane, spróbuj ponownie' where status = 'generating'`;
 
-const actor = ({ user, role }: Principal) =>
+export const actor = ({ user, role }: Principal) =>
   user ? { id: user.id, name: user.name || user.email } : { id: null, name: role === "admin" ? "Administrator" : "Aplikacja (wspólny dostęp)" };
 
 type ItemRow = {

@@ -33,6 +33,11 @@ export type PageKind = "opis" | "rysunek" | "detal" | "zestawienie" | "formalne"
 
 export type PageFact = { label: string; value: string };
 
+export type EmbeddingStatus = {
+  active: { model: string; dimensions: number } | null;
+  building: { model: string; dimensions: number; done: number; total: number; error: string | null } | null;
+};
+
 export type DocumentPage = {
   pageNo: number;
   title: string | null;
@@ -127,6 +132,7 @@ export const createApi = (token: string) => ({
   token,
   whoami: () => request<{ role: Role }>(token, "/api/auth/me"),
   listProjects: () => request<Project[]>(token, "/api/projects"),
+  embeddingStatus: () => request<EmbeddingStatus>(token, "/api/admin/embeddings"),
   createProject: (name: string) =>
     request<Pick<Project, "id" | "name">>(token, "/api/projects", { method: "POST", body: JSON.stringify({ name }) }),
   deleteProject: (id: string) => request<void>(token, `/api/projects/${id}`, { method: "DELETE" }),
