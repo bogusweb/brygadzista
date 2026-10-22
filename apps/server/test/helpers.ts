@@ -3,7 +3,7 @@ import { app } from "../src/app.js";
 import { hashPassword, type UserRole } from "../src/auth.js";
 import { CODES_VERSION, extractCodes } from "../src/codes.js";
 import { config } from "../src/config.js";
-import { migrate, sql } from "../src/db.js";
+import { defaultTenantId, migrate, sql } from "../src/db.js";
 import { limiters } from "../src/rate-limit.js";
 import { documentDir, documentPdf } from "../src/storage.js";
 
@@ -12,16 +12,24 @@ export const APP = { authorization: "Bearer test-app" };
 
 export const resetDatabase = async () => {
   await migrate();
-  await sql`truncate projects, users cascade`;
+  await sql`truncate tenants, projects, users cascade`;
   Object.values(limiters).forEach((limiter) => limiter.reset());
 };
 
 export const PASSWORD = "tajne-haslo-123";
 
-export const createUser = async (email: string, role: UserRole, password = PASSWORD) => {
+export const createTenant = async (name = "Firma testowa") => {
+  const [tenant] = await sql<{ id: string }[]>`insert into tenants (name) values (${name}) returning id`;
+  return tenant!.id;
+};
+
+export const createUser = async (email: string, role: UserRole, password = PASSWORD, tenantId?: string) => {
   const [user] = await sql<{ id: string }[]>`
     insert into users (email, name, password_hash, role) values (${email}, ${email.split("@")[0]!}, ${await hashPassword(password)}, ${role})
     returning id`;
+  await sql`
+    insert into tenant_members (tenant_id, user_id, role)
+    values (${tenantId ?? (await defaultTenantId())}, ${user!.id}, ${role === "owner" ? "owner" : "worker"})`;
   return user!.id;
 };
 
@@ -38,8 +46,9 @@ export const login = async (email: string, password = PASSWORD) => {
   return { authorization: `Bearer ${body.token}` };
 };
 
-export const createProject = async (name = "Hala sportowa") => {
-  const [project] = await sql<{ id: string }[]>`insert into projects (name) values (${name}) returning id`;
+export const createProject = async (name = "Hala sportowa", tenantId?: string) => {
+  const [project] = await sql<{ id: string }[]>`
+    insert into projects (name, tenant_id) values (${name}, ${tenantId ?? (await defaultTenantId())}) returning id`;
   return project!.id;
 };
 

@@ -22,7 +22,7 @@ import {
 } from "./auth.js";
 import { checklists } from "./checklists.js";
 import { config } from "./config.js";
-import { sql } from "./db.js";
+import { defaultTenantId, sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
 import { defects } from "./defects.js";
 import { diary } from "./diary.js";
@@ -78,7 +78,7 @@ app.get("/api/projects", requireRole("app", "admin"), async (c) => {
 app.post("/api/projects", requireRole("admin"), async (c) => {
   const { name } = await c.req.json<{ name?: string }>();
   if (!name?.trim()) return c.json({ error: "Podaj nazwę projektu" }, 400);
-  const [project] = await sql`insert into projects (name) values (${name.trim()}) returning id, name`;
+  const [project] = await sql`insert into projects (name, tenant_id) values (${name.trim()}, ${await defaultTenantId()}) returning id, name`;
   return c.json(project, 201);
 });
 
