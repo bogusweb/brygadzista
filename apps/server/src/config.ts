@@ -77,6 +77,8 @@ export const config = {
   llmRetryBaseMs: Number(process.env.LLM_RETRY_BASE_MS ?? 2000),
   // poppler calls on huge sheets can hang on broken files.
   pdfToolTimeoutMs: Number(process.env.PDF_TOOL_TIMEOUT_MS ?? 120_000),
+  // LibreOffice converting a Word description to PDF on upload; a 25-page .doc takes a few seconds.
+  officeTimeoutMs: Number(process.env.OFFICE_TIMEOUT_MS ?? 120_000),
   // After this many failed pages in a row the problem is not the page (key, outage), so the document stops.
   maxConsecutivePageFailures: Number(process.env.MAX_CONSECUTIVE_PAGE_FAILURES ?? 5),
   // Scripted agent for building the chat UIs without an OpenRouter key. Never in production.

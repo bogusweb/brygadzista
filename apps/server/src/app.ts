@@ -40,6 +40,7 @@ import { protocols } from "./protocols.js";
 import { reports } from "./reports.js";
 import { site } from "./site.js";
 import { FakeProjectAgent } from "./fake-agent.js";
+import { OfficeTimeout, looksLikeWord, wordExtension, wordToPdf } from "./office.js";
 import { pdfPageCount } from "./pdf.js";
 import { projectOutline } from "./project-outline.js";
 import { designerAnswersPrompt, questions } from "./questions.js";
@@ -213,8 +214,9 @@ const limitSize = (maxBytes: number) => {
 
 const tooLargeMessage = () => `Plik jest za duży (limit ${Math.round(config.maxUploadBytes / 1024 / 1024)} MB)`;
 
-// The PDF is streamed straight to disk so large projects never sit in memory. The response carries the page
-// count and a cost and time estimate; with ?autostart=0 indexing waits for POST /api/documents/:id/start.
+// The file is streamed straight to disk so large projects never sit in memory. A .doc or .docx is converted to PDF
+// first and then treated like any other PDF. The response carries the page count and a cost and time estimate;
+// with ?autostart=0 indexing waits for POST /api/documents/:id/start.
 app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAccess(), rateLimit(limiters.upload), async (c) => {
   const filename = c.req.query("filename") ?? "projekt.pdf";
   // ?revisionOf=<document id>: a new version of that document of the same project (#72).
@@ -233,6 +235,9 @@ app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAcces
   const id = doc!.id;
   const dir = await documentDir(id);
   const pdf = await documentPdf(id);
+  // A Word description is kept as source.doc / source.docx next to the source.pdf made from it (#157).
+  const word = wordExtension(filename);
+  const received = word ? path.join(dir, `source.${word}`) : pdf;
   const reject = async (status: 400 | 413, error: string) => {
     await sql`delete from documents where id = ${id}`;
     await rm(dir, { recursive: true, force: true });
@@ -241,16 +246,24 @@ app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAcces
 
   await mkdir(dir, { recursive: true });
   try {
-    await pipeline(Readable.fromWeb(body as WebReadableStream), limitSize(config.maxUploadBytes), createWriteStream(pdf));
+    await pipeline(Readable.fromWeb(body as WebReadableStream), limitSize(config.maxUploadBytes), createWriteStream(received));
   } catch (error) {
     if (error instanceof UploadTooLarge) return reject(413, tooLargeMessage());
     await reject(400, "Przerwane wysyłanie pliku");
     throw error;
   }
-  const handle = await open(pdf);
-  const { buffer } = await handle.read(Buffer.alloc(5), 0, 5, 0);
+  const handle = await open(received);
+  const { buffer } = await handle.read(Buffer.alloc(8), 0, 8, 0);
   await handle.close();
-  if (buffer.toString() !== "%PDF-") return reject(400, "To nie jest plik PDF");
+  if (word) {
+    if (!looksLikeWord(word, buffer)) return reject(400, `To nie jest plik Word (.${word})`);
+    try {
+      await wordToPdf(received, pdf);
+    } catch (error) {
+      console.error(`brygadzista: converting ${filename} to PDF failed`, error);
+      return reject(400, error instanceof OfficeTimeout ? "Zamiana pliku Word na PDF trwała za długo" : "Nie udało się zamienić pliku Word na PDF");
+    }
+  } else if (buffer.subarray(0, 5).toString() !== "%PDF-") return reject(400, "To nie jest plik PDF");
   const pageCount = await pdfPageCount(pdf).catch(() => null);
   if (!pageCount) return reject(400, "Nie udało się odczytać PDF");
   if (pageCount > config.maxPages) return reject(413, `PDF ma ${pageCount} stron, limit to ${config.maxPages}`);

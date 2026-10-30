@@ -61,7 +61,10 @@ const statusText = (doc: ProjectDocument) => {
 const canResume = (doc: ProjectDocument) =>
   doc.status === "paused" || doc.status === "error" || (doc.status === "ready" && (doc.failedPages ?? 0) > 0);
 
-const isPdf = (file: File) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+// PDFs, and Word descriptions that the server turns into a PDF on upload (#157).
+const ACCEPTED_EXTENSIONS = [".pdf", ".doc", ".docx"];
+const ACCEPT = "application/pdf,.pdf,application/msword,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx";
+const isAccepted = (file: File) => ACCEPTED_EXTENSIONS.some((extension) => file.name.toLowerCase().endsWith(extension));
 
 export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
   const [project, setProject] = useState<Project | null>(null);
@@ -105,8 +108,8 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
   }, [indexing, reload]);
 
   const send = async (file: File, previous?: ProjectDocument) => {
-    if (!isPdf(file)) {
-      setError(`„${file.name}” nie jest plikiem PDF. Wybierz plik z rozszerzeniem .pdf.`);
+    if (!isAccepted(file)) {
+      setError(`„${file.name}” nie jest plikiem PDF ani Word. Wybierz plik .pdf, .doc albo .docx.`);
       return;
     }
     setError(null);
@@ -216,15 +219,15 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
           <>
             <div className="row-main">
               <span className="row-title">Wgraj projekt techniczny</span>
-              <span className="muted small">Przeciągnij tu plik PDF albo wybierz go z dysku. Duże pliki też przejdą.</span>
+              <span className="muted small">Przeciągnij tu plik PDF albo opis w Word (.doc, .docx) lub wybierz go z dysku. Duże pliki też przejdą.</span>
             </div>
             <button type="button" className="button primary" onClick={() => fileInput.current?.click()}>
-              Wybierz PDF
+              Wybierz plik
             </button>
           </>
         )}
-        <input ref={fileInput} type="file" accept="application/pdf,.pdf" hidden onChange={pickFile} />
-        <input ref={revisionInput} type="file" accept="application/pdf,.pdf" hidden onChange={pickRevision} />
+        <input ref={fileInput} type="file" accept={ACCEPT} hidden onChange={pickFile} />
+        <input ref={revisionInput} type="file" accept={ACCEPT} hidden onChange={pickRevision} />
       </div>
 
       {error && (
