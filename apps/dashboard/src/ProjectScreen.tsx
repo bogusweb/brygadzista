@@ -15,7 +15,7 @@ type Upload = { name: string; size: number; progress: number; cancel: () => void
 
 const POLL_MS = 3000;
 
-const busyStatuses = new Set<ProjectDocument["status"]>(["uploading", "queued", "processing"]);
+const busyStatuses = new Set<ProjectDocument["status"]>(["uploading", "converting", "queued", "processing"]);
 
 const pagesLabel = (count: number) => pluralize(count, "strona", "strony", "stron");
 
@@ -33,6 +33,8 @@ const statusText = (doc: ProjectDocument) => {
   switch (doc.status) {
     case "uploading":
       return "Wysyłanie pliku…";
+    case "converting":
+      return "Przygotowuję arkusze z rysunku…";
     case "awaiting_start":
       return `Czeka na start: ${estimateText(doc)}`;
     case "queued":
@@ -61,9 +63,10 @@ const statusText = (doc: ProjectDocument) => {
 const canResume = (doc: ProjectDocument) =>
   doc.status === "paused" || doc.status === "error" || (doc.status === "ready" && (doc.failedPages ?? 0) > 0);
 
-// PDFs, and Word descriptions that the server turns into a PDF on upload (#157).
-const ACCEPTED_EXTENSIONS = [".pdf", ".doc", ".docx"];
-const ACCEPT = "application/pdf,.pdf,application/msword,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx";
+// PDFs, Word descriptions (#157) and CAD drawings (#154) that the server turns into a PDF. The server checks the content.
+const ACCEPTED_EXTENSIONS = [".pdf", ".doc", ".docx", ".dwg", ".dxf"];
+const ACCEPT =
+  "application/pdf,.pdf,application/msword,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,.dwg,.dxf";
 const isAccepted = (file: File) => ACCEPTED_EXTENSIONS.some((extension) => file.name.toLowerCase().endsWith(extension));
 
 export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
@@ -109,7 +112,7 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
 
   const send = async (file: File, previous?: ProjectDocument) => {
     if (!isAccepted(file)) {
-      setError(`„${file.name}” nie jest plikiem PDF ani Word. Wybierz plik .pdf, .doc albo .docx.`);
+      setError(`„${file.name}” nie jest plikiem PDF, Word ani rysunkiem DWG/DXF. Wybierz plik .pdf, .doc, .docx, .dwg albo .dxf.`);
       return;
     }
     setError(null);
@@ -219,7 +222,7 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
           <>
             <div className="row-main">
               <span className="row-title">Wgraj projekt techniczny</span>
-              <span className="muted small">Przeciągnij tu plik PDF albo opis w Word (.doc, .docx) lub wybierz go z dysku. Duże pliki też przejdą.</span>
+              <span className="muted small">Przeciągnij tu plik PDF, opis w Word (.doc, .docx) albo rysunek DWG/DXF lub wybierz go z dysku. Duże pliki też przejdą.</span>
             </div>
             <button type="button" className="button primary" onClick={() => fileInput.current?.click()}>
               Wybierz plik
@@ -248,7 +251,7 @@ export const ProjectScreen = ({ api, projectId, onUnauthorized }: Props) => {
       ) : documents.length === 0 ? (
         <div className="card empty">
           <h2>Brak dokumentów</h2>
-          <p className="muted">Wgraj PDF powyżej. Po wysłaniu każda strona zostanie opisana i trafi do indeksu agenta.</p>
+          <p className="muted">Wgraj PDF albo rysunek DWG powyżej. Po wysłaniu każda strona zostanie opisana i trafi do indeksu agenta.</p>
         </div>
       ) : (
         <ul className="list">

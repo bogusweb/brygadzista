@@ -79,6 +79,12 @@ export const config = {
   pdfToolTimeoutMs: Number(process.env.PDF_TOOL_TIMEOUT_MS ?? 120_000),
   // LibreOffice converting a Word description to PDF on upload; a 25-page .doc takes a few seconds.
   officeTimeoutMs: Number(process.env.OFFICE_TIMEOUT_MS ?? 120_000),
+  // CAD drawings (#154, #155): DWG goes to DXF through LibreDWG's dwg2dxf, DXF to a PDF with one page per sheet through
+  // cad/render_dxf.py (ezdxf). A large drawing with hatches takes a while, so the limit is longer than for poppler.
+  cadToolTimeoutMs: Number(process.env.CAD_TOOL_TIMEOUT_MS ?? 600_000),
+  dwg2dxf: process.env.DWG2DXF ?? "dwg2dxf",
+  cadPython: process.env.CAD_PYTHON ?? "python3",
+  cadRenderScript: path.resolve(process.env.CAD_RENDER_SCRIPT ?? path.join(import.meta.dirname, "..", "cad", "render_dxf.py")),
   // After this many failed pages in a row the problem is not the page (key, outage), so the document stops.
   maxConsecutivePageFailures: Number(process.env.MAX_CONSECUTIVE_PAGE_FAILURES ?? 5),
   // Scripted agent for building the chat UIs without an OpenRouter key. Never in production.

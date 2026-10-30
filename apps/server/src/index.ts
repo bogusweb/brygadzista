@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { app } from "./app.js";
+import { resumeConversions } from "./cad.js";
 import { failInterruptedCards } from "./cards.js";
 import { failInterruptedChecklists } from "./checklists.js";
 import { config } from "./config.js";
@@ -14,6 +15,7 @@ await migrateFiles();
 await failInterruptedChecklists();
 await failInterruptedCards();
 await startIngestWorker();
+void resumeConversions();
 void resumeDiaryEntries();
 void resumeDefectSpecs();
 if (config.fakeAgent) console.warn("brygadzista: FAKE_AGENT=1, chat answers come from the scripted test agent");

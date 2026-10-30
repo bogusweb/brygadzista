@@ -32,7 +32,7 @@ describe("upload", () => {
     const response = await upload(projectId, new TextEncoder().encode("PK\u0003\u0004 to jest zip"));
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "To nie jest plik PDF" });
+    expect(await response.json()).toEqual({ error: "To nie jest plik PDF, DWG ani DXF" });
     expect(await sql`select id from documents`).toHaveLength(0);
   });
 
