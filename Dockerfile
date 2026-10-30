@@ -29,8 +29,11 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 RUN pnpm --filter @brygadzista/mobile export:web
 
 FROM node:22-bookworm-slim AS runtime
+# LibreOffice turns Word descriptions into PDF on upload (#157): only Writer, in the build without a GUI (about
+# 300 MB), plus fonts metric-compatible with Times New Roman, Arial, Calibri and Cambria so pages break as in Word.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends poppler-utils fonts-dejavu-core \
+      libreoffice-core-nogui libreoffice-writer-nogui fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea \
  && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production \
     PORT=3000 \

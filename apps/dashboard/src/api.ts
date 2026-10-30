@@ -213,7 +213,7 @@ const errorFromXhr = (xhr: XMLHttpRequest) => {
   return new ApiError(`Błąd serwera (${xhr.status})`, xhr.status);
 };
 
-// fetch() can't report upload progress, so the PDF goes up through XHR.
+// fetch() can't report upload progress, so the file goes up through XHR.
 const uploadDocument = (token: string, projectId: string, file: File, onProgress: (fraction: number) => void, revisionOf?: string) => {
   const xhr = new XMLHttpRequest();
   const done = new Promise<UploadedDocument>((resolve, reject) => {
@@ -221,7 +221,8 @@ const uploadDocument = (token: string, projectId: string, file: File, onProgress
     const revision = revisionOf ? `&revisionOf=${revisionOf}` : "";
     xhr.open("PUT", `/api/projects/${projectId}/documents?filename=${encodeURIComponent(file.name)}&autostart=0${revision}`);
     xhr.setRequestHeader("authorization", `Bearer ${token}`);
-    xhr.setRequestHeader("content-type", "application/pdf");
+    // The server tells PDF from Word by the filename; the type is only informational.
+    xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(event.loaded / event.total);
     };
