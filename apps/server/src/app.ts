@@ -3,7 +3,7 @@ import { CopilotRuntime, createCopilotEndpoint } from "@copilotkit/runtime/v2";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, open, rm, stat } from "node:fs/promises";
+import { mkdir, open, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -23,6 +23,7 @@ import {
   type AuthEnv,
   type Role,
 } from "./auth.js";
+import { convertAgainIfNeeded, detectFormat, enqueueConversion, sourceFile } from "./cad.js";
 import { cards } from "./cards.js";
 import { chatThreads } from "./chat-threads.js";
 import { revisions } from "./revisions.js";
@@ -32,7 +33,7 @@ import { operator } from "./operator.js";
 import { citationCheck } from "./citations.js";
 import { config } from "./config.js";
 import { embeddingStatus } from "./embedding-sets.js";
-import { defaultTenantId, sql } from "./db.js";
+import { defaultTenantId, detached, sql } from "./db.js";
 import { estimateIndexing, etaSeconds } from "./estimate.js";
 import { defects } from "./defects.js";
 import { diary } from "./diary.js";
@@ -216,7 +217,8 @@ const tooLargeMessage = () => `Plik jest za duży (limit ${Math.round(config.max
 
 // The file is streamed straight to disk so large projects never sit in memory. A .doc or .docx is converted to PDF
 // first and then treated like any other PDF. The response carries the page count and a cost and time estimate;
-// with ?autostart=0 indexing waits for POST /api/documents/:id/start.
+// with ?autostart=0 indexing waits for POST /api/documents/:id/start. A CAD drawing (DWG or DXF, #154) answers with
+// status 'converting' and becomes a PDF in the background, then waits for the start.
 app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAccess(), rateLimit(limiters.upload), async (c) => {
   const filename = c.req.query("filename") ?? "projekt.pdf";
   // ?revisionOf=<document id>: a new version of that document of the same project (#72).
@@ -253,7 +255,7 @@ app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAcces
     throw error;
   }
   const handle = await open(received);
-  const { buffer } = await handle.read(Buffer.alloc(8), 0, 8, 0);
+  const { buffer, bytesRead } = await handle.read(Buffer.alloc(256), 0, 256, 0);
   await handle.close();
   if (word) {
     if (!looksLikeWord(word, buffer)) return reject(400, `To nie jest plik Word (.${word})`);
@@ -263,7 +265,16 @@ app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAcces
       console.error(`brygadzista: converting ${filename} to PDF failed`, error);
       return reject(400, error instanceof OfficeTimeout ? "Zamiana pliku Word na PDF trwała za długo" : "Nie udało się zamienić pliku Word na PDF");
     }
-  } else if (buffer.subarray(0, 5).toString() !== "%PDF-") return reject(400, "To nie jest plik PDF");
+  } else {
+    const format = detectFormat(buffer.subarray(0, bytesRead));
+    if (!format) return reject(400, "To nie jest plik PDF, DWG ani DXF");
+    if (format !== "pdf") {
+      await rename(pdf, await sourceFile(id, format));
+      await sql`update documents set status = 'converting' where id = ${id}`;
+      detached(() => enqueueConversion(id, format));
+      return c.json({ id, status: "converting" }, 201);
+    }
+  }
   const pageCount = await pdfPageCount(pdf).catch(() => null);
   if (!pageCount) return reject(400, "Nie udało się odczytać PDF");
   if (pageCount > config.maxPages) return reject(413, `PDF ma ${pageCount} stron, limit to ${config.maxPages}`);
@@ -280,6 +291,7 @@ app.post("/api/documents/:id/start", requireRole("admin"), requireDocumentAccess
 });
 
 app.post("/api/documents/:id/reindex", requireRole("admin"), requireDocumentAccess(), async (c) => {
+  if (await convertAgainIfNeeded(c.req.param("id"))) return c.json({ ok: true });
   await sql`update pages set indexed = false where document_id = ${c.req.param("id")}`;
   await sql`update documents set status = 'queued', error = null where id = ${c.req.param("id")}`;
   return c.json({ ok: true });
@@ -288,6 +300,8 @@ app.post("/api/documents/:id/reindex", requireRole("admin"), requireDocumentAcce
 // Unlike reindex, resume keeps finished pages and only takes those not done yet (missing, failed, or interrupted
 // by a pause), so nothing already paid for is embedded again.
 app.post("/api/documents/:id/resume", requireRole("admin"), requireDocumentAccess(), async (c) => {
+  const [failed] = await sql`select 1 from documents where id = ${c.req.param("id")} and status = 'error'`;
+  if (failed && (await convertAgainIfNeeded(c.req.param("id")))) return c.json({ ok: true });
   const [doc] = await sql`
     update documents set status = 'queued', error = null
     where id = ${c.req.param("id")} and status in ('paused', 'error', 'ready') returning id`;

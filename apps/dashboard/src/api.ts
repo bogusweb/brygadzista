@@ -63,7 +63,7 @@ export type Project = {
   documentCount: number;
 };
 
-export type DocumentStatus = "uploading" | "awaiting_start" | "queued" | "processing" | "paused" | "ready" | "error";
+export type DocumentStatus = "uploading" | "converting" | "awaiting_start" | "queued" | "processing" | "paused" | "ready" | "error";
 
 export type IndexingEstimate = { pages: number; costUsd: number; seconds: number; vision: boolean };
 
@@ -221,7 +221,7 @@ const uploadDocument = (token: string, projectId: string, file: File, onProgress
     const revision = revisionOf ? `&revisionOf=${revisionOf}` : "";
     xhr.open("PUT", `/api/projects/${projectId}/documents?filename=${encodeURIComponent(file.name)}&autostart=0${revision}`);
     xhr.setRequestHeader("authorization", `Bearer ${token}`);
-    // The server tells PDF from Word by the filename; the type is only informational.
+    // The server tells the format by the filename and content; the type is only informational.
     xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(event.loaded / event.total);
