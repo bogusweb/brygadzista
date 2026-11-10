@@ -12,6 +12,10 @@ export const toolEnv = (home = tmpdir()): NodeJS.ProcessEnv => ({
   TMPDIR: tmpdir(),
   LANG: "C.UTF-8",
   LC_ALL: "C.UTF-8",
+  // Test doubles of the converters (test/fixtures) are steered through FAKE_* variables; never outside tests.
+  ...(process.env.NODE_ENV === "test"
+    ? Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("FAKE_")))
+    : {}),
 });
 
 // Where a sandboxed program may look (#169): the files it reads, and the directories it writes to.
@@ -63,8 +67,8 @@ const systemMounts = () =>
 // system directories, and from the data directory only the files of this one conversion.
 export const sandboxed = (command: string, args: string[], paths: SandboxPaths, home: string): [string, string[]] => {
   if (!sandboxAvailable()) return [command, args];
-  // A program outside the system directories (a test double, a venv elsewhere) is visible read-only.
-  const programs = path.isAbsolute(command) && !SYSTEM_DIRS.some((dir) => command.startsWith(`${dir}/`)) ? [command] : [];
+  // A program outside the system directories (a test double) is visible read-only, with its directory.
+  const programs = path.isAbsolute(command) && !SYSTEM_DIRS.some((dir) => command.startsWith(`${dir}/`)) ? [path.dirname(command)] : [];
   const binds = [
     ...[...programs, ...(paths.read ?? [])].flatMap((file) => ["--ro-bind", file, file]),
     ...(paths.write ?? []).flatMap((dir) => ["--bind", dir, dir]),

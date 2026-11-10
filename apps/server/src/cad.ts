@@ -61,7 +61,8 @@ export type RenderSummary = { dxfVersion: string; repairs: number; pages: { name
 export const dxfToPdf = async (dxf: string, pdf: string): Promise<RenderSummary> => {
   try {
     const { stdout } = await run(config.cadPython, [config.cadRenderScript, dxf, pdf], {
-      read: [path.dirname(config.cadRenderScript), dxf],
+      // The Python environment with ezdxf (/opt/cad in the image) next to the script.
+      read: [path.dirname(config.cadRenderScript), ...(path.isAbsolute(config.cadPython) ? [path.dirname(path.dirname(config.cadPython))] : []), dxf],
       write: [path.dirname(pdf)],
     });
     return JSON.parse(stdout) as RenderSummary;
