@@ -45,7 +45,8 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | Metoda | Ścieżka | Rola |
 | --- | --- | --- |
 | GET | `/api/health` | publiczne |
-| POST | `/api/auth/login` (`{email, password}` → `{token, expiresAt, role, user}`) | publiczne, limit prób |
+| POST | `/api/auth/login` (`{email, password, code?}` → `{token, expiresAt, role, user}`; z włączonym TOTP bez kodu 401 `{totpRequired: true}`) | publiczne, limit prób |
+| GET | `/api/auth/totp`, POST `/api/auth/totp/setup` (`{password}` → sekret i QR), `/enable` (`{code}` → 10 kodów zapasowych), `/disable` (`{password, code}`) | app/admin |
 | GET | `/api/auth/me` (`{role, user}`, `user` = null dla tokenów z env) | app/admin |
 | POST | `/api/auth/logout`, `/api/auth/password` (`{currentPassword, newPassword}`) | app/admin |
 | GET/POST | `/api/users`, PATCH/DELETE `/api/users/:id` | admin |

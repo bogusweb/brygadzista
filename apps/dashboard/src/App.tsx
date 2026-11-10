@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, createApi, type FirmSummary, type Me } from "./api";
 import { useOperatorTenant, useStoredToken } from "./auth";
+import { AccountScreen } from "./AccountScreen";
 import { DocumentScreen } from "./DocumentScreen";
 import { FirmScreen } from "./FirmScreen";
 import { errorMessage } from "./format";
@@ -138,7 +139,7 @@ const Panel = ({ token, route, onSignOut }: PanelProps) => {
             Brygadzista
           </a>
           {inPanel && (
-            <a className="navlink" href={routeHref({ screen: "projects" })} aria-current={route.screen !== "firm" ? "page" : undefined}>
+            <a className="navlink" href={routeHref({ screen: "projects" })} aria-current={route.screen !== "firm" && route.screen !== "account" ? "page" : undefined}>
               Projekty
             </a>
           )}
@@ -168,9 +169,14 @@ const Panel = ({ token, route, onSignOut }: PanelProps) => {
           ) : (
             me.tenant && <span className="muted small firm-name">{me.tenant.name}</span>
           )}
-          <span className="muted small user-name" title={me.user?.email}>
+          <a
+            className="muted small user-name"
+            title={me.user ? `${me.user.email}: konto, sesje, tokeny MCP, logowanie dwuetapowe` : undefined}
+            href={routeHref({ screen: "account" })}
+            aria-current={route.screen === "account" ? "page" : undefined}
+          >
             {me.user ? me.user.name || me.user.email : "Operator"}
-          </span>
+          </a>
           <button type="button" className="button ghost" onClick={signOut}>
             Wyloguj
           </button>
@@ -182,7 +188,9 @@ const Panel = ({ token, route, onSignOut }: PanelProps) => {
             {error}
           </p>
         )}
-        {!inPanel ? (
+        {route.screen === "account" ? (
+          <AccountScreen api={api} me={me} onUnauthorized={signOut} />
+        ) : !inPanel ? (
           <div className="card empty">
             <h2>W tej firmie jesteś pracownikiem</h2>
             <p className="muted">Pracownik korzysta z aplikacji na telefonie. Wybierz w nagłówku firmę, w której jesteś właścicielem albo kierownikiem.</p>
@@ -195,6 +203,7 @@ const Panel = ({ token, route, onSignOut }: PanelProps) => {
                 onUnauthorized={signOut}
                 tenantId={activeTenantId}
                 firmNames={operatorMode && !operatorTenant ? firmNames : null}
+                operator={Boolean(me.operator)}
               />
             )}
             {route.screen === "firm" && (

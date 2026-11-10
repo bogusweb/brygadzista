@@ -182,6 +182,18 @@ export const cropQuery = (region: Region | null) =>
     ? `x=${region.x.toFixed(4)}&y=${region.y.toFixed(4)}&w=${region.width.toFixed(4)}&h=${region.height.toFixed(4)}&`
     : "";
 
+export type AccountSession = {
+  id: string;
+  current: boolean;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  userAgent: string | null;
+  ip: string | null;
+};
+export type McpToken = { id: string; name: string; createdAt: string; lastUsedAt: string | null; expiresAt: string | null; tenantName: string | null };
+export type TotpStatus = { enabled: boolean; enabledAt: string | null; recoveryCodesLeft: number };
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -267,6 +279,19 @@ export const createApi = (token: string, operatorTenantId: string | null = null)
     // Sets the cookie that opens page images for the next two hours (#165).
     fileCookie: () => request<{ expiresAt: string }>(token, "/api/auth/file-cookie", { method: "POST" }),
     logout: () => request<void>(token, "/api/auth/logout", { method: "POST" }),
+    // The account screen (#167, #168, #176): where the account is logged in, connector tokens, the second factor.
+    listSessions: () => request<AccountSession[]>(token, "/api/auth/sessions"),
+    endSession: (id: string) => request<void>(token, `/api/auth/sessions/${id}`, { method: "DELETE" }),
+    endOtherSessions: () => request<void>(token, "/api/auth/sessions/end-others", { method: "POST" }),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      request<void>(token, "/api/auth/password", post({ currentPassword, newPassword })),
+    listMcpTokens: () => request<McpToken[]>(token, "/api/mcp-tokens"),
+    createMcpToken: (name: string, days: number) => request<McpToken & { token: string }>(token, "/api/mcp-tokens", post({ name, days })),
+    revokeMcpToken: (id: string) => request<void>(token, `/api/mcp-tokens/${id}`, { method: "DELETE" }),
+    totpStatus: () => request<TotpStatus>(token, "/api/auth/totp"),
+    totpSetup: (password: string) => request<{ secret: string; uri: string; qrDataUrl: string }>(token, "/api/auth/totp/setup", post({ password })),
+    totpEnable: (code: string) => request<{ recoveryCodes: string[] }>(token, "/api/auth/totp/enable", post({ code })),
+    totpDisable: (password: string, code: string) => request<void>(token, "/api/auth/totp/disable", post({ password, code })),
     switchTenant: (tenantId: string) => request<Me>(token, "/api/auth/tenant", post({ tenantId })),
     listFirms: () => request<FirmSummary[]>(token, "/api/operator/tenants"),
     setFirmBlocked: (id: string, disabled: boolean) => request<void>(token, `/api/operator/tenants/${id}`, post({ disabled }, "PATCH")),

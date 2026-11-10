@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
+import QRCode from "qrcode";
 import { requireRole, verifyPassword, type AuthEnv } from "./auth.js";
 import { sql } from "./db.js";
 import { limiters, tooManyRequests } from "./rate-limit.js";
@@ -138,7 +139,8 @@ totp.post("/api/auth/totp/setup", requireRole("admin", "app"), async (c) => {
     where id = ${user.id}`;
   const label = encodeURIComponent(`${ISSUER}:${user.email}`);
   const uri = `otpauth://totp/${label}?secret=${secret}&issuer=${ISSUER}&algorithm=SHA1&digits=${DIGITS}&period=${STEP_SECONDS}`;
-  return c.json({ secret, uri });
+  const qrDataUrl = await QRCode.toDataURL(uri, { errorCorrectionLevel: "M", margin: 1, width: 220 });
+  return c.json({ secret, uri, qrDataUrl });
 });
 
 // Step 2: the first code from the app turns it on and gives out the recovery codes, once.
