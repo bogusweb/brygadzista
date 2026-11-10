@@ -216,3 +216,40 @@ describe("the firm's database role (#172)", () => {
     expect(await attempt("select id, name, email from users")).toBe("read");
   });
 });
+
+describe("disk room per firm (#173)", () => {
+  it("refuses an upload past the firm's quota and says so", async () => {
+    const { ADMIN, createProject, createTenant, makePdf } = await import("./helpers.js");
+    const { config } = await import("../src/config.js");
+    const firm = await createTenant();
+    const project = await createProject("Dom", firm);
+    const quota = config.tenantStorageBytes;
+    config.tenantStorageBytes = 1;
+    try {
+      const response = await app.request(`/api/projects/${project}/documents?filename=a.pdf`, { method: "PUT", body: makePdf(["x"]), headers: ADMIN });
+      expect(response.status).toBe(413);
+      expect(((await response.json()) as { error: string }).error).toContain("wykorzystała miejsce");
+      expect(await sql`select id from documents`).toHaveLength(0);
+    } finally {
+      config.tenantStorageBytes = quota;
+    }
+  });
+});
+
+describe("indexing queue (#173)", () => {
+  it("takes the next document from the firm with the fewest being indexed", async () => {
+    const { createProject, createTenant, createDocument } = await import("./helpers.js");
+    const busy = await createProject("Duża firma", await createTenant("Duża"));
+    const quiet = await createProject("Mała firma", await createTenant("Mała"));
+    await createDocument(busy, "processing");
+    await createDocument(busy, "queued");
+    const waiting = await createDocument(quiet, "queued");
+    await sql`update documents set created_at = now() + interval '1 minute' where id = ${waiting}`;
+
+    const [next] = await sql<{ id: string }[]>`
+      select d.id from documents d where d.status = 'queued'
+      order by (select count(*) from documents busy where busy.tenant_id = d.tenant_id and busy.status = 'processing'), d.created_at
+      limit 1`;
+    expect(next!.id).toBe(waiting);
+  });
+});

@@ -1,12 +1,14 @@
 import { Hono } from "hono";
-import { access, mkdir, readFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { isUuid, requireDocumentAccess, requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
+import { config } from "./config.js";
 import { sql } from "./db.js";
 import { pdfPageSize, pdfRenderPage, pdfRenderRegion } from "./pdf.js";
 import { documentDir, documentPdf, pageImage, pageImagePrefix } from "./storage.js";
 import { requireRoleOrQueryToken } from "./file-access.js";
+import { limiters, rateLimit } from "./rate-limit.js";
 
 // Questions to the designer (#73). When the project is silent or contradicts itself, the agent drafts a question with
 // the page and a crop of the drawing; the contractor sends it from the phone (mail, WhatsApp, SMS; the app never
@@ -107,6 +109,15 @@ const exists = (file: string) =>
   );
 
 // A crop is rendered from the PDF at a resolution that keeps small dimensions legible, then cached.
+// Any region can be asked for, so the crops kept on disk per document are capped (#173); the oldest go first.
+const pruneCrops = async (dir: string) => {
+  const names = await readdir(dir).catch(() => [] as string[]);
+  if (names.length < config.maxCachedCrops) return;
+  const files = await Promise.all(names.map(async (name) => ({ name, at: (await stat(path.join(dir, name)).catch(() => null))?.mtimeMs ?? 0 })));
+  files.sort((a, b) => a.at - b.at);
+  await Promise.all(files.slice(0, files.length - config.maxCachedCrops + 1).map(({ name }) => rm(path.join(dir, name), { force: true })));
+};
+
 export const renderCrop = async (documentId: string, pageNo: number, region: Region | null) => {
   const pdf = await documentPdf(documentId);
   if (!region) {
@@ -121,6 +132,7 @@ export const renderCrop = async (documentId: string, pageNo: number, region: Reg
   const dpi = Math.max(72, Math.min(MAX_CROP_DPI, Math.round(CROP_LONG_EDGE_PX / longEdgeInches)));
   const scale = dpi / POINTS_PER_INCH;
   await mkdir(path.dirname(prefix), { recursive: true });
+  await pruneCrops(path.dirname(prefix));
   return pdfRenderRegion(pdf, pageNo, prefix, {
     dpi,
     x: Math.round(region.x * size.width * scale),
@@ -205,8 +217,9 @@ questions.delete("/api/projects/:id/questions/:questionId", requireRole("app", "
   return row ? c.body(null, 204) : c.json({ error: "Nie ma takiego pytania" }, 404);
 });
 
-// The crop that goes along with a question; ?token= lets the phone download it for sharing.
-questions.get("/api/documents/:id/pages/:pageNo/crop", requireRoleOrQueryToken("app", "admin"), requireDocumentAccess(), async (c) => {
+// The crop that goes along with a question; a file link lets the phone download it for sharing. Each new region is
+// a render, so it has its own limit (#173).
+questions.get("/api/documents/:id/pages/:pageNo/crop", requireRoleOrQueryToken("app", "admin"), rateLimit(limiters.crop), requireDocumentAccess(), async (c) => {
   const documentId = c.req.param("id");
   const pageNo = Number(c.req.param("pageNo"));
   const parsed = parseRegion(c.req.query());

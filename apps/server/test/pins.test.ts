@@ -162,3 +162,18 @@ describe("searchPins", () => {
     expect(await searchPins(projectId, { query: "dach" })).toEqual([]);
   });
 });
+
+describe("photo size in pixels (#173)", () => {
+  it("refuses a photo with more pixels than MAX_PHOTO_MEGAPIXELS before decoding it", async () => {
+    const { config } = await import("../src/config.js");
+    const pinId = randomUUID();
+    expect((await putPin(pinId, pinBody())).status).toBe(200);
+    const limit = config.maxPhotoPixels;
+    config.maxPhotoPixels = 1_000_000;
+    try {
+      expect((await putPhoto(pinId, randomUUID(), await photo(2000, 1000))).status).toBe(400);
+    } finally {
+      config.maxPhotoPixels = limit;
+    }
+  });
+});

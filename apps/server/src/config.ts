@@ -93,6 +93,14 @@ export const config = {
   // Upload limits: the PDF is streamed to disk and cut off as soon as it passes the size limit.
   maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 1024) * 1024 * 1024,
   maxPages: Number(process.env.MAX_PAGES ?? 3000),
+  // Disk room (#173): files of one firm (0 = no limit), and the free disk every upload leaves for the server.
+  tenantStorageBytes: Number(process.env.TENANT_STORAGE_GB ?? 10) * 1024 ** 3,
+  minFreeDiskBytes: Number(process.env.MIN_FREE_DISK_MB ?? 1024) * 1024 ** 2,
+  // Photos bigger than this many pixels are refused before they are decoded (a small file can hide a huge image).
+  maxPhotoPixels: Number(process.env.MAX_PHOTO_MEGAPIXELS ?? 120) * 1_000_000,
+  // Crops of a drawing kept on disk per document; older ones are rendered again when asked for.
+  maxCachedCrops: Number(process.env.MAX_CACHED_CROPS ?? 300),
+  cropsPerMinute: Number(process.env.RATE_LIMIT_CROPS_PER_MINUTE ?? 60),
   // Site photos (#70): the upload limit, and the size they are stored at (long edge, px) next to a small thumbnail.
   maxPhotoBytes: Number(process.env.MAX_PHOTO_MB ?? 25) * 1024 * 1024,
   // Fonts with Polish letters for the defect protocol PDF (#74); the image installs fonts-dejavu-core.

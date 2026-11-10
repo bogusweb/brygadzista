@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, rm, rmdir, stat } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, rmdir, stat, statfs } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";
 import { sql } from "./db.js";
@@ -13,7 +13,7 @@ export const tenantDir = (tenantId: string) => path.join(config.dataDir, "tenant
 const projectPath = (tenantId: string, projectId: string) => path.join(tenantDir(tenantId), "projects", projectId);
 const documentPath = (projectRoot: string, documentId: string) => path.join(projectRoot, "documents", documentId);
 
-export const projectDir = async (projectId: string) => {
+export const tenantOfProject = async (projectId: string) => {
   let tenantId = projectTenants.get(projectId);
   if (!tenantId) {
     const [project] = await sql<{ tenantId: string }[]>`select tenant_id as "tenantId" from projects where id = ${projectId}`;
@@ -21,8 +21,10 @@ export const projectDir = async (projectId: string) => {
     tenantId = project.tenantId;
     projectTenants.set(projectId, tenantId);
   }
-  return projectPath(tenantId, projectId);
+  return tenantId;
 };
+
+export const projectDir = async (projectId: string) => projectPath(await tenantOfProject(projectId), projectId);
 
 export const documentDir = async (documentId: string) => {
   let projectId = documentProjects.get(documentId);
@@ -97,3 +99,56 @@ export const migrateFiles = async () => {
   for (const dir of ["documents", "projects", "diary"]) await rmdir(path.join(config.dataDir, dir)).catch(() => {});
   if (moved) console.log(`brygadzista: moved ${moved} file groups into per-firm directories`);
 };
+
+// --- Disk room (#173) ---
+// The disk is shared with other projects on the server, so one firm must not fill it: each firm has a quota
+// (TENANT_STORAGE_GB) and every upload leaves a reserve of free disk (MIN_FREE_DISK_MB).
+
+const directoryBytes = async (dir: string): Promise<number> => {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  let total = 0;
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += await directoryBytes(full);
+    else if (entry.isFile()) total += (await stat(full).catch(() => null))?.size ?? 0;
+  }
+  return total;
+};
+
+const USAGE_CACHE_MS = 60_000;
+const usageCache = new Map<string, { bytes: number; at: number }>();
+
+export const tenantStorageBytes = async (tenantId: string) => {
+  const cached = usageCache.get(tenantId);
+  if (cached && cached.at > Date.now() - USAGE_CACHE_MS) return cached.bytes;
+  const bytes = await directoryBytes(tenantDir(tenantId));
+  usageCache.set(tenantId, { bytes, at: Date.now() });
+  return bytes;
+};
+
+// A file just written counts at once, before the cached total is measured again.
+export const addTenantStorage = (tenantId: string, bytes: number) => {
+  const cached = usageCache.get(tenantId);
+  if (cached) cached.bytes += bytes;
+};
+
+const freeDiskBytes = async () => {
+  try {
+    const info = await statfs(config.dataDir);
+    return info.bavail * info.bsize;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+};
+
+// How many bytes a firm may still write now: the smaller of its quota left and the disk above the reserve.
+export const storageRoom = async (tenantId: string) => {
+  const disk = (await freeDiskBytes()) - config.minFreeDiskBytes;
+  const quota = config.tenantStorageBytes > 0 ? config.tenantStorageBytes - (await tenantStorageBytes(tenantId)) : Number.POSITIVE_INFINITY;
+  return { bytes: Math.max(0, Math.min(disk, quota)), byQuota: quota <= disk };
+};
+
+export const storageFullMessage = (byQuota: boolean) =>
+  byQuota
+    ? `Firma wykorzystała miejsce na pliki (${Math.round(config.tenantStorageBytes / 1024 ** 3)} GB). Usuń stare dokumenty albo poproś o większy limit.`
+    : "Na serwerze kończy się miejsce na pliki. Spróbuj później albo skontaktuj się z obsługą.";

@@ -51,7 +51,7 @@ import { mcp } from "./mcp.js";
 import { mcpTokens } from "./mcp-tokens.js";
 import { pins, removeDocumentPhotos } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
-import { documentDir, documentPdf, pageImage, projectDir } from "./storage.js";
+import { addTenantStorage, documentDir, documentPdf, pageImage, projectDir, storageFullMessage, storageRoom, tenantOfProject } from "./storage.js";
 import { tenants } from "./tenants.js";
 import { users } from "./users.js";
 import { fileAccess, requireRoleOrQueryToken } from "./file-access.js";
@@ -303,6 +303,12 @@ app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAcces
   const body = c.req.raw.body;
   if (!body) return c.json({ error: "Brak pliku" }, 400);
   if (Number(c.req.header("content-length") ?? 0) > config.maxUploadBytes) return c.json({ error: tooLargeMessage() }, 413);
+  // The firm's quota and the server's free disk (#173): the upload stops as soon as it would pass either.
+  const tenantId = await tenantOfProject(c.req.param("id"));
+  const room = await storageRoom(tenantId);
+  const declared = Number(c.req.header("content-length") ?? 0);
+  if (room.bytes <= 0 || declared > room.bytes) return c.json({ error: storageFullMessage(room.byQuota) }, 413);
+  const uploadLimit = Math.min(config.maxUploadBytes, room.bytes);
   const [doc] = await sql<{ id: string }[]>`
     insert into documents (project_id, filename, status, revision_of)
     values (${c.req.param("id")}, ${filename}, 'uploading', ${revisionOf}) returning id`;
@@ -320,12 +326,15 @@ app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAcces
 
   await mkdir(dir, { recursive: true });
   try {
-    await pipeline(Readable.fromWeb(body as WebReadableStream), limitSize(config.maxUploadBytes), createWriteStream(received));
+    await pipeline(Readable.fromWeb(body as WebReadableStream), limitSize(uploadLimit), createWriteStream(received));
   } catch (error) {
-    if (error instanceof UploadTooLarge) return reject(413, tooLargeMessage());
+    if (error instanceof UploadTooLarge) {
+      return reject(413, uploadLimit < config.maxUploadBytes ? storageFullMessage(room.byQuota) : tooLargeMessage());
+    }
     await reject(400, "Przerwane wysyłanie pliku");
     throw error;
   }
+  addTenantStorage(tenantId, (await stat(received)).size);
   const handle = await open(received);
   const { buffer, bytesRead } = await handle.read(Buffer.alloc(256), 0, 256, 0);
   await handle.close();
