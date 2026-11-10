@@ -199,3 +199,20 @@ describe("file access without the session in URLs (#165)", () => {
     expect(response.status).toBe(400);
   });
 });
+
+describe("the firm's database role (#172)", () => {
+  it("cannot read credentials even when a query inside a firm goes wrong", async () => {
+    const { createTenant } = await import("./helpers.js");
+    const { withTenant } = await import("../src/db.js");
+    const firm = await createTenant();
+
+    const attempt = (query: string) => withTenant(firm, (tx) => tx.unsafe(query)).then(() => "read", () => "refused");
+
+    expect(await attempt("select password_hash from users")).toBe("refused");
+    expect(await attempt("select totp_secret from users")).toBe("refused");
+    expect(await attempt("select token_hash from sessions")).toBe("refused");
+    expect(await attempt("select token_hash from mcp_tokens")).toBe("refused");
+    expect(await attempt("select token_hash from tenant_invites")).toBe("refused");
+    expect(await attempt("select id, name, email from users")).toBe("read");
+  });
+});

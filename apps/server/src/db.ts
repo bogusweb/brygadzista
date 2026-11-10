@@ -650,9 +650,15 @@ const enableRowLevelSecurity = async () => {
   await sql.unsafe(`grant usage on schema public to ${TENANT_ROLE}`);
   await sql.unsafe(`grant select, insert, update, delete on all tables in schema public to ${TENANT_ROLE}`);
   await sql.unsafe(`grant usage, select on all sequences in schema public to ${TENANT_ROLE}`);
+  // A request inside a firm never needs credentials (#172): password and TOTP hashes, session, invitation and MCP token
+  // hashes, and the operator's audit stay out of reach of the firm's role even if a query goes wrong. Of accounts it
+  // sees only who they are.
+  await sql.unsafe(`revoke all on sessions, mcp_tokens, tenant_invites, operator_audit from ${TENANT_ROLE}`);
+  await sql.unsafe(`revoke all on users from ${TENANT_ROLE}`);
+  await sql.unsafe(`grant select (id, email, name, role, disabled_at, created_at) on users to ${TENANT_ROLE}`);
   const tables = await sql<{ table: string }[]>`
     select table_name as table from information_schema.columns
-    where table_schema = 'public' and column_name = 'tenant_id' and table_name not in ('sessions', 'tenant_members', 'mcp_tokens')`;
+    where table_schema = 'public' and column_name = 'tenant_id' and table_name not in ('sessions', 'tenant_members')`;
   for (const { table } of tables) {
     await sql.unsafe(`alter table ${table} enable row level security`);
     await sql.unsafe(`drop policy if exists tenant_isolation on ${table}`);

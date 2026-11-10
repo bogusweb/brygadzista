@@ -1,8 +1,8 @@
-import type { Context } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { randomBytes } from "node:crypto";
 import { sessionTokenHash } from "./auth.js";
 import { config } from "./config.js";
-import { sql } from "./db.js";
+import { sql, withTenant } from "./db.js";
 
 // Read-only links to one thing on a project (#84 weekly report, #82 protocol), on top of the share links from #88:
 // only a hash of the token is stored, the link is bound to the project and its firm, and it expires.
@@ -27,8 +27,8 @@ export const createShareLink = async (projectId: string, target: ShareTarget, cr
 // The link's target, when the token is known, not expired, and its firm is active; null otherwise.
 export const resolveShareLink = async (token: string, type: ShareTarget["type"]) => {
   if (!/^bl_[\w-]{20,64}$/.test(token)) return null;
-  const [link] = await sql<{ projectId: string; targetId: string; expiresAt: Date }[]>`
-    select l.project_id as "projectId", l.target_id as "targetId", l.expires_at as "expiresAt" from share_links l
+  const [link] = await sql<{ projectId: string; tenantId: string; targetId: string; expiresAt: Date }[]>`
+    select l.project_id as "projectId", l.tenant_id as "tenantId", l.target_id as "targetId", l.expires_at as "expiresAt" from share_links l
     join projects p on p.id = l.project_id and p.tenant_id = l.tenant_id
     join tenants t on t.id = l.tenant_id and t.disabled_at is null
     where l.token_hash = ${sessionTokenHash(token)} and l.expires_at > now() and l.target_type = ${type}`;
@@ -72,3 +72,12 @@ img.signature { max-width: 260px; height: auto; background: #fff; border-radius:
 </style></head><body><main>${body}</main></body></html>`;
 
 export const notFoundPage = () => publicPage("Link nieaktywny", "<h1>Link wygasł albo nie istnieje</h1><p class=\"muted\">Poproś wykonawcę o nowy link.</p>");
+
+// The public pages of a link (#82 protocol, #84 report) run limited to the link's firm, also in the database (#172).
+export const shareScope =
+  (type: ShareTarget["type"]): MiddlewareHandler =>
+  async (c, next) => {
+    const link = await resolveShareLink(c.req.param("token") ?? "", type);
+    if (!link) return c.html(notFoundPage(), 404);
+    await withTenant(link.tenantId, next);
+  };

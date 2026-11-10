@@ -3,7 +3,7 @@ import { access } from "node:fs/promises";
 import sharp from "sharp";
 import { z } from "zod";
 import { bearerToken, canAccessProject, principalFromToken, visibleProjects, type Principal } from "./auth.js";
-import { sql } from "./db.js";
+import { sql, withTenant } from "./db.js";
 import { isMcpToken, principalFromMcpToken } from "./mcp-tokens.js";
 import { pdfRenderPage } from "./pdf.js";
 import { MAX_PAGES_PER_CALL, projectOutline, readPages } from "./project-outline.js";
@@ -148,7 +148,12 @@ const callTool = async (principal: Principal, params: Record<string, unknown> | 
     return { content: [{ type: "text", text: "Za dużo wywołań, spróbuj za minutę." }], isError: true };
   }
   try {
-    return await definition.run(principal, args.data);
+    // A tool on one project runs limited to that project's firm, also in the database (#172).
+    const projectId = (args.data as { projectId?: unknown }).projectId;
+    if (typeof projectId !== "string") return await definition.run(principal, args.data);
+    const tenantId = await canAccessProject(principal, projectId);
+    if (!tenantId) throw new ToolError("Nie ma takiego projektu albo brak do niego dostępu");
+    return await withTenant(tenantId, () => definition.run(principal, args.data));
   } catch (error) {
     if (error instanceof ToolError) return { content: [{ type: "text", text: error.message }], isError: true };
     throw error;
