@@ -253,3 +253,11 @@ describe("indexing queue (#173)", () => {
     expect(next!.id).toBe(waiting);
   });
 });
+
+describe("agent tool results (#174)", () => {
+  it("are marked as data, not instructions", async () => {
+    const { markUntrusted, UNTRUSTED_NOTE } = await import("../src/agent.js");
+    expect(markUntrusted({ results: [] })).toEqual({ results: [], contentNotice: UNTRUSTED_NOTE });
+    expect(markUntrusted("tekst")).toBe("tekst");
+  });
+});

@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
-import { childRefs, resolveProps, text } from "../../lib/a2ui";
+import { childRefs, resolveProps, serverImagePath, text } from "../../lib/a2ui";
+import { serverImageSource } from "../../lib/api";
+import { useConnection } from "../../lib/settings";
 import type { A2UIComponent, Scope, Surface, SurfaceActivity } from "../../lib/a2ui";
 import { colors, radius, spacing } from "../../lib/theme";
 import { ToolStatus } from "../chat/ToolStatus";
@@ -28,9 +30,15 @@ const BASIC_RENDERERS: Record<string, ComponentRenderer> = {
   List: (props, children) => <View style={props.direction === "horizontal" ? styles.row : styles.column}>{children}</View>,
   Row: (_, children) => <View style={styles.row}>{children}</View>,
   Divider: () => <View style={styles.divider} />,
-  Image: (props) =>
-    text(props.url) ? <Image source={{ uri: text(props.url) }} style={styles.image} resizeMode="contain" accessibilityIgnoresInvertColors /> : null,
+  Image: (props) => <ServerImage url={props.url} />,
   Icon: () => null,
+};
+
+const ServerImage = ({ url }: { url: unknown }) => {
+  const connection = useConnection();
+  const path = serverImagePath(url);
+  if (!path) return null;
+  return <Image source={serverImageSource(connection, path)} style={styles.image} resizeMode="contain" accessibilityIgnoresInvertColors />;
 };
 
 const RENDERERS: Record<string, ComponentRenderer> = { ...BASIC_RENDERERS, ...CATALOG_RENDERERS };

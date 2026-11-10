@@ -7,6 +7,7 @@ import {
   childRefs,
   parseSurfaceActivity,
   resolveProps,
+  serverImagePath,
   toMaterials,
   toPartitions,
   toSource,
@@ -128,5 +129,17 @@ describe("chat items", () => {
     expect(parseSurfaceActivity({ status: "building", progressTokens: 30 })).toEqual({ kind: "building" });
     expect(parseSurfaceActivity({ status: "failed", error: "Zły komponent" })).toEqual({ kind: "failed", error: "Zły komponent" });
     expect(parseSurfaceActivity({ something: "else" })).toBeNull();
+  });
+});
+
+describe("serverImagePath", () => {
+  it("lets through only paths of the app's own server", () => {
+    expect(serverImagePath("/api/documents/d1/pages/3/image")).toBe("/api/documents/d1/pages/3/image");
+    expect(serverImagePath("/api/documents/d1/pages/3/crop?x=0.1000&y=0.2000")).toBe("/api/documents/d1/pages/3/crop?x=0.1000&y=0.2000");
+    expect(serverImagePath("https://evil.example/x.png?q=secret")).toBeNull();
+    expect(serverImagePath("//evil.example/x.png")).toBeNull();
+    expect(serverImagePath("/api/../../etc/passwd")).toBeNull();
+    expect(serverImagePath("data:image/png;base64,AAAA")).toBeNull();
+    expect(serverImagePath(undefined)).toBeNull();
   });
 });
