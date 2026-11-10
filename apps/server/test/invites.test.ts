@@ -144,3 +144,41 @@ describe("firm settings", () => {
     expect(restored.tenants).toHaveLength(2);
   });
 });
+
+describe("password guessing through invitations (#164)", () => {
+  it("limits wrong passwords of an existing account per account, whatever address the client claims", async () => {
+    const open = await invite({ role: "worker" });
+    let last = 0;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const response = await app.request(`/api/invites/token/${open.body.token}/accept`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": `10.0.0.${attempt}`, "cf-connecting-ip": `10.1.0.${attempt}` },
+        body: JSON.stringify({ email: "szef@a.pl", password: `zgadywane-${attempt}` }),
+      });
+      last = response.status;
+    }
+    expect(last).toBe(429);
+  });
+
+  it("does not let a firm owner change the operator's account", async () => {
+    const { createOperator } = await import("./helpers.js");
+    const operatorId = await createOperator("operator@serwis.pl");
+    await sql`insert into tenant_members (tenant_id, user_id, role) values (${firmA}, ${operatorId}, 'owner')`;
+
+    const response = await app.request(`/api/users/${operatorId}`, json("PATCH", { password: "przejete-haslo-123" }, ownerA));
+
+    expect(response.status).toBe(403);
+    expect((await app.request("/api/auth/login", json("POST", { email: "operator@serwis.pl", password: PASSWORD }))).status).toBe(200);
+  });
+});
+
+describe("client address for limits (#164)", () => {
+  it("takes Cloudflare's header, then the entry the proxy added, never the client's own first entry", async () => {
+    const { clientIp } = await import("../src/users.js");
+    const request = (headers: Record<string, string>) => new Request("http://x/", { headers });
+
+    expect(clientIp(request({ "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "1.2.3.4, 203.0.113.7" }))).toBe("203.0.113.7");
+    expect(clientIp(request({ "x-forwarded-for": "1.2.3.4, 198.51.100.9" }))).toBe("198.51.100.9");
+    expect(clientIp(request({}))).toBe("unknown");
+  });
+});

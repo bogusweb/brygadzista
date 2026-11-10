@@ -91,7 +91,7 @@ type Row =
 export const ProjectDiary = ({ projectId }: { projectId: string }) => {
   const diary = useDiary(projectId);
   const connection = useConnection();
-  const openReport = (from: string, to: string) => void Linking.openURL(diaryReportUrl(connection, projectId, from, to));
+  const openReport = (from: string, to: string) => void diaryReportUrl(connection, projectId, from, to).then(Linking.openURL, () => {});
   const openPage = usePageViewer();
   const [editing, setEditing] = useState<DiaryNote | null>(null);
   const [draft, setDraft] = useState<string | null>(null);

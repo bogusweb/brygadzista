@@ -17,20 +17,26 @@ const LoginForm = () => {
   const [serverUrl, setServerUrl] = useState(lastServerUrl ?? hostedUrl ?? "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // Shown once the server says the account has the second factor on (#176).
+  const [code, setCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
-  const canSave = serverUrl.trim().length > 0 && email.trim().length > 0 && password.length > 0;
+  const canSave = serverUrl.trim().length > 0 && email.trim().length > 0 && password.length > 0 && code?.trim() !== "";
 
   const submit = async () => {
     const url = normalizeServerUrl(serverUrl);
     setChecking(true);
     setError(null);
     try {
-      await signIn(url, await login(url, email, password));
+      await signIn(url, await login(url, email, password, code?.trim() || undefined));
       if (router.canGoBack()) router.back();
       else router.replace("/");
     } catch (caught) {
+      if (caught instanceof ApiError && caught.totpRequired && code === null) {
+        setCode("");
+        return;
+      }
       setError(errorText(caught, "Nie udało się zalogować."));
     } finally {
       setChecking(false);
@@ -97,6 +103,26 @@ const LoginForm = () => {
           onSubmitEditing={canSave ? submit : undefined}
         />
       </View>
+
+      {code !== null ? (
+        <View style={styles.field}>
+          <Text style={styles.label} nativeID="codeLabel">
+            Kod z aplikacji uwierzytelniającej
+          </Text>
+          <TextInput
+            accessibilityLabelledBy="codeLabel"
+            value={code}
+            onChangeText={setCode}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            textContentType="oneTimeCode"
+            autoComplete="one-time-code"
+            autoFocus
+            style={styles.input}
+            onSubmitEditing={canSave ? submit : undefined}
+          />
+        </View>
+      ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 

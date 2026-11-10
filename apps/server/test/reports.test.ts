@@ -5,7 +5,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/app.js";
 import { sql } from "../src/db.js";
 import { photoFile } from "../src/storage.js";
-import { ADMIN, APP, createDocument, createProject, createTenant, createUser, login, resetDatabase } from "./helpers.js";
+import { ADMIN, APP, createDocument, createProject, createTenant, createUser, login, resetDatabase, fileLink } from "./helpers.js";
 
 let projectId: string;
 let documentId: string;
@@ -56,7 +56,7 @@ describe("weekly report", () => {
     expect(again.report.id).toBe(report.id);
     const list = (await (await app.request(`/api/projects/${projectId}/reports`, { headers: APP })).json()) as unknown[];
     expect(list).toHaveLength(1);
-    const pdf = await app.request(`/api/reports/${report.id}/report.pdf?token=test-app`);
+    const pdf = await app.request(await fileLink(APP, `/api/reports/${report.id}/report.pdf`));
     expect(pdf.headers.get("content-type")).toBe("application/pdf");
     expect(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString()).toBe("%PDF-");
   });

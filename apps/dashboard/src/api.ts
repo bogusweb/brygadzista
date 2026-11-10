@@ -182,10 +182,24 @@ export const cropQuery = (region: Region | null) =>
     ? `x=${region.x.toFixed(4)}&y=${region.y.toFixed(4)}&w=${region.width.toFixed(4)}&h=${region.height.toFixed(4)}&`
     : "";
 
+export type AccountSession = {
+  id: string;
+  current: boolean;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  userAgent: string | null;
+  ip: string | null;
+};
+export type McpToken = { id: string; name: string; createdAt: string; lastUsedAt: string | null; expiresAt: string | null; tenantName: string | null };
+export type TotpStatus = { enabled: boolean; enabledAt: string | null; recoveryCodesLeft: number };
+
 export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    // The login needs the code from the authenticator app (#176).
+    readonly totpRequired = false,
   ) {
     super(message);
   }
@@ -197,8 +211,8 @@ const request = async <T>(token: string | null, path: string, init: RequestInit 
     headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", ...init.headers },
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new ApiError(body?.error ?? `Błąd serwera (${response.status})`, response.status);
+    const body = (await response.json().catch(() => null)) as { error?: string; totpRequired?: boolean } | null;
+    throw new ApiError(body?.error ?? `Błąd serwera (${response.status})`, response.status, body?.totpRequired === true);
   }
   return (response.status === 204 ? undefined : await response.json()) as T;
 };
@@ -245,7 +259,8 @@ const post = (body: unknown, method = "POST"): RequestInit => ({ method, body: J
 
 // Requests that need no session: signing in and the invitation page.
 export const publicApi = {
-  login: (email: string, password: string) => request<LoginResult>(null, "/api/auth/login", post({ email, password })),
+  login: (email: string, password: string, code?: string) =>
+    request<LoginResult>(null, "/api/auth/login", post(code ? { email, password, code } : { email, password })),
   inviteInfo: (token: string) => request<InviteInfo>(null, `/api/invites/token/${encodeURIComponent(token)}`),
   acceptInvite: (token: string, body: { email?: string; name: string; password: string }) =>
     request<{ email: string; tenant: Tenant }>(null, `/api/invites/token/${encodeURIComponent(token)}/accept`, post(body)),
@@ -261,7 +276,22 @@ export const createApi = (token: string, operatorTenantId: string | null = null)
     token,
     operatorTenantId,
     whoami: () => request<Me>(token, "/api/auth/me"),
+    // Sets the cookie that opens page images for the next two hours (#165).
+    fileCookie: () => request<{ expiresAt: string }>(token, "/api/auth/file-cookie", { method: "POST" }),
     logout: () => request<void>(token, "/api/auth/logout", { method: "POST" }),
+    // The account screen (#167, #168, #176): where the account is logged in, connector tokens, the second factor.
+    listSessions: () => request<AccountSession[]>(token, "/api/auth/sessions"),
+    endSession: (id: string) => request<void>(token, `/api/auth/sessions/${id}`, { method: "DELETE" }),
+    endOtherSessions: () => request<void>(token, "/api/auth/sessions/end-others", { method: "POST" }),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      request<void>(token, "/api/auth/password", post({ currentPassword, newPassword })),
+    listMcpTokens: () => request<McpToken[]>(token, "/api/mcp-tokens"),
+    createMcpToken: (name: string, days: number) => request<McpToken & { token: string }>(token, "/api/mcp-tokens", post({ name, days })),
+    revokeMcpToken: (id: string) => request<void>(token, `/api/mcp-tokens/${id}`, { method: "DELETE" }),
+    totpStatus: () => request<TotpStatus>(token, "/api/auth/totp"),
+    totpSetup: (password: string) => request<{ secret: string; uri: string; qrDataUrl: string }>(token, "/api/auth/totp/setup", post({ password })),
+    totpEnable: (code: string) => request<{ recoveryCodes: string[] }>(token, "/api/auth/totp/enable", post({ code })),
+    totpDisable: (password: string, code: string) => request<void>(token, "/api/auth/totp/disable", post({ password, code })),
     switchTenant: (tenantId: string) => request<Me>(token, "/api/auth/tenant", post({ tenantId })),
     listFirms: () => request<FirmSummary[]>(token, "/api/operator/tenants"),
     setFirmBlocked: (id: string, disabled: boolean) => request<void>(token, `/api/operator/tenants/${id}`, post({ disabled }, "PATCH")),
@@ -309,11 +339,11 @@ export const createApi = (token: string, operatorTenantId: string | null = null)
     listPages: (documentId: string) => request<DocumentPage[]>(token, `/api/documents/${documentId}/pages`),
     pageText: (documentId: string, pageNo: number) =>
       request<{ text: string }>(token, `/api/documents/${documentId}/pages/${pageNo}/text`),
-    // <img> can't send headers, so the image URL carries the token as a query parameter.
-    pageImageUrl: (documentId: string, pageNo: number) =>
-      `/api/documents/${documentId}/pages/${pageNo}/image?token=${encodeURIComponent(token)}`,
+    // <img> can't send headers; the browser sends the short-lived file cookie instead (#165), so no URL carries the
+    // session token.
+    pageImageUrl: (documentId: string, pageNo: number) => `/api/documents/${documentId}/pages/${pageNo}/image`,
     cropUrl: (documentId: string, pageNo: number, region: Region | null) =>
-      `/api/documents/${documentId}/pages/${pageNo}/crop?${cropQuery(region)}token=${encodeURIComponent(token)}`,
+      `/api/documents/${documentId}/pages/${pageNo}/crop${region ? `?${cropQuery(region).replace(/&$/, "")}` : ""}`,
     getSchedule: (projectId: string, category?: ScheduleCategory) =>
       request<Schedule>(token, `/api/projects/${projectId}/schedules${category ? `?category=${category}` : ""}`),
     scheduleCsv: async (projectId: string, category?: ScheduleCategory) => {

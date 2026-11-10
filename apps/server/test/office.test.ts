@@ -3,11 +3,12 @@ import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import sharp from "sharp";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/app.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
-import { looksLikeWord, wordExtension } from "../src/office.js";
+import { looksLikeWord, wordExtension, wordProblem, wordToPdf } from "../src/office.js";
 import { pdfPageText } from "../src/pdf.js";
 import { documentDir, documentPdf } from "../src/storage.js";
 import { ADMIN, createProject, resetDatabase } from "./helpers.js";
@@ -123,3 +124,103 @@ describe("Word upload", () => {
     expect(await sql`select id from documents`).toHaveLength(0);
   });
 });
+
+// Rewrites one part of a .docx (a zip), so a test can add what a hostile file would carry.
+const editDocx = async (docx: Uint8Array, part: string, edit: string) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "brygadzista-word-edit-"));
+  const file = path.join(dir, "in.docx");
+  await writeFile(file, docx);
+  const script = [
+    "import sys, zipfile",
+    "src, dst, part, old, new = sys.argv[1:6]",
+    "zin = zipfile.ZipFile(src)",
+    "zout = zipfile.ZipFile(dst, 'w', zipfile.ZIP_DEFLATED)",
+    "for item in zin.infolist():",
+    "    data = zin.read(item.filename)",
+    "    if item.filename == part: data = data.decode().replace(old, new, 1).encode()",
+    "    zout.writestr(item, data)",
+    "zout.close()",
+  ].join("\n");
+  const [old, replacement] = edit.split("=>");
+  await execFileAsync("python3", ["-I", "-c", script, file, path.join(dir, "out.docx"), part, old!, replacement!]);
+  return new Uint8Array(await readFile(path.join(dir, "out.docx")));
+};
+
+const LINKED_IMAGE_REL =
+  '<Relationship Id="rIdX" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" ' +
+  'Target="file:///etc/hostname" TargetMode="External"/></Relationships>';
+
+describe("Word files that reach outside themselves (#169)", () => {
+  it("rejects a zip that is not a Word document, such as an ODT renamed to .docx", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "brygadzista-odt-"));
+    const html = path.join(dir, "opis.html");
+    await writeFile(html, DESCRIPTION);
+    await execFileAsync("soffice", [
+      `-env:UserInstallation=file://${path.join(dir, "profile")}`, "--headless", "--writer", "--convert-to", "odt", "--outdir", dir, html,
+    ], { timeout: 120_000 });
+
+    const response = await upload(projectId, "opis.docx", new Uint8Array(await readFile(path.join(dir, "opis.odt"))));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "To nie jest plik Word (.docx)" });
+    expect(await sql`select id from documents`).toHaveLength(0);
+  });
+
+  it("rejects a .docx with an image linked from outside the file", async () => {
+    const linked = await editDocx(words.docx, "word/_rels/document.xml.rels", `</Relationships>=>${LINKED_IMAGE_REL}`);
+
+    const response = await upload(projectId, "opis.docx", linked);
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toContain("odwołuje się do innych plików");
+  });
+
+  it("rejects a .docx with an INCLUDEPICTURE field", async () => {
+    const field = "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText> INCLUDEPICTURE \"file:///etc/hostname\" </w:instrText></w:r>";
+    const linked = await editDocx(words.docx, "word/document.xml", `<w:body>=><w:body><w:p>${field}</w:p>`);
+
+    const response = await upload(projectId, "opis.docx", linked);
+
+    expect(response.status).toBe(400);
+  });
+
+  it("keeps ordinary hyperlinks", async () => {
+    const hyperlink =
+      '<Relationship Id="rIdH" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" ' +
+      'Target="https://example.com/" TargetMode="External"/></Relationships>';
+    const withLink = await editDocx(words.docx, "word/_rels/document.xml.rels", `</Relationships>=>${hyperlink}`);
+
+    expect(await wordProblem("docx", await saved(withLink))).toBeNull();
+  });
+
+  it("converts with linked content blocked, even when a file gets past the check", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "brygadzista-word-link-"));
+    const image = path.join(dir, "inna-firma.jpg");
+    await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c00" } }).jpeg().toFile(image);
+    const rel = LINKED_IMAGE_REL.replace("file:///etc/hostname", `file://${image}`);
+    const drawing =
+      '<w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +
+      '<wp:extent cx="952500" cy="952500"/><wp:docPr id="99" name="P"/>' +
+      '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+      '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="99" name="P"/><pic:cNvPicPr/></pic:nvPicPr>' +
+      '<pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:link="rIdX"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+      '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="952500" cy="952500"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
+      "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>";
+    const withRel = await editDocx(words.docx, "word/_rels/document.xml.rels", `</Relationships>=>${rel}`);
+    const linked = await editDocx(withRel, "word/document.xml", `<w:body>=><w:body><w:p>${drawing}</w:p>`);
+    const source = await saved(linked);
+    const pdf = path.join(dir, "out.pdf");
+
+    await wordToPdf(source, pdf);
+
+    const { stdout } = await execFileAsync("pdfimages", ["-list", pdf]);
+    expect(stdout.trim().split("\n").slice(2)).toHaveLength(0);
+  });
+});
+
+const saved = async (bytes: Uint8Array) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "brygadzista-word-file-"));
+  const file = path.join(dir, "source.docx");
+  await writeFile(file, bytes);
+  return file;
+};

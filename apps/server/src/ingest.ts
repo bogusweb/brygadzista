@@ -186,10 +186,15 @@ const processDocument = async (doc: { id: string; project_id: string; tenant_id:
   await sql`update documents set status = 'ready', error = ${error} where id = ${doc.id}`;
 };
 
+// The queue is shared by every firm, so a firm that uploads a hundred documents does not hold up the others (#173): the
+// next document comes from the firm with the fewest documents being indexed right now, then the oldest.
 const claimNextDocument = async () => {
   const [doc] = await sql<{ id: string; project_id: string; tenant_id: string }[]>`
     update documents set status = 'processing'
-    where id = (select id from documents where status = 'queued' order by created_at limit 1 for update skip locked)
+    where id = (
+      select d.id from documents d where d.status = 'queued'
+      order by (select count(*) from documents busy where busy.tenant_id = d.tenant_id and busy.status = 'processing'), d.created_at
+      limit 1 for update skip locked)
     returning id, project_id, tenant_id`;
   return doc;
 };

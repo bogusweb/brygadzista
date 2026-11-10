@@ -5,12 +5,13 @@ import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import sharp from "sharp";
-import { isUuid, requireProjectAccess, requireRole, requireRoleOrQueryToken, type AuthEnv } from "./auth.js";
+import { isUuid, requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
 import { config } from "./config.js";
 import { detached, sql } from "./db.js";
 import { queryTerms } from "./search.js";
 import { describeDefect } from "./defect-spec.js";
-import { photoFile } from "./storage.js";
+import { addTenantStorage, photoFile, storageFullMessage, storageRoom, tenantOfProject } from "./storage.js";
+import { requireRoleOrQueryToken } from "./file-access.js";
 
 // The server runs in 768 MB next to indexing, so photos are processed one at a time without libvips' cache.
 sharp.cache(false);
@@ -149,7 +150,7 @@ const writeAtomically = async (file: string, data: Buffer) => {
 
 // EXIF orientation is applied and all metadata dropped (GPS included); the stored copy is a JPEG no bigger than needed.
 const processPhoto = async (input: Buffer) => {
-  const full = await sharp(input, { failOn: "error" })
+  const full = await sharp(input, { failOn: "error", limitInputPixels: config.maxPhotoPixels })
     .rotate()
     .resize({ width: config.photoMaxEdge, height: config.photoMaxEdge, fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 80, mozjpeg: true })
@@ -240,10 +241,13 @@ pins.put(
     if (existing) return c.json(existing);
 
     const body = Buffer.from(await c.req.arrayBuffer());
+    const room = await storageRoom(await tenantOfProject(projectId));
+    if (body.length > room.bytes) return c.json({ error: storageFullMessage(room.byQuota) }, 413);
     const processed = await processPhoto(body).catch(() => null);
     if (!processed) return c.json({ error: "To nie jest zdjęcie albo plik jest uszkodzony" }, 400);
     await writeAtomically(await photoFile(projectId, photoId, "full"), processed.full);
     await writeAtomically(await photoFile(projectId, photoId, "thumb"), processed.thumb);
+    addTenantStorage(await tenantOfProject(projectId), processed.full.length + processed.thumb.length);
     const [photo] = await sql<PinPhoto[]>`
       insert into pin_photos (id, pin_id, project_id, width, height, bytes, taken_at, stage)
       values (${photoId}, ${pinId}, ${projectId}, ${processed.width}, ${processed.height}, ${processed.full.length}, ${takenAt}, ${stage})

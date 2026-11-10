@@ -5,7 +5,7 @@ import { agentProjectId, principalFromToken } from "../src/auth.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { documentDir, pageImage } from "../src/storage.js";
-import { ADMIN, APP, PASSWORD, addMember, createDocument, createProject, createUser, login, makePdf, resetDatabase } from "./helpers.js";
+import { ADMIN, APP, PASSWORD, addMember, createDocument, createProject, createUser, login, makePdf, resetDatabase, fileLink } from "./helpers.js";
 
 const json = (method: string, body: unknown, headers: Record<string, string> = {}) => ({
   method,
@@ -234,8 +234,8 @@ describe("contractor access", () => {
       await writeFile(await pageImage(doc, 1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
     }
 
-    expect((await app.request(`/api/documents/${mine}/pages/1/image?token=${token}`)).status).toBe(200);
-    expect((await app.request(`/api/documents/${theirs}/pages/1/image?token=${token}`)).status).toBe(404);
+    expect((await app.request(await fileLink({ authorization: `Bearer ${token}` }, `/api/documents/${mine}/pages/1/image`))).status).toBe(200);
+    expect((await app.request(await fileLink({ authorization: `Bearer ${token}` }, `/api/documents/${theirs}/pages/1/image`))).status).toBe(404);
     expect((await app.request(`/api/documents/${theirs}/pages/1/image`, { headers: contractor })).status).toBe(404);
   });
 

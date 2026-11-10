@@ -16,7 +16,11 @@ services:
       PORT: 3000
       DATABASE_URL: postgres://brygadzista:${POSTGRES_PASSWORD:-brygadzista}@postgres:5432/brygadzista
       DATA_DIR: /data
-      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN}
+      # Empty turns the operator token off: the operator logs in with an account. ADMIN_TOKEN_IPS limits where it works.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      ADMIN_TOKEN_IPS: ${ADMIN_TOKEN_IPS:-}
+      PUBLIC_URL: ${PUBLIC_URL:-https://brygadzista.smieci.online}
+      CONVERTER_SANDBOX: ${CONVERTER_SANDBOX:-auto}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       INDEX_CONCURRENCY: ${INDEX_CONCURRENCY:-2}
       COPILOTKIT_TELEMETRY_DISABLED: "true"

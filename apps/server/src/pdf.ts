@@ -1,20 +1,25 @@
 import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 import { config } from "./config.js";
+import { sandboxed, toolEnv, type SandboxPaths } from "./sandbox.js";
 
 const execFileAsync = promisify(execFile);
 
 // A broken or enormous sheet must not hang an indexing worker, so every poppler call has a timeout.
-const run = (command: string, args: string[], maxBuffer = 1024 * 1024) =>
-  execFileAsync(command, args, { timeout: config.pdfToolTimeoutMs, maxBuffer });
+// They read uploaded files, so each runs with a minimal environment and, where possible, in the sandbox (#163, #169).
+const run = (command: string, args: string[], paths: SandboxPaths, maxBuffer = 1024 * 1024) => {
+  const [program, programArgs] = sandboxed(command, args, paths, "/tmp");
+  return execFileAsync(program, programArgs, { timeout: config.pdfToolTimeoutMs, maxBuffer, env: toolEnv() });
+};
 
 // Vision models downscale anything bigger anyway, and pages are also sent to phones.
 export const MAX_JPEG_BYTES = 2.5 * 1024 * 1024;
 const JPEG_QUALITIES = [85, 70, 55];
 
 export const pdfPageCount = async (file: string): Promise<number> => {
-  const { stdout } = await run("pdfinfo", [file]);
+  const { stdout } = await run("pdfinfo", [file], { read: [file] });
   const match = stdout.match(/^Pages:\s+(\d+)/m);
   if (!match) throw new Error("Nie udało się odczytać liczby stron PDF");
   return Number(match[1]);
@@ -22,7 +27,7 @@ export const pdfPageCount = async (file: string): Promise<number> => {
 
 // Page size in PDF points (1/72 inch), as displayed (rotation applied).
 export const pdfPageSize = async (file: string, page: number): Promise<{ width: number; height: number }> => {
-  const { stdout } = await run("pdfinfo", ["-f", `${page}`, "-l", `${page}`, file]);
+  const { stdout } = await run("pdfinfo", ["-f", `${page}`, "-l", `${page}`, file], { read: [file] });
   const size = stdout.match(/^Page\s+\d+\s+size:\s+([\d.]+)\s+x\s+([\d.]+)/m);
   if (!size) throw new Error(`Nie udało się odczytać rozmiaru strony ${page}`);
   const rotation = Number(stdout.match(/^Page\s+\d+\s+rot:\s+(\d+)/m)?.[1] ?? 0);
@@ -31,7 +36,7 @@ export const pdfPageSize = async (file: string, page: number): Promise<{ width: 
 };
 
 export const pdfPageText = async (file: string, page: number): Promise<string> => {
-  const { stdout } = await run("pdftotext", ["-f", `${page}`, "-l", `${page}`, "-layout", "-enc", "UTF-8", file, "-"], 32 * 1024 * 1024);
+  const { stdout } = await run("pdftotext", ["-f", `${page}`, "-l", `${page}`, "-layout", "-enc", "UTF-8", file, "-"], { read: [file] }, 32 * 1024 * 1024);
   return stdout.replace(/\f/g, "").trim();
 };
 
@@ -39,7 +44,10 @@ export const pdfPageText = async (file: string, page: number): Promise<string> =
 const renderJpeg = async (file: string, page: number, outPrefix: string, area: string[]) => {
   const out = `${outPrefix}.jpg`;
   for (const quality of JPEG_QUALITIES) {
-    await run("pdftoppm", ["-f", `${page}`, "-l", `${page}`, "-jpeg", "-jpegopt", `quality=${quality}`, "-singlefile", ...area, file, outPrefix]);
+    await run("pdftoppm", ["-f", `${page}`, "-l", `${page}`, "-jpeg", "-jpegopt", `quality=${quality}`, "-singlefile", ...area, file, outPrefix], {
+      read: [file],
+      write: [path.dirname(outPrefix)],
+    });
     if ((await stat(out)).size <= MAX_JPEG_BYTES) break;
   }
   return out;

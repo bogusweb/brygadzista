@@ -6,7 +6,7 @@ import { app } from "../src/app.js";
 import { sql } from "../src/db.js";
 import { searchPins } from "../src/pins.js";
 import { photoFile } from "../src/storage.js";
-import { ADMIN, APP, addMember, createDocument, createProject, createUser, insertPage, login, resetDatabase } from "./helpers.js";
+import { ADMIN, APP, addMember, createDocument, createProject, createUser, insertPage, login, resetDatabase, fileLink } from "./helpers.js";
 
 let projectId: string;
 let documentId: string;
@@ -110,7 +110,7 @@ describe("pins", () => {
     expect(await first.json()).toMatchObject({ id: photoId, width: 2560, height: 1920, takenAt: "2026-10-20T08:01:00.000Z" });
     expect(again.status).toBe(200);
     expect((await listPins()).pins[0]!.photos).toEqual([expect.objectContaining({ id: photoId, width: 2560 })]);
-    const thumb = await app.request(`/api/projects/${projectId}/photos/${photoId}/image?size=thumb&token=test-app`);
+    const thumb = await app.request(await fileLink(APP, `/api/projects/${projectId}/photos/${photoId}/image?size=thumb`));
     expect(thumb.status).toBe(200);
     expect(await sharp(Buffer.from(await thumb.arrayBuffer())).metadata()).toMatchObject({ width: 480, height: 360 });
   });
@@ -160,5 +160,20 @@ describe("searchPins", () => {
     expect(byTitle).toHaveLength(2);
     expect(octoberTenth.map((pin) => pin.room)).toEqual(["Łazienka"]);
     expect(await searchPins(projectId, { query: "dach" })).toEqual([]);
+  });
+});
+
+describe("photo size in pixels (#173)", () => {
+  it("refuses a photo with more pixels than MAX_PHOTO_MEGAPIXELS before decoding it", async () => {
+    const { config } = await import("../src/config.js");
+    const pinId = randomUUID();
+    expect((await putPin(pinId, pinBody())).status).toBe(200);
+    const limit = config.maxPhotoPixels;
+    config.maxPhotoPixels = 1_000_000;
+    try {
+      expect((await putPhoto(pinId, randomUUID(), await photo(2000, 1000))).status).toBe(400);
+    } finally {
+      config.maxPhotoPixels = limit;
+    }
   });
 });

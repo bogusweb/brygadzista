@@ -3,7 +3,7 @@ import { app } from "../src/app.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { siteWeather } from "../src/site.js";
-import { ADMIN, APP, createProject, createTenant, createUser, login, resetDatabase } from "./helpers.js";
+import { ADMIN, APP, createProject, createTenant, createUser, login, resetDatabase, fileLink } from "./helpers.js";
 
 let projectId: string;
 
@@ -98,7 +98,7 @@ describe("diary PDF", () => {
     const list = (await (await app.request(`/api/projects/${projectId}/diary`, { headers: APP })).json()) as { siteWeather: { text: string } | null }[];
     expect(list[0]!.siteWeather?.text).toBe("deszcz, 8–14 °C, opad 3 mm, wiatr do 20 km/h");
 
-    const pdf = await app.request(`/api/projects/${projectId}/diary/report.pdf?from=2026-10-19&to=2026-10-25&token=test-app`);
+    const pdf = await app.request(await fileLink(APP, `/api/projects/${projectId}/diary/report.pdf?from=2026-10-19&to=2026-10-25`));
     expect(pdf.status).toBe(200);
     expect(pdf.headers.get("content-type")).toBe("application/pdf");
     expect(pdf.headers.get("content-disposition")).toContain("dziennik-2026-10-19_2026-10-25.pdf");

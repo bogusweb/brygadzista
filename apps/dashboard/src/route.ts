@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export type Route =
   | { screen: "projects" }
   | { screen: "firm" }
+  | { screen: "account" }
   | { screen: "invite"; token: string }
   | { screen: "project"; projectId: string }
   | { screen: "chat"; projectId: string }
@@ -12,6 +13,7 @@ export type Route =
 const parse = (hash: string): Route => {
   const [, projects, projectId, documents, documentId] = hash.replace(/^#/, "").split("/");
   if (projects === "firma") return { screen: "firm" };
+  if (projects === "konto") return { screen: "account" };
   if (projects === "zaproszenie" && projectId) return { screen: "invite", token: projectId };
   if (projects !== "projects" || !projectId) return { screen: "projects" };
   if (documents === "documents" && documentId) return { screen: "document", projectId, documentId };
@@ -22,6 +24,7 @@ const parse = (hash: string): Route => {
 export const routeHref = (route: Route) => {
   if (route.screen === "projects") return "#/";
   if (route.screen === "firm") return "#/firma";
+  if (route.screen === "account") return "#/konto";
   if (route.screen === "invite") return `#/zaproszenie/${route.token}`;
   if (route.screen === "project") return `#/projects/${route.projectId}`;
   if (route.screen === "chat") return `#/projects/${route.projectId}/chat`;

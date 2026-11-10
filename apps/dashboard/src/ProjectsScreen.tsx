@@ -6,7 +6,8 @@ import { routeHref } from "./route";
 
 // `tenantId` limits the list to one firm (an operator sees every firm's projects); `firmNames` labels each project
 // with its firm when an operator looks at all of them.
-type Props = { api: Api; onUnauthorized: () => void; tenantId: string | null; firmNames: Map<string, string> | null };
+// `operator`: the search model is the operator's concern (#166), so only an operator gets its status.
+type Props = { api: Api; onUnauthorized: () => void; tenantId: string | null; firmNames: Map<string, string> | null; operator: boolean };
 
 const documentLabel = (count: number) => pluralize(count, "dokument", "dokumenty", "dokumentów");
 
@@ -27,7 +28,7 @@ const EmbeddingModelNote = ({ api }: { api: Api }) => {
         setStatus(next);
         if (next.building) timer = setTimeout(() => void load(), EMBEDDING_POLL_MS);
       } catch {
-        // Only admins see it; for anyone else the note stays hidden.
+        // A failed check only hides the note.
       }
     };
     void load();
@@ -52,7 +53,7 @@ const EmbeddingModelNote = ({ api }: { api: Api }) => {
   );
 };
 
-export const ProjectsScreen = ({ api, onUnauthorized, tenantId, firmNames }: Props) => {
+export const ProjectsScreen = ({ api, onUnauthorized, tenantId, firmNames, operator }: Props) => {
 
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +121,7 @@ export const ProjectsScreen = ({ api, onUnauthorized, tenantId, firmNames }: Pro
       <div className="section-head">
         <h1>Projekty</h1>
       </div>
-      <EmbeddingModelNote api={api} />
+      {operator && <EmbeddingModelNote api={api} />}
 
       {firmNames ? (
         <p className="card muted">Widzisz budowy wszystkich firm. Żeby założyć nowy projekt, wybierz firmę w nagłówku.</p>

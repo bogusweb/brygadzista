@@ -68,7 +68,12 @@ const SourceLink = ({ href, children, ...rest }: ComponentProps<"a">) => {
   );
 };
 
-const markdownComponents = { a: SourceLink };
+// Images in an answer show only from this server (#174): a document could steer the agent into an address that carries
+// the conversation away. The page's CSP blocks other hosts too; this keeps the broken image off the screen.
+const OwnImage = ({ src, alt }: { src?: string; alt?: string }) =>
+  typeof src === "string" && src.startsWith("/api/") && !src.includes("..") ? <img src={src} alt={alt ?? ""} /> : null;
+
+const markdownComponents = { a: SourceLink, img: OwnImage };
 
 const SourceMarkdown = ({ content, ...rest }: ComponentProps<typeof CopilotChatAssistantMessage.MarkdownRenderer>) => {
   const linked = useMemo(() => linkPageReferences(content), [content]);

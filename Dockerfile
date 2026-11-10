@@ -51,13 +51,14 @@ FROM node:22-bookworm-slim AS runtime
 # LibreOffice turns Word descriptions into PDF on upload (#157): only Writer, in the build without a GUI (about
 # 300 MB), plus fonts metric-compatible with Times New Roman, Arial, Calibri and Cambria so pages break as in Word.
 # For CAD drawings (#155): Python with ezdxf draws each sheet as SVG and rsvg-convert turns the SVGs into one PDF.
+# bubblewrap runs these converters without network and without the rest of /data, where the system allows it (#169).
 ARG EZDXF_VERSION=1.4.5
 # ezdxf's drawing add-on imports Pillow, which is not one of ezdxf's own dependencies.
 ARG PILLOW_VERSION=11.3.0
 RUN apt-get update \
  && apt-get install -y --no-install-recommends poppler-utils fonts-dejavu-core \
       libreoffice-core-nogui libreoffice-writer-nogui fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea \
-      librsvg2-bin python3 python3-venv \
+      librsvg2-bin python3 python3-venv bubblewrap \
  && rm -rf /var/lib/apt/lists/* \
  && python3 -m venv /opt/cad \
  && /opt/cad/bin/pip install --no-cache-dir "ezdxf==${EZDXF_VERSION}" "pillow==${PILLOW_VERSION}" \

@@ -1,15 +1,16 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
-import { canAccessProject, isUuid, requireProjectAccess, requireRole, requireRoleOrQueryToken, type AuthEnv } from "./auth.js";
+import { canAccessProject, isUuid, requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
 import { sql, withTenant } from "./db.js";
 import { STATUS_LABELS } from "./defects.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { exists, formatDay, formatIsoDay } from "./report-pdf.js";
-import { createShareLink, escapeHtml, notFoundPage, publicOrigin, publicPage, resolveShareLink, shareDays } from "./share.js";
+import { createShareLink, escapeHtml, notFoundPage, publicOrigin, publicPage, resolveShareLink, shareDays, shareScope } from "./share.js";
 import { warsawToday } from "./site.js";
 import { photoFile } from "./storage.js";
 import { collectWeek, summarizeWeek, weekEnd, weekStart, weeklyReportPdf, type WeeklySnapshot, type WeeklySummary } from "./weekly-report.js";
+import { requireRoleOrQueryToken } from "./file-access.js";
 
 // Weekly reports for the investor (#84): made on request from the week's data, kept as made, downloaded as a PDF
 // and sent as a read-only link that opens on any phone.
@@ -162,6 +163,9 @@ export const reportHtml = (report: ReportRow, token: string) => {
   ];
   return publicPage(`Raport tygodniowy – ${week.projectName}`, body.join("\n"));
 };
+
+reports.use("/r/:token", shareScope("report"));
+reports.use("/r/:token/*", shareScope("report"));
 
 reports.get("/r/:token", async (c) => {
   const report = await sharedReport(c.req.param("token"));

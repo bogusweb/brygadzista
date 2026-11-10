@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { Account, LoginResult } from "./account";
@@ -119,6 +120,21 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
     () => (serverUrl && token && userId ? { serverUrl, token, userId, tenantId } : null),
     [serverUrl, token, userId, tenantId],
   );
+
+  // In the browser, page images and photos are plain <img>: they open with a short-lived file cookie instead of the
+  // session token in the URL (#165). It is set on login and renewed before it runs out.
+  useEffect(() => {
+    if (Platform.OS !== "web" || !connection) return;
+    const renew = () =>
+      void fetch(`${connection.serverUrl}/api/auth/file-cookie`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${connection.token}` },
+        credentials: "include",
+      }).catch(() => {});
+    renew();
+    const timer = setInterval(renew, 60 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [connection]);
 
   const value = useMemo(
     () => ({ ready, connection, account, serverUrl, lastProjectId, signIn, updateAccount, signOut, rememberProject }),

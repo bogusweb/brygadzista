@@ -5,7 +5,7 @@ import { app } from "../src/app.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { documentDir, documentPdf, pageImage } from "../src/storage.js";
-import { ADMIN, APP, createDocument, createProject, makePdf, resetDatabase } from "./helpers.js";
+import { ADMIN, APP, createDocument, createProject, makePdf, resetDatabase, fileLink } from "./helpers.js";
 
 const upload = (projectId: string, body: Uint8Array<ArrayBuffer>, headers: Record<string, string> = ADMIN, query = "") =>
   app.request(`/api/projects/${projectId}/documents?filename=hala.pdf${query}`, { method: "PUT", body, headers });
@@ -175,22 +175,26 @@ describe("authorization", () => {
     expect(await response.json()).toEqual([expect.objectContaining({ id: projectId, name: "Hala sportowa", documentCount: 0 })]);
   });
 
-  it("accepts ?token= for page images", async () => {
+  it("serves page images through a signed file link, and never takes the session in ?token= (#165)", async () => {
     const documentId = await createDocument(projectId, "ready");
     await mkdir(await documentDir(documentId), { recursive: true });
     await writeFile(await pageImage(documentId, 1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 
-    const response = await app.request(`/api/documents/${documentId}/pages/1/image?token=test-app`);
+    expect((await app.request(`/api/documents/${documentId}/pages/1/image?token=test-app`)).status).toBe(401);
+    const response = await app.request(await fileLink(APP, `/api/documents/${documentId}/pages/1/image`));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/jpeg");
     expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
   });
 
-  it("rejects ?token= with a wrong token on page images", async () => {
+  it("rejects a file link that was changed or made for another path", async () => {
     const documentId = await createDocument(projectId, "ready");
+    const link = await fileLink(APP, `/api/documents/${documentId}/pages/1/image`);
 
-    expect((await app.request(`/api/documents/${documentId}/pages/1/image?token=zly`)).status).toBe(401);
+    expect((await app.request(link.replace("/pages/1/", "/pages/2/"))).status).toBe(401);
+    expect((await app.request(`${link.slice(0, -3)}abc`)).status).toBe(401);
+    expect((await app.request(`/api/projects?link=${link.split("link=")[1]}`)).status).toBe(401);
   });
 
   it("ignores ?token= everywhere except page images", async () => {

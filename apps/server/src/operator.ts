@@ -67,7 +67,7 @@ export const deleteTenant = async (tenantId: string) => {
   }
 };
 
-const requireOperator: MiddlewareHandler<AuthEnv> = async (c, next) => {
+export const requireOperator: MiddlewareHandler<AuthEnv> = async (c, next) => {
   if (!c.get("principal").operator) return c.json({ error: "Tylko dla operatora" }, 403);
   await next();
 };

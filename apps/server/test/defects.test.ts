@@ -13,7 +13,7 @@ import type { SpecAnswer, SpecPage } from "../src/defect-llm.js";
 import { defectSpecsIdle, resumeDefectSpecs } from "../src/defect-spec.js";
 import { listDefects } from "../src/defects.js";
 import { pageImage } from "../src/storage.js";
-import { APP, createDocument, createProject, insertPage, resetDatabase } from "./helpers.js";
+import { APP, createDocument, createProject, insertPage, resetDatabase, fileLink } from "./helpers.js";
 
 const { findDefectSpec, transcribeAudio } = vi.hoisted(() => ({
   findDefectSpec: vi.fn<(defect: { note: string; room: string }, pages: SpecPage[]) => Promise<SpecAnswer>>(),
@@ -202,7 +202,7 @@ describe("acceptance protocol", () => {
     });
     await defectSpecsIdle();
 
-    const response = await app.request(`/api/projects/${projectId}/defects/protocol.pdf?status=open&token=test-app`);
+    const response = await app.request(await fileLink(APP, `/api/projects/${projectId}/defects/protocol.pdf?status=open`));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/pdf");

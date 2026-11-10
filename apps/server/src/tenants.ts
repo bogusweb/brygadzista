@@ -153,9 +153,14 @@ tenants.post("/api/invites/token/:token/accept", async (c) => {
     select id, password_hash as "passwordHash", disabled_at is not null as disabled from users where email = ${email}`;
   let passwordHash: string | null = null;
   if (existing) {
+    // The password of an existing account is checked here as at login, so the same limit per account applies (#164):
+    // an open invitation must not become a way to guess anyone's password.
+    const limited = limiters.loginEmail.hit(email);
+    if (limited !== null) return tooManyRequests(limited);
     if (!(await verifyPassword(existing.passwordHash, body.password)) || existing.disabled) {
       return c.json({ error: "Konto z tym e-mailem już istnieje. Podaj jego obecne hasło." }, 401);
     }
+    limiters.loginEmail.forget(email);
   } else {
     const problem = passwordProblem(body.password);
     if (problem) return c.json({ error: problem }, 400);

@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import { randomBytes } from "node:crypto";
+import { config } from "./config.js";
 import {
   bearerToken,
   createSession,
   hashPassword,
+  MAX_PASSWORD_LENGTH,
   isUuid,
   normalizeEmail,
   requireProjectAccess,
@@ -21,6 +23,7 @@ import {
 } from "./auth.js";
 import { defaultTenantId, sql } from "./db.js";
 import { limiters, tooManyRequests } from "./rate-limit.js";
+import { totpEnabled, useSecondFactor } from "./totp.js";
 
 const MIN_PASSWORD_LENGTH = 10;
 const TENANT_ROLES: TenantRole[] = ["owner", "manager", "worker"];
@@ -29,14 +32,16 @@ export const ROLE_ERROR = "Rola to owner, manager albo worker";
 export const passwordProblem = (password: unknown) =>
   typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH
     ? `Hasło musi mieć co najmniej ${MIN_PASSWORD_LENGTH} znaków`
-    : null;
+    : password.length > MAX_PASSWORD_LENGTH
+      ? `Hasło może mieć najwyżej ${MAX_PASSWORD_LENGTH} znaków`
+      : null;
 
 // "contractor" is the role from before firms; it means a worker.
 export const tenantRole = (role: unknown): TenantRole | null =>
   role === "contractor" ? "worker" : TENANT_ROLES.includes(role as TenantRole) ? (role as TenantRole) : null;
 
-// Behind Openship's proxy the client address is the first entry of X-Forwarded-For.
-export const clientIp = (request: Request) => request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+export { clientIp } from "./client-ip.js";
+import { clientIp } from "./client-ip.js";
 
 const userColumns = sql`u.id, u.email, u.name, u.disabled_at is not null as disabled, u.created_at as "createdAt"`;
 
@@ -62,7 +67,7 @@ const me = async (principal: Principal) => ({
 export const users = new Hono<AuthEnv>();
 
 users.post("/api/auth/login", async (c) => {
-  const body = await c.req.json<{ email?: unknown; password?: unknown }>().catch(() => ({}) as Record<string, unknown>);
+  const body = await c.req.json<{ email?: unknown; password?: unknown; code?: unknown }>().catch(() => ({}) as Record<string, unknown>);
   if (typeof body.email !== "string" || typeof body.password !== "string") return c.json({ error: "Podaj e-mail i hasło" }, 400);
   const email = normalizeEmail(body.email);
   const retryAfter = limiters.loginIp.hit(clientIp(c.req.raw)) ?? limiters.loginEmail.hit(email);
@@ -74,11 +79,16 @@ users.post("/api/auth/login", async (c) => {
   if (!(await verifyPassword(user?.passwordHash, body.password)) || !user || user.disabled) {
     return c.json({ error: "Nieprawidłowy e-mail lub hasło" }, 401);
   }
+  // With the second factor on (#176), the password alone opens nothing; the client asks for the code and sends both again.
+  if (await totpEnabled(user.id)) {
+    if (typeof body.code !== "string" || !body.code.trim()) return c.json({ error: "Podaj kod z aplikacji uwierzytelniającej", totpRequired: true }, 401);
+    if (!(await useSecondFactor(user.id, body.code))) return c.json({ error: "Nieprawidłowy kod", totpRequired: true }, 401);
+  }
   limiters.loginEmail.forget(email);
   const tenants = await tenantsOf(user.id);
   const tenant = tenants[0] ?? null;
   if (!tenant && user.role !== "operator") return c.json({ error: "Konto nie należy do żadnej aktywnej firmy" }, 403);
-  const session = await createSession(user.id, tenant?.id ?? null);
+  const session = await createSession(user.id, tenant?.id ?? null, c.req.raw);
   return c.json({
     token: session.token,
     expiresAt: session.expiresAt,
@@ -103,6 +113,36 @@ users.post("/api/auth/tenant", requireRole("admin", "app"), async (c) => {
   await sql`update sessions set tenant_id = ${tenant.id} where token_hash = ${sessionTokenHash(bearerToken(c.req.header("authorization"))!)}`;
   const operator = c.get("principal").operator;
   return c.json(await me({ role: operator ? "admin" : roleOf(tenant.role), user, operator, tenant }));
+});
+
+// The account's sessions (#167), so a person can see where they are logged in and end the ones they do not know.
+// A session is named by the start of its token's hash; the token itself is never stored.
+const SESSION_ID_LENGTH = 16;
+users.get("/api/auth/sessions", requireRole("admin", "app"), async (c) => {
+  const { user } = c.get("principal");
+  if (!user) return c.json([]);
+  const current = sessionTokenHash(bearerToken(c.req.header("authorization")) ?? "");
+  const rows = await sql<{ hash: string; createdAt: Date; lastUsedAt: Date; expiresAt: Date; userAgent: string; ip: string }[]>`
+    select token_hash as hash, created_at as "createdAt", last_used_at as "lastUsedAt", expires_at as "expiresAt",
+      user_agent as "userAgent", ip
+    from sessions where user_id = ${user.id} and expires_at > now() order by last_used_at desc`;
+  return c.json(rows.map(({ hash, ...row }) => ({ id: hash.slice(0, SESSION_ID_LENGTH), current: hash === current, ...row })));
+});
+
+users.delete("/api/auth/sessions/:id", requireRole("admin", "app"), async (c) => {
+  const { user } = c.get("principal");
+  const id = c.req.param("id");
+  if (!user || !/^[0-9a-f]{16}$/.test(id)) return c.json({ error: "Nie ma takiej sesji" }, 404);
+  const removed = await sql`delete from sessions where user_id = ${user.id} and left(token_hash, ${SESSION_ID_LENGTH}) = ${id} returning 1`;
+  return removed.length ? c.body(null, 204) : c.json({ error: "Nie ma takiej sesji" }, 404);
+});
+
+// Logs out every other device, e.g. after a phone was lost.
+users.post("/api/auth/sessions/end-others", requireRole("admin", "app"), async (c) => {
+  const { user } = c.get("principal");
+  if (!user) return c.json({ error: "Wspólny token nie ma sesji" }, 400);
+  await revokeUserSessions(user.id, bearerToken(c.req.header("authorization")));
+  return c.body(null, 204);
 });
 
 users.post("/api/auth/logout", requireRole("admin", "app"), async (c) => {
@@ -187,13 +227,15 @@ users.patch("/api/users/:id", requireRole("admin"), requireTenantOwner, async (c
   }
   const tenantId = scopeTenant(principal, c.req.query("tenantId"));
   const [target] = isUuid(id)
-    ? await sql<{ inTenant: boolean; elsewhere: boolean }[]>`
-        select exists (select 1 from tenant_members where user_id = u.id and tenant_id = ${tenantId}) as "inTenant",
+    ? await sql<{ inTenant: boolean; elsewhere: boolean; operator: boolean }[]>`
+        select u.role = 'operator' as operator, exists (select 1 from tenant_members where user_id = u.id and tenant_id = ${tenantId}) as "inTenant",
           exists (select 1 from tenant_members where user_id = u.id and tenant_id is distinct from ${tenantId}) as elsewhere
         from users u where u.id = ${id}`
     : [];
   if (!target || (!principal.operator && !target.inTenant)) return c.json({ error: "Nie ma takiego użytkownika" }, 404);
   const accountWide = typeof body.name === "string" || typeof body.password === "string" || typeof body.disabled === "boolean";
+  // A firm owner never changes the operator's account, even when the operator is a member of the firm (#164).
+  if (accountWide && !principal.operator && target.operator) return c.json({ error: "Konto operatora zmienia tylko operator" }, 403);
   if (accountWide && !principal.operator && target.elsewhere) {
     return c.json({ error: "Konto należy też do innej firmy, zmienia je tylko jego właściciel" }, 403);
   }

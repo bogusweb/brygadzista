@@ -3,7 +3,8 @@ import { access } from "node:fs/promises";
 import sharp from "sharp";
 import { z } from "zod";
 import { bearerToken, canAccessProject, principalFromToken, visibleProjects, type Principal } from "./auth.js";
-import { sql } from "./db.js";
+import { sql, withTenant } from "./db.js";
+import { isMcpToken, principalFromMcpToken } from "./mcp-tokens.js";
 import { pdfRenderPage } from "./pdf.js";
 import { MAX_PAGES_PER_CALL, projectOutline, readPages } from "./project-outline.js";
 import { limiters, principalKey } from "./rate-limit.js";
@@ -13,7 +14,8 @@ import { documentPdf, pageImage, pageImagePrefix } from "./storage.js";
 // MCP server over the construction project (#47): a contractor adds https://…/mcp as a custom connector in Claude
 // Desktop or claude.ai and asks their own assistant about the project. Streamable HTTP without sessions: every POST
 // carries one JSON-RPC message (or a batch) and gets a JSON answer. The tools only read, and see only the projects the
-// token's account sees. The token comes as a Bearer header or, for clients that cannot set headers, as ?token=.
+// token's account sees. The token is a connector token (bm_…, #166) as a Bearer header or, for clients that cannot
+// set headers, as ?token=.
 
 const SUPPORTED_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const SERVER_INFO = { name: "brygadzista", title: "Brygadzista: projekt budowy", version: "1.0.0" };
@@ -146,7 +148,12 @@ const callTool = async (principal: Principal, params: Record<string, unknown> | 
     return { content: [{ type: "text", text: "Za dużo wywołań, spróbuj za minutę." }], isError: true };
   }
   try {
-    return await definition.run(principal, args.data);
+    // A tool on one project runs limited to that project's firm, also in the database (#172).
+    const projectId = (args.data as { projectId?: unknown }).projectId;
+    if (typeof projectId !== "string") return await definition.run(principal, args.data);
+    const tenantId = await canAccessProject(principal, projectId);
+    if (!tenantId) throw new ToolError("Nie ma takiego projektu albo brak do niego dostępu");
+    return await withTenant(tenantId, () => definition.run(principal, args.data));
   } catch (error) {
     if (error instanceof ToolError) return { content: [{ type: "text", text: error.message }], isError: true };
     throw error;
@@ -194,13 +201,20 @@ const handle = async (principal: Principal, message: unknown) => {
 export const mcp = new Hono();
 
 const unauthorized = () =>
-  new Response(JSON.stringify(rpcError(null, -32001, "Brak dostępu: podaj token w nagłówku Authorization albo w ?token=")), {
+  new Response(JSON.stringify(rpcError(null, -32001, "Brak dostępu: podaj token MCP (bm_…) w nagłówku Authorization albo w ?token=")), {
     status: 401,
     headers: { "content-type": "application/json", "www-authenticate": 'Bearer realm="brygadzista"' },
   });
 
+// A connector's token (bm_…, #166) works in the header or in ?token=. A login session or ADMIN_TOKEN works only in the
+// header: in the URL it would end up in logs with full rights to the account.
+const mcpPrincipal = async (header: string | undefined, query: string | undefined, request: Request) => {
+  if (header) return isMcpToken(header) ? principalFromMcpToken(header) : principalFromToken(header, request);
+  return query && isMcpToken(query) ? principalFromMcpToken(query) : null;
+};
+
 mcp.post("/mcp", async (c) => {
-  const principal = await principalFromToken(bearerToken(c.req.header("authorization")) ?? c.req.query("token"));
+  const principal = await mcpPrincipal(bearerToken(c.req.header("authorization")), c.req.query("token"), c.req.raw);
   if (!principal) return unauthorized();
   const body = await c.req.json().catch(() => undefined);
   if (body === undefined) return c.json(rpcError(null, -32700, "Parse error"), 400);

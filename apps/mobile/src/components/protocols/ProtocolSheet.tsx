@@ -122,7 +122,7 @@ export const ProtocolSheet = ({ projectId, filter, protocol, onChange, onClose }
                   onSign={(name, strokes) => sign(role, name, strokes)}
                 />
               ))}
-              <Button label="Otwórz PDF" onPress={() => void Linking.openURL(protocolPdfUrl(connection, protocol.id))} />
+              <Button label="Otwórz PDF" onPress={() => void protocolPdfUrl(connection, protocol.id).then(Linking.openURL, () => {})} />
               <Button label="Wyślij link do wersji online" variant="secondary" onPress={() => void Share.share({ message: `${protocol.title}: ${protocol.url}` })} />
             </>
           ) : (

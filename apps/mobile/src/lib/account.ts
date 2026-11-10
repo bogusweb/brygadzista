@@ -13,7 +13,7 @@ export const TENANT_ROLE_LABELS: Record<TenantRole, string> = { owner: "właści
 
 const TIMEOUT_MS = 15_000;
 
-export const login = async (serverUrl: string, email: string, password: string): Promise<LoginResult> => {
+export const login = async (serverUrl: string, email: string, password: string, code?: string): Promise<LoginResult> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let response: Response;
@@ -21,7 +21,7 @@ export const login = async (serverUrl: string, email: string, password: string):
     response = await fetch(`${serverUrl}/api/auth/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: email.trim(), password }),
+      body: JSON.stringify(code ? { email: email.trim(), password, code } : { email: email.trim(), password }),
       signal: controller.signal,
     });
   } catch {
@@ -29,9 +29,11 @@ export const login = async (serverUrl: string, email: string, password: string):
   } finally {
     clearTimeout(timer);
   }
-  const body = (await response.json().catch(() => null)) as (LoginResult & { error?: string }) | null;
+  const body = (await response.json().catch(() => null)) as (LoginResult & { error?: string; totpRequired?: boolean }) | null;
   if (response.status === 404) throw new ApiError("Pod tym adresem nie ma serwera Brygadzisty.", 404);
-  if (!response.ok || !body?.token) throw new ApiError(body?.error ?? `Serwer odpowiedział błędem ${response.status}.`, response.status);
+  if (!response.ok || !body?.token) {
+    throw new ApiError(body?.error ?? `Serwer odpowiedział błędem ${response.status}.`, response.status, body?.totpRequired === true);
+  }
   return { token: body.token, user: body.user, tenant: body.tenant, tenants: body.tenants };
 };
 

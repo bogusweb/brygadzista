@@ -45,7 +45,8 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | Metoda | Ścieżka | Rola |
 | --- | --- | --- |
 | GET | `/api/health` | publiczne |
-| POST | `/api/auth/login` (`{email, password}` → `{token, expiresAt, role, user}`) | publiczne, limit prób |
+| POST | `/api/auth/login` (`{email, password, code?}` → `{token, expiresAt, role, user}`; z włączonym TOTP bez kodu 401 `{totpRequired: true}`) | publiczne, limit prób |
+| GET | `/api/auth/totp`, POST `/api/auth/totp/setup` (`{password}` → sekret i QR), `/enable` (`{code}` → 10 kodów zapasowych), `/disable` (`{password, code}`) | app/admin |
 | GET | `/api/auth/me` (`{role, user}`, `user` = null dla tokenów z env) | app/admin |
 | POST | `/api/auth/logout`, `/api/auth/password` (`{currentPassword, newPassword}`) | app/admin |
 | GET/POST | `/api/users`, PATCH/DELETE `/api/users/:id` | admin |
@@ -60,14 +61,14 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | GET | `/api/projects/:id/search-index` (tekst wszystkich stron projektu do wyszukiwania offline w aplikacji) | app/admin |
 | GET/POST | `/api/projects/:id/diary` (dziennik dnia, #69; POST: body `audio/*` z `?date=&clientId=` albo JSON `{text, date, clientId}`) | app/admin |
 | PATCH/DELETE | `/api/diary/:id` (`{entryDate?, transcript?, entry?}`), POST `/api/diary/:id/retry` | app/admin |
-| GET | `/api/documents/:id/pages/:n/image` (przyjmuje też `?token=`) | app/admin |
+| GET | `/api/documents/:id/pages/:n/image` (też ciasteczko plików albo `?link=`, #165) | app/admin |
 | GET | `/api/projects/:id/pins` (pinezki projektu ze zdjęciami) | app/admin |
 | PUT/DELETE | `/api/projects/:id/pins/:pinId` (`{documentId, pageNo, x, y, kind, note, room, status?, assignee?, dueDate?, createdAt, updatedAt}`) | app/admin |
 | PUT | `/api/projects/:id/pins/:pinId/photos/:photoId?takenAt=&stage=` (body = zdjęcie) | app/admin |
-| GET | `/api/projects/:id/defects/protocol.pdf?status=open,to_check&assignee=&documentId=&pageNo=` (protokół odbioru, #74; także `?token=`) | app/admin |
+| GET | `/api/projects/:id/defects/protocol.pdf?status=open,to_check&assignee=&documentId=&pageNo=` (protokół odbioru, #74; także `?link=`) | app/admin |
 | POST | `/api/projects/:id/transcribe` (body `audio/*`, opis usterki głosem) | app/admin |
 | DELETE | `/api/projects/:id/photos/:photoId` | app/admin |
-| GET | `/api/projects/:id/photos/:photoId/image?size=thumb` (przyjmuje też `?token=`) | app/admin |
+| GET | `/api/projects/:id/photos/:photoId/image?size=thumb` (też ciasteczko plików albo `?link=`, #165) | app/admin |
 | POST | `/api/documents/:id/resume` (tylko niegotowe strony; dokument `paused`, `error` lub `ready`) | admin |
 | POST | `/api/documents/:id/reindex` | admin |
 | GET | `/api/checklist-templates` | app/admin |
@@ -78,8 +79,11 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | GET | `/api/documents/:id/outline` (spis treści: części projektu z zakresami stron, #44) | app/admin |
 | GET/POST | `/api/projects/:id/questions` (pytania do projektanta, #73; POST `{question, documentId?, pageNo?, region?, reason?}`) | app/admin |
 | PATCH/DELETE | `/api/projects/:id/questions/:questionId` (`{answer}` zamyka pytanie, pusta odpowiedź otwiera je ponownie) | app/admin |
-| GET | `/api/documents/:id/pages/:n/crop?x=&y=&w=&h=` (wycinek rysunku, ułamki arkusza; także `?token=`) | app/admin |
-| POST | `/mcp` (serwer MCP tylko do odczytu, #47; token w nagłówku albo `?token=`) | app/admin |
+| GET | `/api/documents/:id/pages/:n/crop?x=&y=&w=&h=` (wycinek rysunku, ułamki arkusza; także `?link=`) | app/admin |
+| POST | `/api/file-links` (link do jednego pliku na 10 minut, #165), `/api/auth/file-cookie` (ciasteczko `bf` na 2 h dla `<img>`) | app/admin |
+| POST | `/mcp` (serwer MCP tylko do odczytu, #47; token konektora `bm_…` w nagłówku albo `?token=`, sesja tylko w nagłówku, #166) | app/admin |
+| GET/POST/DELETE | `/api/mcp-tokens` (tokeny konektorów MCP, #166) | app/admin |
+| GET/DELETE | `/api/auth/sessions`, `POST /api/auth/sessions/end-others` (własne sesje, #167) | app/admin |
 | * | `/api/copilotkit/*` (nagłówek `x-project-id`) | app/admin |
 | * | `/api/admin/copilotkit/*` (z A2UI) | admin |
 
@@ -105,7 +109,7 @@ Obca budowa, dokument, strona, zdjęcie czy wpis odpowiada 404, także przez age
 
 **Dziennik dnia** (#69): nagranie (m4a z telefonu, mp4 lub ogg z przeglądarki, do `MAX_DIARY_AUDIO_MB`) jest zapisywane w katalogu `diary/` budowy i porządkowane w tle: transkrypcja i wpis (prace, ludzie, dostawy, pogoda, problemy, odniesienia do stron projektu) robi model czatu (`AGENT_MODEL`, region EU, bez retencji). Strony do odniesień szuka wyszukiwanie słowne i kodów, bez embeddingów. Nieudany wpis zostaje z nagraniem, `retry` porządkuje go ponownie; wpis przerwany restartem serwer bierze po starcie. `clientId` z kolejki offline sprawia, że powtórzone wysłanie nie tworzy drugiego wpisu. Z `FAKE_AGENT=1` transkrypcja i wpis są skryptowane.
 
-**Serwer MCP** (#47): projekt można podłączyć do Claude Desktop albo claude.ai jako własny konektor (Ustawienia → Konektory → Dodaj własny konektor) pod adresem `https://<serwer>/mcp?token=<token>`. Token to sesja konta (`bs_…` z `POST /api/auth/login`), więc konektor widzi tylko budowy tego konta, a wylogowanie albo zmiana hasła go odcina. Narzędzia tylko czytają: `list_projects`, `search_project`, `get_project_outline`, `get_pages`, `get_page_image`. Transport to Streamable HTTP bez sesji (każdy POST to jedno żądanie JSON-RPC z odpowiedzią JSON). Limit `RATE_LIMIT_MCP_PER_MINUTE` wywołań narzędzi na konto (domyślnie 60). Token w adresie trafia do historii i logów proxy, dlatego na później zostaje OAuth.
+**Serwer MCP** (#47): projekt można podłączyć do Claude Desktop albo claude.ai jako własny konektor (Ustawienia → Konektory → Dodaj własny konektor) pod adresem `https://<serwer>/mcp?token=<token>`. Token to osobny token konektora (`bm_…`, #166), który tworzy się w panelu (Konto → Tokeny MCP) albo przez `POST /api/mcp-tokens`: ma nazwę, działa w jednej firmie, tylko czyta, wygasa (domyślnie po 180 dniach) i można go odwołać bez wylogowania. Sesja logowania (`bs_…`) działa tylko w nagłówku `Authorization`, nigdy w adresie. Narzędzia tylko czytają: `list_projects`, `search_project`, `get_project_outline`, `get_pages`, `get_page_image`. Transport to Streamable HTTP bez sesji (każdy POST to jedno żądanie JSON-RPC z odpowiedzią JSON). Limit `RATE_LIMIT_MCP_PER_MINUTE` wywołań narzędzi na konto (domyślnie 60).
 
 ## Lokalnie
 

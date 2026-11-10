@@ -6,6 +6,23 @@ const requireEnv = (name: string, fallback?: string): string => {
   return value;
 };
 
+const production = process.env.NODE_ENV === "production";
+
+const adminTokenFromEnv = () => {
+  const token = process.env.ADMIN_TOKEN ?? (production ? "" : "dev-admin");
+  if (production && token === "dev-admin") throw new Error("ADMIN_TOKEN=dev-admin w produkcji: ustaw długi losowy token albo zostaw pusty");
+  return token;
+};
+
+// The compose file's development password; the server says so at start in production (#168).
+export const usesDefaultDatabasePassword = (url: string) => {
+  try {
+    return decodeURIComponent(new URL(url).password) === "brygadzista";
+  } catch {
+    return false;
+  }
+};
+
 export const config = {
   port: Number(process.env.PORT ?? 3000),
   databaseUrl: requireEnv("DATABASE_URL", "postgres://brygadzista:brygadzista@localhost:5432/brygadzista"),
@@ -16,12 +33,26 @@ export const config = {
   // ADMIN_TOKEN is the operator: every firm, e.g. to create the first accounts. APP_TOKEN, the shared app code from
   // before accounts, no longer works in production now that the app logs in with accounts (#91); tests and local
   // development keep it as a quick key to the oldest firm.
-  adminToken: requireEnv("ADMIN_TOKEN", "dev-admin"),
+  // In production it has no default (#168): unset or empty, the token does not work at all, and the operator logs in
+  // with an account. A set token must be long and random; ADMIN_TOKEN_IPS (comma separated) limits where it works.
+  adminToken: adminTokenFromEnv(),
+  adminTokenIps: (process.env.ADMIN_TOKEN_IPS ?? "").split(",").map((ip) => ip.trim()).filter(Boolean),
   appToken: process.env.NODE_ENV === "production" ? "" : (process.env.APP_TOKEN ?? "dev-app"),
   // Address of the server as people outside see it, for read-only links and QR codes (#84, #82). Without it the
   // address is taken from the request (behind a proxy, from X-Forwarded-Proto and Host).
   publicUrl: (process.env.PUBLIC_URL ?? "").replace(/\/+$/, ""),
+  // Other origins allowed to call the API from a browser (#171), comma separated. Outside production the Vite and
+  // Expo development servers are allowed too.
+  corsOrigins: [
+    ...(process.env.CORS_ORIGINS ?? "").split(",").map((origin) => origin.trim().replace(/\/+$/, "")).filter(Boolean),
+    ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:5173", "http://localhost:8081", "http://localhost:19006"]),
+  ],
+  // Key that signs file links and the file cookie (#165); without it a random key is kept in DATA_DIR.
+  fileLinkSecret: process.env.FILE_LINK_SECRET ?? "",
   sessionTtlDays: Number(process.env.SESSION_TTL_DAYS ?? 30),
+  // However often it is used, a session ends this long after login (#167); the operator's sooner.
+  sessionMaxDays: Number(process.env.SESSION_MAX_DAYS ?? 90),
+  operatorSessionMaxDays: Number(process.env.OPERATOR_SESSION_MAX_DAYS ?? 7),
   // Rate limits per user (or per shared token); login attempts per e-mail and per IP.
   chatRequestsPerMinute: Number(process.env.RATE_LIMIT_CHAT_PER_MINUTE ?? 10),
   // All people of one firm together (#94), so one firm cannot use up the model budget of the others.
@@ -30,6 +61,12 @@ export const config = {
   mcpCallsPerMinute: Number(process.env.RATE_LIMIT_MCP_PER_MINUTE ?? 60),
   uploadsPerHour: Number(process.env.RATE_LIMIT_UPLOADS_PER_HOUR ?? 30),
   diaryNotesPerHour: Number(process.env.RATE_LIMIT_DIARY_PER_HOUR ?? 60),
+  // Where the client address comes from (#164): the header Cloudflare sets, then X-Forwarded-For counted from the end.
+  clientIpHeader: (process.env.CLIENT_IP_HEADER ?? "cf-connecting-ip").toLowerCase(),
+  trustedProxies: Number(process.env.TRUSTED_PROXIES ?? 1),
+  // Request bodies read whole (JSON) stop at this size; file uploads stream with their own limits (#170).
+  maxJsonBytes: Number(process.env.MAX_JSON_MB ?? 5) * 1024 * 1024,
+  passwordHashConcurrency: Number(process.env.PASSWORD_HASH_CONCURRENCY ?? 2),
   loginAttemptsPer15Min: Number(process.env.RATE_LIMIT_LOGIN_PER_15_MIN ?? 10),
   openrouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
   // Chat about the project: a cheap model served from an EU region.
@@ -56,6 +93,14 @@ export const config = {
   // Upload limits: the PDF is streamed to disk and cut off as soon as it passes the size limit.
   maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 1024) * 1024 * 1024,
   maxPages: Number(process.env.MAX_PAGES ?? 3000),
+  // Disk room (#173): files of one firm (0 = no limit), and the free disk every upload leaves for the server.
+  tenantStorageBytes: Number(process.env.TENANT_STORAGE_GB ?? 10) * 1024 ** 3,
+  minFreeDiskBytes: Number(process.env.MIN_FREE_DISK_MB ?? 1024) * 1024 ** 2,
+  // Photos bigger than this many pixels are refused before they are decoded (a small file can hide a huge image).
+  maxPhotoPixels: Number(process.env.MAX_PHOTO_MEGAPIXELS ?? 120) * 1_000_000,
+  // Crops of a drawing kept on disk per document; older ones are rendered again when asked for.
+  maxCachedCrops: Number(process.env.MAX_CACHED_CROPS ?? 300),
+  cropsPerMinute: Number(process.env.RATE_LIMIT_CROPS_PER_MINUTE ?? 60),
   // Site photos (#70): the upload limit, and the size they are stored at (long edge, px) next to a small thumbnail.
   maxPhotoBytes: Number(process.env.MAX_PHOTO_MB ?? 25) * 1024 * 1024,
   // Fonts with Polish letters for the defect protocol PDF (#74); the image installs fonts-dejavu-core.
@@ -84,6 +129,11 @@ export const config = {
   cadToolTimeoutMs: Number(process.env.CAD_TOOL_TIMEOUT_MS ?? 600_000),
   dwg2dxf: process.env.DWG2DXF ?? "dwg2dxf",
   cadPython: process.env.CAD_PYTHON ?? "python3",
+  // Converters of uploaded files run in bubblewrap (#169): "auto" uses it when the system allows user namespaces,
+  // "bwrap" requires it (a conversion fails without it), "off" never uses it. Always with a minimal environment (#163).
+  converterSandbox: (["auto", "bwrap", "off"].includes(process.env.CONVERTER_SANDBOX ?? "") ? process.env.CONVERTER_SANDBOX : "auto") as
+    "auto" | "bwrap" | "off",
+  bwrap: process.env.BWRAP ?? "bwrap",
   cadRenderScript: path.resolve(process.env.CAD_RENDER_SCRIPT ?? path.join(import.meta.dirname, "..", "cad", "render_dxf.py")),
   // After this many failed pages in a row the problem is not the page (key, outage), so the document stops.
   maxConsecutivePageFailures: Number(process.env.MAX_CONSECUTIVE_PAGE_FAILURES ?? 5),

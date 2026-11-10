@@ -145,6 +145,14 @@ export const childRefs = (component: A2UIComponent, scope: Scope): ChildRef[] =>
 // Values the model sends for display, with the wrong type dropped rather than crashing a row.
 export const text = (value: unknown) => (typeof value === "string" || typeof value === "number" ? String(value) : "");
 
+// An image on an agent-built surface loads only from the app's own server (#174). A document can steer the agent into
+// showing an address of its choosing, and loading it would send the reader's request, and anything put in the address,
+// to someone else. Only a path of this server's API passes, and it is loaded with the app's own credentials.
+export const serverImagePath = (value: unknown) => {
+  const url = text(value).trim();
+  return /^\/api\/[\w\-./%?=&]*$/.test(url) && !url.includes("..") ? url : null;
+};
+
 export type A2UISource = { page: number; documentId?: string };
 export type Material = { name: string; quantity?: string; unit?: string; note?: string; source?: A2UISource };
 export type WorkStep = { title: string; detail?: string; source?: A2UISource };

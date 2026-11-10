@@ -30,6 +30,8 @@ MIN_SHEET_SHARE = 0.02
 RENDER_CONFIG = config.Configuration(
     background_policy=config.BackgroundPolicy.WHITE,
     color_policy=config.ColorPolicy.COLOR,
+    # An IMAGE entity names a file on disk; drawing it would read any path the DXF names (#169), so only its frame is drawn.
+    image_policy=config.ImagePolicy.RECT,
 )
 
 

@@ -1,7 +1,7 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { canAccessProject, isUuid, requireProjectAccess, requireRole, requireRoleOrQueryToken, type AuthEnv } from "./auth.js";
+import { canAccessProject, isUuid, requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
 import { config } from "./config.js";
 import { detached, sql, withTenant } from "./db.js";
 import { audioType, diaryEntrySchema, fakeOrganize, fakeTranscript, type CandidatePage, type DiaryEntry } from "./diary-entry.js";
@@ -12,6 +12,7 @@ import { codeSearch, lexicalSearch } from "./search.js";
 import { diaryReportPdf, type DiaryDay } from "./diary-report.js";
 import { knownWeather, projectSite, siteWeather, warsawToday, withDescription } from "./site.js";
 import { diaryAudio } from "./storage.js";
+import { requireRoleOrQueryToken } from "./file-access.js";
 
 // Daily site log (#69): a voice note (or typed text) becomes a sorted entry of the day. The note is saved first and
 // sorted in the background, so the phone gets an answer at once and a failed model call can be retried from the saved audio.

@@ -1196,3 +1196,42 @@ select {
   color: var(--danger, #b42318);
   text-decoration: line-through;
 }
+
+/* Account screen (#176): recovery codes and new tokens shown once, the QR code to scan. */
+.recovery-codes {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+}
+
+.totp-qr {
+  align-self: flex-start;
+  background: #fff;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+a.user-name {
+  text-decoration: none;
+}
+
+a.user-name:hover,
+a.user-name[aria-current="page"] {
+  text-decoration: underline;
+}
+
+.account-card > .button,
+.account-card form > .button {
+  align-self: flex-start;
+}
+
+.account-card .row-title .badge {
+  margin-left: 8px;
+}

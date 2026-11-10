@@ -1,7 +1,9 @@
 import { serveStatic } from "@hono/node-server/serve-static";
 import { CopilotRuntime, createCopilotEndpoint } from "@copilotkit/runtime/v2";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import { secureHeaders } from "hono/secure-headers";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, open, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
@@ -18,7 +20,6 @@ import {
   requireDocumentAccess,
   requireProjectAccess,
   requireRole,
-  requireRoleOrQueryToken,
   visibleProjects,
   type AuthEnv,
   type Role,
@@ -29,7 +30,7 @@ import { chatThreads } from "./chat-threads.js";
 import { revisions } from "./revisions.js";
 import { schedules } from "./schedules.js";
 import { checklists } from "./checklists.js";
-import { operator } from "./operator.js";
+import { operator, requireOperator } from "./operator.js";
 import { citationCheck } from "./citations.js";
 import { config } from "./config.js";
 import { embeddingStatus } from "./embedding-sets.js";
@@ -41,16 +42,20 @@ import { protocols } from "./protocols.js";
 import { reports } from "./reports.js";
 import { site } from "./site.js";
 import { FakeProjectAgent } from "./fake-agent.js";
-import { OfficeTimeout, looksLikeWord, wordExtension, wordToPdf } from "./office.js";
+import { OfficeTimeout, looksLikeWord, wordExtension, wordProblem, wordToPdf } from "./office.js";
 import { pdfPageCount } from "./pdf.js";
+import { sandboxAvailable } from "./sandbox.js";
 import { projectOutline } from "./project-outline.js";
 import { designerAnswersPrompt, questions } from "./questions.js";
 import { mcp } from "./mcp.js";
+import { mcpTokens } from "./mcp-tokens.js";
 import { pins, removeDocumentPhotos } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
-import { documentDir, documentPdf, pageImage, projectDir } from "./storage.js";
+import { addTenantStorage, documentDir, documentPdf, pageImage, projectDir, storageFullMessage, storageRoom, tenantOfProject } from "./storage.js";
 import { tenants } from "./tenants.js";
 import { users } from "./users.js";
+import { totp } from "./totp.js";
+import { fileAccess, requireRoleOrQueryToken } from "./file-access.js";
 
 // Chat is limited per user on agent runs only; the runtime's info and connect calls are free.
 const isAgentRun = (request: Request) => request.method === "POST" && /\/agent\/[^/]+\/(run|suggest)$/.test(new URL(request.url).pathname);
@@ -73,14 +78,81 @@ const appRuntime = new CopilotRuntime({ agents: projectAgents(["app", "admin"]),
 const adminRuntime = new CopilotRuntime({ agents: projectAgents(["admin"]), a2ui });
 
 export const app = new Hono<AuthEnv>();
-app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-type", "x-project-id"] }));
+// Pages and the API from one origin, so other sites get no CORS access (#171). The native app sends no Origin; the
+// development servers of the dashboard and the Expo web app are allowed outside production, others via CORS_ORIGINS.
+app.use(
+  "/api/*",
+  cors({
+    origin: (origin) => (config.corsOrigins.includes(origin) ? origin : null),
+    allowHeaders: ["authorization", "content-type", "x-project-id"],
+  }),
+);
 
-// `llm` tells an operator at a glance whether the OpenRouter key reached the server.
-app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterApiKey) }));
+// Security headers on every response (#171). The CSP keeps scripts, requests and images on this server: a page or
+// a chat answer cannot load code from elsewhere or carry data out in an image address (#174). Inline styles stay
+// allowed for React Native Web and the share pages.
+app.use(
+  "*",
+  secureHeaders({
+    contentSecurityPolicy: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      fontSrc: ["'self'", "data:"],
+      connectSrc: ["'self'"],
+      mediaSrc: ["'self'", "blob:"],
+      workerSrc: ["'self'", "blob:"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+    },
+    strictTransportSecurity: "max-age=31536000; includeSubDomains",
+    xFrameOptions: "DENY",
+    referrerPolicy: "no-referrer",
+    crossOriginResourcePolicy: "same-origin",
+    crossOriginOpenerPolicy: "same-origin",
+    crossOriginEmbedderPolicy: false,
+    permissionsPolicy: { camera: ["self"], microphone: ["self"], geolocation: ["self"] },
+  }),
+);
 
-// The embedding model search uses, and the progress of a change to a new one (#46).
-app.get("/api/admin/embeddings", requireRole("admin"), async (c) => c.json(await embeddingStatus()));
+// Files are streamed to disk with their own limits; every other body is read whole, so it stops at MAX_JSON_MB (#170).
+// Without this, one unauthenticated login request with a huge body could take the server's memory.
+const STREAMED_UPLOADS = [
+  /^PUT \/api\/projects\/[^/]+\/documents$/,
+  /^PUT \/api\/projects\/[^/]+\/pins\/[^/]+\/photos\/[^/]+$/,
+  /^POST \/api\/projects\/[^/]+\/transcribe$/,
+];
+const isAudioDiary = (method: string, pathname: string, contentType: string) =>
+  method === "POST" && /^\/api\/projects\/[^/]+\/diary$/.test(pathname) && !contentType.includes("json");
+const jsonLimit = bodyLimit({
+  maxSize: config.maxJsonBytes,
+  onError: (c) => c.json({ error: `Za duże żądanie (limit ${Math.round(config.maxJsonBytes / 1024 / 1024)} MB)` }, 413),
+});
+app.use("*", async (c, next) => {
+  const pathname = new URL(c.req.url).pathname;
+  const route = `${c.req.method} ${pathname}`;
+  if (STREAMED_UPLOADS.some((pattern) => pattern.test(route)) || isAudioDiary(c.req.method, pathname, c.req.header("content-type") ?? "")) {
+    return next();
+  }
+  return jsonLimit(c, next);
+});
+
+// For the container healthcheck; it tells nobody outside how the server is set up (#177).
+app.get("/api/health", (c) => c.json({ ok: true }));
+
+// For the operator: whether the OpenRouter key reached the server, and whether file converters run sandboxed (#169).
+app.get("/api/operator/status", requireRole("admin"), requireOperator, (c) =>
+  c.json({ llm: Boolean(config.openrouterApiKey), converterSandbox: sandboxAvailable() }),
+);
+
+// The embedding model search uses, and the progress of a change to a new one (#46). It is the same for every firm,
+// so it is the operator's (#177).
+app.get("/api/admin/embeddings", requireRole("admin"), requireOperator, async (c) => c.json(await embeddingStatus()));
 app.route("/", users);
+app.route("/", totp);
 app.route("/", operator);
 app.route("/", tenants);
 app.route("/", pins);
@@ -94,7 +166,9 @@ app.route("/", questions);
 app.route("/", cards);
 app.route("/", schedules);
 app.route("/", revisions);
+app.route("/", fileAccess);
 app.route("/", mcp);
+app.route("/", mcpTokens);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun), chatThreads);
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));
@@ -231,6 +305,12 @@ app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAcces
   const body = c.req.raw.body;
   if (!body) return c.json({ error: "Brak pliku" }, 400);
   if (Number(c.req.header("content-length") ?? 0) > config.maxUploadBytes) return c.json({ error: tooLargeMessage() }, 413);
+  // The firm's quota and the server's free disk (#173): the upload stops as soon as it would pass either.
+  const tenantId = await tenantOfProject(c.req.param("id"));
+  const room = await storageRoom(tenantId);
+  const declared = Number(c.req.header("content-length") ?? 0);
+  if (room.bytes <= 0 || declared > room.bytes) return c.json({ error: storageFullMessage(room.byQuota) }, 413);
+  const uploadLimit = Math.min(config.maxUploadBytes, room.bytes);
   const [doc] = await sql<{ id: string }[]>`
     insert into documents (project_id, filename, status, revision_of)
     values (${c.req.param("id")}, ${filename}, 'uploading', ${revisionOf}) returning id`;
@@ -248,17 +328,22 @@ app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAcces
 
   await mkdir(dir, { recursive: true });
   try {
-    await pipeline(Readable.fromWeb(body as WebReadableStream), limitSize(config.maxUploadBytes), createWriteStream(received));
+    await pipeline(Readable.fromWeb(body as WebReadableStream), limitSize(uploadLimit), createWriteStream(received));
   } catch (error) {
-    if (error instanceof UploadTooLarge) return reject(413, tooLargeMessage());
+    if (error instanceof UploadTooLarge) {
+      return reject(413, uploadLimit < config.maxUploadBytes ? storageFullMessage(room.byQuota) : tooLargeMessage());
+    }
     await reject(400, "Przerwane wysyłanie pliku");
     throw error;
   }
+  addTenantStorage(tenantId, (await stat(received)).size);
   const handle = await open(received);
   const { buffer, bytesRead } = await handle.read(Buffer.alloc(256), 0, 256, 0);
   await handle.close();
   if (word) {
     if (!looksLikeWord(word, buffer)) return reject(400, `To nie jest plik Word (.${word})`);
+    const problem = await wordProblem(word, received);
+    if (problem) return reject(400, problem);
     try {
       await wordToPdf(received, pdf);
     } catch (error) {
