@@ -6,7 +6,7 @@ import { app } from "../src/app.js";
 import { agentProject } from "../src/auth.js";
 import { sql } from "../src/db.js";
 import { documentDir, pageImage, photoFile } from "../src/storage.js";
-import { APP, PASSWORD, addMember, createDocument, createProject, createTenant, createUser, insertPage, login, resetDatabase } from "./helpers.js";
+import { APP, PASSWORD, addMember, createDocument, createProject, createTenant, createUser, insertPage, login, resetDatabase, fileLink } from "./helpers.js";
 
 // Two firms with the same kinds of data. Everyone in firm A, whatever their role, must get 404 for anything of firm B,
 // on every route the server has, including routes added later (they are read from the app itself).
@@ -166,13 +166,13 @@ describe("isolation of two firms", () => {
     expect(await countsOf(b)).toEqual(before);
   });
 
-  it("does not leak through ?token= on images and PDFs", async () => {
-    const token = callers.owner!.authorization.slice("Bearer ".length);
-    for (const target of [
-      `/api/documents/${b.documentId}/pages/1/image?token=${token}`,
-      `/api/projects/${b.projectId}/photos/${b.photoId}/image?token=${token}`,
-      `/api/projects/${b.projectId}/defects/protocol.pdf?token=${token}`,
+  it("does not leak through file links on images and PDFs (#165)", async () => {
+    for (const path of [
+      `/api/documents/${b.documentId}/pages/1/image`,
+      `/api/projects/${b.projectId}/photos/${b.photoId}/image`,
+      `/api/projects/${b.projectId}/defects/protocol.pdf`,
     ]) {
+      const target = await fileLink(callers.owner!, path);
       expect((await app.request(target)).status, target).toBe(404);
     }
   });

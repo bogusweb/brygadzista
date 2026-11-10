@@ -261,6 +261,8 @@ export const createApi = (token: string, operatorTenantId: string | null = null)
     token,
     operatorTenantId,
     whoami: () => request<Me>(token, "/api/auth/me"),
+    // Sets the cookie that opens page images for the next two hours (#165).
+    fileCookie: () => request<{ expiresAt: string }>(token, "/api/auth/file-cookie", { method: "POST" }),
     logout: () => request<void>(token, "/api/auth/logout", { method: "POST" }),
     switchTenant: (tenantId: string) => request<Me>(token, "/api/auth/tenant", post({ tenantId })),
     listFirms: () => request<FirmSummary[]>(token, "/api/operator/tenants"),
@@ -309,11 +311,11 @@ export const createApi = (token: string, operatorTenantId: string | null = null)
     listPages: (documentId: string) => request<DocumentPage[]>(token, `/api/documents/${documentId}/pages`),
     pageText: (documentId: string, pageNo: number) =>
       request<{ text: string }>(token, `/api/documents/${documentId}/pages/${pageNo}/text`),
-    // <img> can't send headers, so the image URL carries the token as a query parameter.
-    pageImageUrl: (documentId: string, pageNo: number) =>
-      `/api/documents/${documentId}/pages/${pageNo}/image?token=${encodeURIComponent(token)}`,
+    // <img> can't send headers; the browser sends the short-lived file cookie instead (#165), so no URL carries the
+    // session token.
+    pageImageUrl: (documentId: string, pageNo: number) => `/api/documents/${documentId}/pages/${pageNo}/image`,
     cropUrl: (documentId: string, pageNo: number, region: Region | null) =>
-      `/api/documents/${documentId}/pages/${pageNo}/crop?${cropQuery(region)}token=${encodeURIComponent(token)}`,
+      `/api/documents/${documentId}/pages/${pageNo}/crop${region ? `?${cropQuery(region).replace(/&$/, "")}` : ""}`,
     getSchedule: (projectId: string, category?: ScheduleCategory) =>
       request<Schedule>(token, `/api/projects/${projectId}/schedules${category ? `?category=${category}` : ""}`),
     scheduleCsv: async (projectId: string, category?: ScheduleCategory) => {

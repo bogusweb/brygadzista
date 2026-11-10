@@ -60,14 +60,14 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | GET | `/api/projects/:id/search-index` (tekst wszystkich stron projektu do wyszukiwania offline w aplikacji) | app/admin |
 | GET/POST | `/api/projects/:id/diary` (dziennik dnia, #69; POST: body `audio/*` z `?date=&clientId=` albo JSON `{text, date, clientId}`) | app/admin |
 | PATCH/DELETE | `/api/diary/:id` (`{entryDate?, transcript?, entry?}`), POST `/api/diary/:id/retry` | app/admin |
-| GET | `/api/documents/:id/pages/:n/image` (przyjmuje też `?token=`) | app/admin |
+| GET | `/api/documents/:id/pages/:n/image` (też ciasteczko plików albo `?link=`, #165) | app/admin |
 | GET | `/api/projects/:id/pins` (pinezki projektu ze zdjęciami) | app/admin |
 | PUT/DELETE | `/api/projects/:id/pins/:pinId` (`{documentId, pageNo, x, y, kind, note, room, status?, assignee?, dueDate?, createdAt, updatedAt}`) | app/admin |
 | PUT | `/api/projects/:id/pins/:pinId/photos/:photoId?takenAt=&stage=` (body = zdjęcie) | app/admin |
-| GET | `/api/projects/:id/defects/protocol.pdf?status=open,to_check&assignee=&documentId=&pageNo=` (protokół odbioru, #74; także `?token=`) | app/admin |
+| GET | `/api/projects/:id/defects/protocol.pdf?status=open,to_check&assignee=&documentId=&pageNo=` (protokół odbioru, #74; także `?link=`) | app/admin |
 | POST | `/api/projects/:id/transcribe` (body `audio/*`, opis usterki głosem) | app/admin |
 | DELETE | `/api/projects/:id/photos/:photoId` | app/admin |
-| GET | `/api/projects/:id/photos/:photoId/image?size=thumb` (przyjmuje też `?token=`) | app/admin |
+| GET | `/api/projects/:id/photos/:photoId/image?size=thumb` (też ciasteczko plików albo `?link=`, #165) | app/admin |
 | POST | `/api/documents/:id/resume` (tylko niegotowe strony; dokument `paused`, `error` lub `ready`) | admin |
 | POST | `/api/documents/:id/reindex` | admin |
 | GET | `/api/checklist-templates` | app/admin |
@@ -78,7 +78,8 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | GET | `/api/documents/:id/outline` (spis treści: części projektu z zakresami stron, #44) | app/admin |
 | GET/POST | `/api/projects/:id/questions` (pytania do projektanta, #73; POST `{question, documentId?, pageNo?, region?, reason?}`) | app/admin |
 | PATCH/DELETE | `/api/projects/:id/questions/:questionId` (`{answer}` zamyka pytanie, pusta odpowiedź otwiera je ponownie) | app/admin |
-| GET | `/api/documents/:id/pages/:n/crop?x=&y=&w=&h=` (wycinek rysunku, ułamki arkusza; także `?token=`) | app/admin |
+| GET | `/api/documents/:id/pages/:n/crop?x=&y=&w=&h=` (wycinek rysunku, ułamki arkusza; także `?link=`) | app/admin |
+| POST | `/api/file-links` (link do jednego pliku na 10 minut, #165), `/api/auth/file-cookie` (ciasteczko `bf` na 2 h dla `<img>`) | app/admin |
 | POST | `/mcp` (serwer MCP tylko do odczytu, #47; token konektora `bm_…` w nagłówku albo `?token=`, sesja tylko w nagłówku, #166) | app/admin |
 | GET/POST/DELETE | `/api/mcp-tokens` (tokeny konektorów MCP, #166) | app/admin |
 | GET/DELETE | `/api/auth/sessions`, `POST /api/auth/sessions/end-others` (własne sesje, #167) | app/admin |

@@ -47,6 +47,8 @@ export const config = {
     ...(process.env.CORS_ORIGINS ?? "").split(",").map((origin) => origin.trim().replace(/\/+$/, "")).filter(Boolean),
     ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:5173", "http://localhost:8081", "http://localhost:19006"]),
   ],
+  // Key that signs file links and the file cookie (#165); without it a random key is kept in DATA_DIR.
+  fileLinkSecret: process.env.FILE_LINK_SECRET ?? "",
   sessionTtlDays: Number(process.env.SESSION_TTL_DAYS ?? 30),
   // However often it is used, a session ends this long after login (#167); the operator's sooner.
   sessionMaxDays: Number(process.env.SESSION_MAX_DAYS ?? 90),

@@ -104,7 +104,7 @@ export const ProjectDefects = ({ projectId }: { projectId: string }) => {
     ) {
       return;
     }
-    await Linking.openURL(protocolUrl(connection, projectId, protocolQuery(filter)));
+    await Linking.openURL(await protocolUrl(connection, projectId, protocolQuery(filter)));
   };
 
   if (!anyDefects) {

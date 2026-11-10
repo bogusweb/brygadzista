@@ -116,3 +116,14 @@ export const makePdf = (pageTexts: string[], size = { width: 612, height: 792 })
   body += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return new Uint8Array(Buffer.from(body, "latin1"));
 };
+
+// A file URL as a client gets it since #165: a short-lived link signed for one path.
+export const fileLink = async (headers: Record<string, string>, path: string) => {
+  const response = await app.request("/api/file-links", {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  if (response.status !== 200) throw new Error(`file link ${response.status}`);
+  return ((await response.json()) as { path: string }).path;
+};

@@ -2,10 +2,11 @@ import { Hono } from "hono";
 import { access, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { isUuid, requireDocumentAccess, requireProjectAccess, requireRole, requireRoleOrQueryToken, type AuthEnv } from "./auth.js";
+import { isUuid, requireDocumentAccess, requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
 import { sql } from "./db.js";
 import { pdfPageSize, pdfRenderPage, pdfRenderRegion } from "./pdf.js";
 import { documentDir, documentPdf, pageImage, pageImagePrefix } from "./storage.js";
+import { requireRoleOrQueryToken } from "./file-access.js";
 
 // Questions to the designer (#73). When the project is silent or contradicts itself, the agent drafts a question with
 // the page and a crop of the drawing; the contractor sends it from the phone (mail, WhatsApp, SMS; the app never

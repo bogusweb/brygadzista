@@ -23,6 +23,8 @@ export const App = () => {
   return <Panel key={token} token={token} route={route} onSignOut={signOut} />;
 };
 
+const FILE_COOKIE_RENEW_MS = 60 * 60 * 1000;
+
 type PanelProps = { token: string; route: Route; onSignOut: () => void };
 
 const Panel = ({ token, route, onSignOut }: PanelProps) => {
@@ -46,9 +48,11 @@ const Panel = ({ token, route, onSignOut }: PanelProps) => {
 
   useEffect(() => {
     let cancelled = false;
-    createApi(token)
-      .whoami()
-      .then((result) => !cancelled && setMe(result))
+    const session = createApi(token);
+    // Images need the file cookie, so the panel opens once it is set; it is renewed before it runs out (#165).
+    const renew = setInterval(() => void session.fileCookie().catch(() => {}), FILE_COOKIE_RENEW_MS);
+    Promise.all([session.whoami(), session.fileCookie()])
+      .then(([result]) => !cancelled && setMe(result))
       .catch((cause: unknown) => {
         if (cancelled) return;
         if (cause instanceof ApiError && cause.status === 401) onSignOut();
@@ -56,6 +60,7 @@ const Panel = ({ token, route, onSignOut }: PanelProps) => {
       });
     return () => {
       cancelled = true;
+      clearInterval(renew);
     };
   }, [token, onSignOut]);
 

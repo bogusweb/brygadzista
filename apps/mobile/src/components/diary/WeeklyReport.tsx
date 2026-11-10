@@ -117,7 +117,7 @@ export const WeeklyReport = ({ projectId, onClose }: { projectId: string; onClos
           {report ? (
             <>
               <Button label="Wyślij link inwestorowi" onPress={() => void share()} loading={busy === "share"} disabled={busy !== null} />
-              <Button label="Otwórz PDF" variant="secondary" onPress={() => void Linking.openURL(weeklyReportPdfUrl(connection, report.id))} />
+              <Button label="Otwórz PDF" variant="secondary" onPress={() => void weeklyReportPdfUrl(connection, report.id).then(Linking.openURL, () => {})} />
             </>
           ) : null}
         </ScrollView>

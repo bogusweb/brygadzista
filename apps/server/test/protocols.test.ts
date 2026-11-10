@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/app.js";
 import { sql } from "../src/db.js";
-import { ADMIN, APP, createDocument, createProject, createTenant, createUser, login, resetDatabase } from "./helpers.js";
+import { ADMIN, APP, createDocument, createProject, createTenant, createUser, login, resetDatabase, fileLink } from "./helpers.js";
 
 let projectId: string;
 let documentId: string;
@@ -47,7 +47,7 @@ describe("saved protocol", () => {
     await sql`update pins set status = 'closed'`;
     expect(((await (await app.request(`/api/protocols/${view.id}`, { headers: APP })).json()) as View).openCount).toBe(1);
 
-    const pdf = await app.request(`/api/protocols/${view.id}/protocol.pdf?token=test-app`);
+    const pdf = await app.request(await fileLink(APP, `/api/protocols/${view.id}/protocol.pdf`));
     expect(pdf.headers.get("content-type")).toBe("application/pdf");
     expect(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString()).toBe("%PDF-");
   });

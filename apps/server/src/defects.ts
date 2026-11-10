@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { isUuid, requireProjectAccess, requireRole, requireRoleOrQueryToken, type AuthEnv } from "./auth.js";
+import { isUuid, requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
 import { config } from "./config.js";
 import { sql } from "./db.js";
 import { audioType } from "./diary-entry.js";
@@ -10,6 +10,7 @@ import { limiters, rateLimit } from "./rate-limit.js";
 import { statusOf } from "./retry.js";
 import { queryTerms } from "./search.js";
 import { MARGIN, createPdf, formatDay, imageRows, photoThumb, planCrop, signatureLines, type Pdf } from "./report-pdf.js";
+import { requireRoleOrQueryToken } from "./file-access.js";
 
 // Defects and fixes pinned to the drawings (#74): a filtered list for the agent and the acceptance protocol as a PDF,
 // plus speech to text for reporting a defect by voice.

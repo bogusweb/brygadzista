@@ -160,3 +160,42 @@ describe("sessions (#167)", () => {
     expect((await app.request("/api/auth/me", { headers: auth })).status).toBe(401);
   });
 });
+
+describe("file access without the session in URLs (#165)", () => {
+  it("opens files with the file cookie, and stops when the session ends", async () => {
+    const { createUser, login, createTenant, createProject, createDocument } = await import("./helpers.js");
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { documentDir, pageImage } = await import("../src/storage.js");
+    const firm = await createTenant();
+    await createUser("szef@a.pl", "owner", undefined, firm);
+    const auth = await login("szef@a.pl");
+    const documentId = await createDocument(await createProject("Dom", firm), "ready");
+    await mkdir(await documentDir(documentId), { recursive: true });
+    await writeFile(await pageImage(documentId, 1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+    const image = `/api/documents/${documentId}/pages/1/image`;
+
+    const issued = await app.request("/api/auth/file-cookie", { method: "POST", headers: auth });
+    const setCookie = issued.headers.get("set-cookie") ?? "";
+    expect(setCookie).toMatch(/^bf=/);
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("SameSite=Strict");
+    const cookie = setCookie.split(";")[0]!;
+
+    expect((await app.request(image, { headers: { cookie } })).status).toBe(200);
+    expect((await app.request(`/api/projects`, { headers: { cookie } })).status).toBe(401);
+
+    await app.request("/api/auth/logout", { method: "POST", headers: auth });
+    expect((await app.request(image, { headers: { cookie } })).status).toBe(401);
+  });
+
+  it("makes links only for file routes", async () => {
+    const { ADMIN } = await import("./helpers.js");
+    const response = await app.request("/api/file-links", {
+      method: "POST",
+      headers: { ...ADMIN, "content-type": "application/json" },
+      body: JSON.stringify({ path: "/api/projects" }),
+    });
+
+    expect(response.status).toBe(400);
+  });
+});

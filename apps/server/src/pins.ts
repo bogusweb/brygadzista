@@ -5,12 +5,13 @@ import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import sharp from "sharp";
-import { isUuid, requireProjectAccess, requireRole, requireRoleOrQueryToken, type AuthEnv } from "./auth.js";
+import { isUuid, requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
 import { config } from "./config.js";
 import { detached, sql } from "./db.js";
 import { queryTerms } from "./search.js";
 import { describeDefect } from "./defect-spec.js";
 import { photoFile } from "./storage.js";
+import { requireRoleOrQueryToken } from "./file-access.js";
 
 // The server runs in 768 MB next to indexing, so photos are processed one at a time without libvips' cache.
 sharp.cache(false);

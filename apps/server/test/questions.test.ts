@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/app.js";
 import { sql } from "../src/db.js";
 import { cropPath, designerAnswersPrompt, type DesignerQuestion } from "../src/questions.js";
-import { ADMIN, APP, createDocument, createProject, insertPage, makePdf, resetDatabase, writeDocumentPdf } from "./helpers.js";
+import { ADMIN, APP, createDocument, createProject, insertPage, makePdf, resetDatabase, writeDocumentPdf, fileLink } from "./helpers.js";
 
 let projectId: string;
 let documentId: string;
@@ -105,7 +105,7 @@ describe("drawing crop", () => {
     await writeDocumentPdf(documentId, makePdf(["Opis", "Detal 3"]));
     const region = { x: 0, y: 0, width: 0.5, height: 0.25 };
 
-    const response = await app.request(`${cropPath(documentId, 2, region)}&token=test-app`);
+    const response = await app.request(await fileLink(APP, cropPath(documentId, 2, region)));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/jpeg");
@@ -116,8 +116,8 @@ describe("drawing crop", () => {
 
   it("without a region returns the whole page and rejects a broken region", async () => {
     await writeDocumentPdf(documentId, makePdf(["Opis", "Detal 3"]));
-    expect((await app.request(`${cropPath(documentId, 1, null)}?token=test-app`)).status).toBe(200);
-    expect((await app.request(`/api/documents/${documentId}/pages/1/crop?x=0.9&y=0&w=0.5&h=0.5&token=test-app`)).status).toBe(400);
-    expect((await app.request(`/api/documents/${documentId}/pages/7/crop?token=test-app`)).status).toBe(404);
+    expect((await app.request(await fileLink(APP, cropPath(documentId, 1, null)))).status).toBe(200);
+    expect((await app.request(await fileLink(APP, `/api/documents/${documentId}/pages/1/crop?x=0.9&y=0&w=0.5&h=0.5`))).status).toBe(400);
+    expect((await app.request(await fileLink(APP, `/api/documents/${documentId}/pages/7/crop`))).status).toBe(404);
   });
 });

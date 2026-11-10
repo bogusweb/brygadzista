@@ -84,7 +84,7 @@ export const fetchSearchIndex = (connection: Connection, projectId: string) =>
 export const pageImagePath = (documentId: string, pageNo: number) =>
   `/api/documents/${encodeURIComponent(documentId)}/pages/${pageNo}/image`;
 
-// Native images send the token as a header; the browser's <img> cannot, so the web preview uses the query fallback.
+// Native images send the token as a header; the browser's <img> cannot, so the web preview relies on the file cookie.
 export const pageImageSource = (connection: Connection, documentId: string, pageNo: number): ImageSourcePropType =>
   serverImageSource(connection, pageImagePath(documentId, pageNo));
 
@@ -128,13 +128,19 @@ export const transcribe = async (connection: Connection, projectId: string, audi
   }
 };
 
-// Opened in the browser, which cannot send the header, so the token goes in the query like for images.
+// A PDF is opened in the phone's browser, which cannot send the header. It gets a link signed for that one file and
+// valid for a few minutes (#165), so a forwarded or logged address does not open the account.
+export const signedFileUrl = async (connection: Connection, path: string) => {
+  const response = await request(connection, "/api/file-links", { method: "POST", body: JSON.stringify({ path }) });
+  return `${connection.serverUrl}${((await response.json()) as { path: string }).path}`;
+};
+
 export const protocolUrl = (connection: Connection, projectId: string, query: string) =>
-  `${connection.serverUrl}${projectPath(projectId)}/defects/protocol.pdf?${query}${query ? "&" : ""}token=${encodeURIComponent(connection.token)}`;
+  signedFileUrl(connection, `${projectPath(projectId)}/defects/protocol.pdf${query ? `?${query}` : ""}`);
 
 // The daily log of a day or a period as a PDF (#81), opened in the browser like the protocol.
 export const diaryReportUrl = (connection: Connection, projectId: string, from: string, to: string) =>
-  `${connection.serverUrl}${projectPath(projectId)}/diary/report.pdf?from=${from}&to=${to}&token=${encodeURIComponent(connection.token)}`;
+  signedFileUrl(connection, `${projectPath(projectId)}/diary/report.pdf?from=${from}&to=${to}`);
 
 // Weekly report for the investor (#84). The model's summary needs time, so the request waits longer than the rest.
 export type WeeklyReport = {
@@ -160,7 +166,7 @@ export const shareWeeklyReport = async (connection: Connection, reportId: string
   };
 
 export const weeklyReportPdfUrl = (connection: Connection, reportId: string) =>
-  `${connection.serverUrl}/api/reports/${encodeURIComponent(reportId)}/report.pdf?token=${encodeURIComponent(connection.token)}`;
+  signedFileUrl(connection, `/api/reports/${encodeURIComponent(reportId)}/report.pdf`);
 
 // Saved acceptance protocols (#82), signed with a finger in the app.
 export type SignatureRole = "contractor" | "investor";
@@ -191,17 +197,15 @@ export const signProtocol = async (
   (await (await request(connection, `/api/protocols/${encodeURIComponent(protocolId)}/signatures/${role}`, { method: "PUT", body: JSON.stringify(body) })).json()) as Protocol;
 
 export const protocolPdfUrl = (connection: Connection, protocolId: string) =>
-  `${connection.serverUrl}/api/protocols/${encodeURIComponent(protocolId)}/protocol.pdf?token=${encodeURIComponent(connection.token)}`;
+  signedFileUrl(connection, `/api/protocols/${encodeURIComponent(protocolId)}/protocol.pdf`);
 
 export type PhotoSize = "full" | "thumb";
 
 export const photoImagePath = (projectId: string, photoId: string, size: PhotoSize) =>
   `${projectPath(projectId)}/photos/${photoId}/image${size === "thumb" ? "?size=thumb" : ""}`;
 
-// Same as page images: a header on native, the query token in the browser. `path` may already carry a query.
+// Same as page images: a header on native, the file cookie in the browser (#165). `path` may already carry a query.
 export const serverImageSource = (connection: Connection, path: string): ImageSourcePropType => {
   const uri = `${connection.serverUrl}${path}`;
-  return Platform.OS === "web"
-    ? { uri: `${uri}${uri.includes("?") ? "&" : "?"}token=${encodeURIComponent(connection.token)}` }
-    : { uri, headers: authHeaders(connection) };
+  return Platform.OS === "web" ? { uri } : { uri, headers: authHeaders(connection) };
 };

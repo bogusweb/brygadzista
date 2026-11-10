@@ -20,7 +20,6 @@ import {
   requireDocumentAccess,
   requireProjectAccess,
   requireRole,
-  requireRoleOrQueryToken,
   visibleProjects,
   type AuthEnv,
   type Role,
@@ -55,6 +54,7 @@ import { limiters, rateLimit } from "./rate-limit.js";
 import { documentDir, documentPdf, pageImage, projectDir } from "./storage.js";
 import { tenants } from "./tenants.js";
 import { users } from "./users.js";
+import { fileAccess, requireRoleOrQueryToken } from "./file-access.js";
 
 // Chat is limited per user on agent runs only; the runtime's info and connect calls are free.
 const isAgentRun = (request: Request) => request.method === "POST" && /\/agent\/[^/]+\/(run|suggest)$/.test(new URL(request.url).pathname);
@@ -164,6 +164,7 @@ app.route("/", questions);
 app.route("/", cards);
 app.route("/", schedules);
 app.route("/", revisions);
+app.route("/", fileAccess);
 app.route("/", mcp);
 app.route("/", mcpTokens);
 

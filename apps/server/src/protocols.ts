@@ -1,13 +1,14 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
-import { canAccessProject, isUuid, requireProjectAccess, requireRole, requireRoleOrQueryToken, type AuthEnv } from "./auth.js";
+import { canAccessProject, isUuid, requireProjectAccess, requireRole, type AuthEnv } from "./auth.js";
 import { sql } from "./db.js";
 import { STATUS_LABELS, describeFilter, listDefects, parseStatuses, protocolDocument, type Defect, type DefectFilter } from "./defects.js";
 import { exists, formatDay, planCrop } from "./report-pdf.js";
 import { createShareLink, escapeHtml, notFoundPage, publicOrigin, publicPage, resolveShareLink } from "./share.js";
 import { isSignature, qrPng, signaturePng, signatureSchema, type SignatureStrokes } from "./signature.js";
 import { photoFile } from "./storage.js";
+import { requireRoleOrQueryToken } from "./file-access.js";
 
 // Saved acceptance protocols (#82): a stage or the final acceptance, frozen with the defects as they were, printed
 // with a QR code to its read-only online version, and signed with a finger in the app by the contractor and the investor.

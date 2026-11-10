@@ -87,12 +87,12 @@ export const tenantsOf = (userId: string) => sql<Tenant[]>`
 // A session in use is extended, so a worker who opens the app regularly stays logged in, but never past the maximum
 // lifetime from login (#167): a stolen token stops working on its own.
 const sessionMaxAge = sql`make_interval(days => case when u.role = 'operator' then ${config.operatorSessionMaxDays}::int else ${config.sessionMaxDays}::int end)`;
-const sessionOf = async (token: string) => {
+const sessionOf = async (tokenHash: string) => {
   const [row] = await sql<(SessionUser & { tenantId: string | null })[]>`
     update sessions s set last_used_at = now(),
       expires_at = least(greatest(s.expires_at, now() + make_interval(days => ${config.sessionTtlDays})), s.created_at + ${sessionMaxAge})
     from users u
-    where s.token_hash = ${sha256(token).toString("hex")} and s.expires_at > now() and s.created_at + ${sessionMaxAge} > now()
+    where s.token_hash = ${tokenHash} and s.expires_at > now() and s.created_at + ${sessionMaxAge} > now()
       and u.id = s.user_id and u.disabled_at is null
     returning u.id, u.email, u.name, u.role, s.tenant_id as "tenantId"`;
   return row ?? null;
@@ -129,7 +129,12 @@ export const principalFromToken = async (token: string | undefined, request?: Re
   }
   if (sameToken(token, config.appToken)) return { role: "app", user: null, operator: false, tenant: await legacyAppTenant() };
   if (!token.startsWith("bs_")) return null;
-  const session = await sessionOf(token);
+  return principalFromSessionHash(sha256(token).toString("hex"));
+};
+
+// The principal of a live session, by its token's hash; file links carry the hash, never the token (#165).
+export const principalFromSessionHash = async (tokenHash: string): Promise<Principal | null> => {
+  const session = await sessionOf(tokenHash);
   if (!session) return null;
   const { tenantId, ...user } = session;
   const operator = user.role === "operator";
@@ -198,7 +203,7 @@ export const projectOfDocument = async (documentId: string) => {
   return doc?.projectId ?? null;
 };
 
-const authorize = (allowed: Role[], token: string | undefined): MiddlewareHandler<AuthEnv> => async (c, next) => {
+export const authorize = (allowed: Role[], token: string | undefined): MiddlewareHandler<AuthEnv> => async (c, next) => {
   const principal = await principalFromToken(token, c.req.raw);
   if (!principal || !allowed.includes(principal.role)) return c.json({ error: "Brak dostępu" }, 401);
   c.set("principal", principal);
@@ -208,10 +213,6 @@ const authorize = (allowed: Role[], token: string | undefined): MiddlewareHandle
 export const requireRole = (...allowed: Role[]): MiddlewareHandler<AuthEnv> => (c, next) =>
   authorize(allowed, bearerToken(c.req.header("authorization")))(c, next);
 
-// <img src> cannot send headers, so page images also accept the token in ?token=. Nothing else does,
-// because query strings end up in logs and browser history.
-export const requireRoleOrQueryToken = (...allowed: Role[]): MiddlewareHandler<AuthEnv> => (c, next) =>
-  authorize(allowed, bearerToken(c.req.header("authorization")) ?? c.req.query("token"))(c, next);
 
 const notFound = (c: Context, what: "projektu" | "dokumentu") => c.json({ error: `Nie ma takiego ${what}` }, 404);
 
