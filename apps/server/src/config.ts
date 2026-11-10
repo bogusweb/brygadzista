@@ -84,6 +84,11 @@ export const config = {
   cadToolTimeoutMs: Number(process.env.CAD_TOOL_TIMEOUT_MS ?? 600_000),
   dwg2dxf: process.env.DWG2DXF ?? "dwg2dxf",
   cadPython: process.env.CAD_PYTHON ?? "python3",
+  // Converters of uploaded files run in bubblewrap (#169): "auto" uses it when the system allows user namespaces,
+  // "bwrap" requires it (a conversion fails without it), "off" never uses it. Always with a minimal environment (#163).
+  converterSandbox: (["auto", "bwrap", "off"].includes(process.env.CONVERTER_SANDBOX ?? "") ? process.env.CONVERTER_SANDBOX : "auto") as
+    "auto" | "bwrap" | "off",
+  bwrap: process.env.BWRAP ?? "bwrap",
   cadRenderScript: path.resolve(process.env.CAD_RENDER_SCRIPT ?? path.join(import.meta.dirname, "..", "cad", "render_dxf.py")),
   // After this many failed pages in a row the problem is not the page (key, outage), so the document stops.
   maxConsecutivePageFailures: Number(process.env.MAX_CONSECUTIVE_PAGE_FAILURES ?? 5),

@@ -8,8 +8,11 @@ import { migrate } from "./db.js";
 import { resumeDefectSpecs } from "./defect-spec.js";
 import { resumeDiaryEntries } from "./diary.js";
 import { startIngestWorker } from "./ingest.js";
+import { sandboxAvailable } from "./sandbox.js";
 import { migrateFiles } from "./storage.js";
 
+// Fails here when CONVERTER_SANDBOX=bwrap and bubblewrap cannot run, instead of at the first upload.
+console.log(`brygadzista: file converters ${sandboxAvailable() ? "run in the bubblewrap sandbox" : "run without a sandbox"}`);
 await migrate();
 await migrateFiles();
 await failInterruptedChecklists();

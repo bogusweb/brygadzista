@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { config } from "./config.js";
 import { detached, sql } from "./db.js";
 import { pdfPageCount } from "./pdf.js";
+import { sandboxed, toolEnv, type SandboxPaths } from "./sandbox.js";
 import { documentDir, documentPdf } from "./storage.js";
 
 const execFileAsync = promisify(execFile);
@@ -32,8 +33,11 @@ export const detectFormat = (head: Buffer): UploadFormat | null => {
 export const sourceFile = async (documentId: string, format: Exclude<UploadFormat, "pdf">) =>
   path.join(await documentDir(documentId), `source.${format}`);
 
-const run = (command: string, args: string[]) =>
-  execFileAsync(command, args, { timeout: config.cadToolTimeoutMs, maxBuffer: 16 * 1024 * 1024 });
+// LibreDWG and ezdxf parse untrusted drawings: minimal environment, and the sandbox where the system allows it (#163, #169).
+const run = (command: string, args: string[], paths: SandboxPaths) => {
+  const [program, programArgs] = sandboxed(command, args, paths, "/tmp");
+  return execFileAsync(program, programArgs, { timeout: config.cadToolTimeoutMs, maxBuffer: 16 * 1024 * 1024, env: toolEnv() });
+};
 
 const failure = (error: unknown) => {
   const { stderr, killed } = error as { stderr?: string; killed?: boolean };
@@ -45,7 +49,7 @@ const failure = (error: unknown) => {
 // LibreDWG prints warnings for objects it skips and still writes the DXF; only a missing or empty file is a failure.
 export const dwgToDxf = async (dwg: string, dxf: string) => {
   try {
-    await run(config.dwg2dxf, ["-y", "-o", dxf, dwg]);
+    await run(config.dwg2dxf, ["-y", "-o", dxf, dwg], { read: [dwg], write: [path.dirname(dxf)] });
   } catch (error) {
     const written = await stat(dxf).then((file) => file.size > 0, () => false);
     if (!written) throw new Error(`Nie udało się odczytać pliku DWG (${failure(error)})`);
@@ -56,7 +60,10 @@ export type RenderSummary = { dxfVersion: string; repairs: number; pages: { name
 
 export const dxfToPdf = async (dxf: string, pdf: string): Promise<RenderSummary> => {
   try {
-    const { stdout } = await run(config.cadPython, [config.cadRenderScript, dxf, pdf]);
+    const { stdout } = await run(config.cadPython, [config.cadRenderScript, dxf, pdf], {
+      read: [path.dirname(config.cadRenderScript), dxf],
+      write: [path.dirname(pdf)],
+    });
     return JSON.parse(stdout) as RenderSummary;
   } catch (error) {
     throw new Error(`Nie udało się narysować arkuszy z DXF (${failure(error)})`);

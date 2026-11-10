@@ -41,7 +41,7 @@ import { protocols } from "./protocols.js";
 import { reports } from "./reports.js";
 import { site } from "./site.js";
 import { FakeProjectAgent } from "./fake-agent.js";
-import { OfficeTimeout, looksLikeWord, wordExtension, wordToPdf } from "./office.js";
+import { OfficeTimeout, looksLikeWord, wordExtension, wordProblem, wordToPdf } from "./office.js";
 import { pdfPageCount } from "./pdf.js";
 import { projectOutline } from "./project-outline.js";
 import { designerAnswersPrompt, questions } from "./questions.js";
@@ -259,6 +259,8 @@ app.put("/api/projects/:id/documents", requireRole("admin"), requireProjectAcces
   await handle.close();
   if (word) {
     if (!looksLikeWord(word, buffer)) return reject(400, `To nie jest plik Word (.${word})`);
+    const problem = await wordProblem(word, received);
+    if (problem) return reject(400, problem);
     try {
       await wordToPdf(received, pdf);
     } catch (error) {
