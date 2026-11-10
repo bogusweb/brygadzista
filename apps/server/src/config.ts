@@ -21,6 +21,12 @@ export const config = {
   // Address of the server as people outside see it, for read-only links and QR codes (#84, #82). Without it the
   // address is taken from the request (behind a proxy, from X-Forwarded-Proto and Host).
   publicUrl: (process.env.PUBLIC_URL ?? "").replace(/\/+$/, ""),
+  // Other origins allowed to call the API from a browser (#171), comma separated. Outside production the Vite and
+  // Expo development servers are allowed too.
+  corsOrigins: [
+    ...(process.env.CORS_ORIGINS ?? "").split(",").map((origin) => origin.trim().replace(/\/+$/, "")).filter(Boolean),
+    ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:5173", "http://localhost:8081", "http://localhost:19006"]),
+  ],
   sessionTtlDays: Number(process.env.SESSION_TTL_DAYS ?? 30),
   // Rate limits per user (or per shared token); login attempts per e-mail and per IP.
   chatRequestsPerMinute: Number(process.env.RATE_LIMIT_CHAT_PER_MINUTE ?? 10),
@@ -33,6 +39,9 @@ export const config = {
   // Where the client address comes from (#164): the header Cloudflare sets, then X-Forwarded-For counted from the end.
   clientIpHeader: (process.env.CLIENT_IP_HEADER ?? "cf-connecting-ip").toLowerCase(),
   trustedProxies: Number(process.env.TRUSTED_PROXIES ?? 1),
+  // Request bodies read whole (JSON) stop at this size; file uploads stream with their own limits (#170).
+  maxJsonBytes: Number(process.env.MAX_JSON_MB ?? 5) * 1024 * 1024,
+  passwordHashConcurrency: Number(process.env.PASSWORD_HASH_CONCURRENCY ?? 2),
   loginAttemptsPer15Min: Number(process.env.RATE_LIMIT_LOGIN_PER_15_MIN ?? 10),
   openrouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
   // Chat about the project: a cheap model served from an EU region.

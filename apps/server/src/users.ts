@@ -5,6 +5,7 @@ import {
   bearerToken,
   createSession,
   hashPassword,
+  MAX_PASSWORD_LENGTH,
   isUuid,
   normalizeEmail,
   requireProjectAccess,
@@ -30,7 +31,9 @@ export const ROLE_ERROR = "Rola to owner, manager albo worker";
 export const passwordProblem = (password: unknown) =>
   typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH
     ? `Hasło musi mieć co najmniej ${MIN_PASSWORD_LENGTH} znaków`
-    : null;
+    : password.length > MAX_PASSWORD_LENGTH
+      ? `Hasło może mieć najwyżej ${MAX_PASSWORD_LENGTH} znaków`
+      : null;
 
 // "contractor" is the role from before firms; it means a worker.
 export const tenantRole = (role: unknown): TenantRole | null =>

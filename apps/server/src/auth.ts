@@ -27,13 +27,35 @@ const sha256 = (value: string) => createHash("sha256").update(value).digest();
 
 const sameToken = (a: string, b: string) => b !== "" && timingSafeEqual(sha256(a), sha256(b));
 
-export const hashPassword = (password: string) => hash(password);
+// argon2 is meant to be slow and memory-hungry, so a flood of logins must not run hundreds of them at once on a
+// two-core server (#170): extra ones wait their turn.
+const passwordSlots = (() => {
+  let running = 0;
+  const waiting: (() => void)[] = [];
+  return async <T>(work: () => Promise<T>): Promise<T> => {
+    if (running >= config.passwordHashConcurrency) await new Promise<void>((resolve) => waiting.push(resolve));
+    running++;
+    try {
+      return await work();
+    } finally {
+      running--;
+      waiting.shift()?.();
+    }
+  };
+})();
+
+// Longer than any real password; refused before hashing.
+export const MAX_PASSWORD_LENGTH = 256;
+
+export const hashPassword = (password: string) => passwordSlots(() => hash(password));
 
 // Verifying against a throwaway hash when the e-mail is unknown keeps login timing the same either way.
 let dummyHash: Promise<string> | undefined;
 export const verifyPassword = async (passwordHash: string | undefined, password: string) => {
-  if (passwordHash) return verify(passwordHash, password).catch(() => false);
-  await verify(await (dummyHash ??= hash(randomBytes(16).toString("hex"))), password).catch(() => false);
+  if (password.length > MAX_PASSWORD_LENGTH) return false;
+  if (passwordHash) return passwordSlots(() => verify(passwordHash, password).catch(() => false));
+  const dummy = await (dummyHash ??= hashPassword(randomBytes(16).toString("hex")));
+  await passwordSlots(() => verify(dummy, password).catch(() => false));
   return false;
 };
 

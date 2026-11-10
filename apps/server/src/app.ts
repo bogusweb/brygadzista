@@ -1,7 +1,9 @@
 import { serveStatic } from "@hono/node-server/serve-static";
 import { CopilotRuntime, createCopilotEndpoint } from "@copilotkit/runtime/v2";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import { secureHeaders } from "hono/secure-headers";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, open, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
@@ -73,7 +75,67 @@ const appRuntime = new CopilotRuntime({ agents: projectAgents(["app", "admin"]),
 const adminRuntime = new CopilotRuntime({ agents: projectAgents(["admin"]), a2ui });
 
 export const app = new Hono<AuthEnv>();
-app.use("/api/*", cors({ origin: "*", allowHeaders: ["authorization", "content-type", "x-project-id"] }));
+// Pages and the API from one origin, so other sites get no CORS access (#171). The native app sends no Origin; the
+// development servers of the dashboard and the Expo web app are allowed outside production, others via CORS_ORIGINS.
+app.use(
+  "/api/*",
+  cors({
+    origin: (origin) => (config.corsOrigins.includes(origin) ? origin : null),
+    allowHeaders: ["authorization", "content-type", "x-project-id"],
+  }),
+);
+
+// Security headers on every response (#171). The CSP keeps scripts, requests and images on this server: a page or
+// a chat answer cannot load code from elsewhere or carry data out in an image address (#174). Inline styles stay
+// allowed for React Native Web and the share pages.
+app.use(
+  "*",
+  secureHeaders({
+    contentSecurityPolicy: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      fontSrc: ["'self'", "data:"],
+      connectSrc: ["'self'"],
+      mediaSrc: ["'self'", "blob:"],
+      workerSrc: ["'self'", "blob:"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+    },
+    strictTransportSecurity: "max-age=31536000; includeSubDomains",
+    xFrameOptions: "DENY",
+    referrerPolicy: "no-referrer",
+    crossOriginResourcePolicy: "same-origin",
+    crossOriginOpenerPolicy: "same-origin",
+    crossOriginEmbedderPolicy: false,
+    permissionsPolicy: { camera: ["self"], microphone: ["self"], geolocation: ["self"] },
+  }),
+);
+
+// Files are streamed to disk with their own limits; every other body is read whole, so it stops at MAX_JSON_MB (#170).
+// Without this, one unauthenticated login request with a huge body could take the server's memory.
+const STREAMED_UPLOADS = [
+  /^PUT \/api\/projects\/[^/]+\/documents$/,
+  /^PUT \/api\/projects\/[^/]+\/pins\/[^/]+\/photos\/[^/]+$/,
+  /^POST \/api\/projects\/[^/]+\/transcribe$/,
+];
+const isAudioDiary = (method: string, pathname: string, contentType: string) =>
+  method === "POST" && /^\/api\/projects\/[^/]+\/diary$/.test(pathname) && !contentType.includes("json");
+const jsonLimit = bodyLimit({
+  maxSize: config.maxJsonBytes,
+  onError: (c) => c.json({ error: `Za duże żądanie (limit ${Math.round(config.maxJsonBytes / 1024 / 1024)} MB)` }, 413),
+});
+app.use("*", async (c, next) => {
+  const pathname = new URL(c.req.url).pathname;
+  const route = `${c.req.method} ${pathname}`;
+  if (STREAMED_UPLOADS.some((pattern) => pattern.test(route)) || isAudioDiary(c.req.method, pathname, c.req.header("content-type") ?? "")) {
+    return next();
+  }
+  return jsonLimit(c, next);
+});
 
 // `llm` tells an operator at a glance whether the OpenRouter key reached the server.
 app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterApiKey) }));
