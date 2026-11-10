@@ -117,3 +117,46 @@ describe("operator token and reads (#168)", () => {
     expect(rows).toEqual([{ tenant_name: "Firma czytana", action: "read", operator_name: "ADMIN_TOKEN" }]);
   });
 });
+
+describe("sessions (#167)", () => {
+  it("lists the account's sessions and ends one or all the others", async () => {
+    const { createUser, login, createTenant } = await import("./helpers.js");
+    await createUser("jan@budowa.pl", "worker", undefined, await createTenant());
+    const phone = await login("jan@budowa.pl");
+    const laptop = await login("jan@budowa.pl");
+    const tablet = await login("jan@budowa.pl");
+
+    const listed = (await (await app.request("/api/auth/sessions", { headers: laptop })).json()) as { id: string; current: boolean }[];
+    expect(listed).toHaveLength(3);
+    expect(listed.filter((session) => session.current)).toHaveLength(1);
+
+    const phoneId = ((await (await app.request("/api/auth/sessions", { headers: phone })).json()) as { id: string; current: boolean }[])
+      .find((session) => session.current)!.id;
+    expect((await app.request(`/api/auth/sessions/${phoneId}`, { method: "DELETE", headers: laptop })).status).toBe(204);
+    expect((await app.request("/api/auth/me", { headers: phone })).status).toBe(401);
+
+    expect((await app.request("/api/auth/sessions/end-others", { method: "POST", headers: laptop })).status).toBe(204);
+    expect((await app.request("/api/auth/me", { headers: tablet })).status).toBe(401);
+    expect((await app.request("/api/auth/me", { headers: laptop })).status).toBe(200);
+  });
+
+  it("ends a session at its maximum lifetime however often it is used", async () => {
+    const { createUser, login, createTenant } = await import("./helpers.js");
+    await createUser("jan@budowa.pl", "worker", undefined, await createTenant());
+    const auth = await login("jan@budowa.pl");
+    expect((await app.request("/api/auth/me", { headers: auth })).status).toBe(200);
+
+    await sql`update sessions set created_at = now() - interval '91 days', expires_at = now() + interval '20 days'`;
+
+    expect((await app.request("/api/auth/me", { headers: auth })).status).toBe(401);
+  });
+
+  it("keeps an operator's session for a week at most", async () => {
+    const { createOperator, login } = await import("./helpers.js");
+    await createOperator("operator@serwis.pl");
+    const auth = await login("operator@serwis.pl");
+    await sql`update sessions set created_at = now() - interval '8 days'`;
+
+    expect((await app.request("/api/auth/me", { headers: auth })).status).toBe(401);
+  });
+});

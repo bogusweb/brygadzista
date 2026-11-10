@@ -48,6 +48,9 @@ export const config = {
     ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:5173", "http://localhost:8081", "http://localhost:19006"]),
   ],
   sessionTtlDays: Number(process.env.SESSION_TTL_DAYS ?? 30),
+  // However often it is used, a session ends this long after login (#167); the operator's sooner.
+  sessionMaxDays: Number(process.env.SESSION_MAX_DAYS ?? 90),
+  operatorSessionMaxDays: Number(process.env.OPERATOR_SESSION_MAX_DAYS ?? 7),
   // Rate limits per user (or per shared token); login attempts per e-mail and per IP.
   chatRequestsPerMinute: Number(process.env.RATE_LIMIT_CHAT_PER_MINUTE ?? 10),
   // All people of one firm together (#94), so one firm cannot use up the model budget of the others.

@@ -62,11 +62,14 @@ export const verifyPassword = async (passwordHash: string | undefined, password:
 
 export const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
-export const createSession = async (userId: string, tenantId: string | null) => {
+export const createSession = async (userId: string, tenantId: string | null, request?: Request) => {
   const token = `bs_${randomBytes(32).toString("base64url")}`;
+  const userAgent = (request?.headers.get("user-agent") ?? "").slice(0, 300);
+  const ip = request ? clientIp(request) : "";
   const [session] = await sql<{ expiresAt: Date }[]>`
-    insert into sessions (token_hash, user_id, tenant_id, expires_at)
-    values (${sha256(token).toString("hex")}, ${userId}, ${tenantId}, now() + make_interval(days => ${config.sessionTtlDays}))
+    insert into sessions (token_hash, user_id, tenant_id, expires_at, user_agent, ip)
+    values (${sha256(token).toString("hex")}, ${userId}, ${tenantId}, now() + make_interval(days => ${config.sessionTtlDays}),
+      ${userAgent}, ${ip})
     returning expires_at as "expiresAt"`;
   return { token, expiresAt: session!.expiresAt };
 };
@@ -81,13 +84,15 @@ export const tenantsOf = (userId: string) => sql<Tenant[]>`
   select t.id, t.name, m.role from tenant_members m join tenants t on t.id = m.tenant_id
   where m.user_id = ${userId} and t.disabled_at is null and m.blocked_at is null order by m.created_at, t.created_at`;
 
-// A session in use is extended, so a worker who opens the app regularly never gets logged out.
+// A session in use is extended, so a worker who opens the app regularly stays logged in, but never past the maximum
+// lifetime from login (#167): a stolen token stops working on its own.
+const sessionMaxAge = sql`make_interval(days => case when u.role = 'operator' then ${config.operatorSessionMaxDays}::int else ${config.sessionMaxDays}::int end)`;
 const sessionOf = async (token: string) => {
   const [row] = await sql<(SessionUser & { tenantId: string | null })[]>`
     update sessions s set last_used_at = now(),
-      expires_at = greatest(s.expires_at, now() + make_interval(days => ${config.sessionTtlDays}))
+      expires_at = least(greatest(s.expires_at, now() + make_interval(days => ${config.sessionTtlDays})), s.created_at + ${sessionMaxAge})
     from users u
-    where s.token_hash = ${sha256(token).toString("hex")} and s.expires_at > now()
+    where s.token_hash = ${sha256(token).toString("hex")} and s.expires_at > now() and s.created_at + ${sessionMaxAge} > now()
       and u.id = s.user_id and u.disabled_at is null
     returning u.id, u.email, u.name, u.role, s.tenant_id as "tenantId"`;
   return row ?? null;

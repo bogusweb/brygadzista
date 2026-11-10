@@ -82,7 +82,7 @@ users.post("/api/auth/login", async (c) => {
   const tenants = await tenantsOf(user.id);
   const tenant = tenants[0] ?? null;
   if (!tenant && user.role !== "operator") return c.json({ error: "Konto nie należy do żadnej aktywnej firmy" }, 403);
-  const session = await createSession(user.id, tenant?.id ?? null);
+  const session = await createSession(user.id, tenant?.id ?? null, c.req.raw);
   return c.json({
     token: session.token,
     expiresAt: session.expiresAt,
@@ -107,6 +107,36 @@ users.post("/api/auth/tenant", requireRole("admin", "app"), async (c) => {
   await sql`update sessions set tenant_id = ${tenant.id} where token_hash = ${sessionTokenHash(bearerToken(c.req.header("authorization"))!)}`;
   const operator = c.get("principal").operator;
   return c.json(await me({ role: operator ? "admin" : roleOf(tenant.role), user, operator, tenant }));
+});
+
+// The account's sessions (#167), so a person can see where they are logged in and end the ones they do not know.
+// A session is named by the start of its token's hash; the token itself is never stored.
+const SESSION_ID_LENGTH = 16;
+users.get("/api/auth/sessions", requireRole("admin", "app"), async (c) => {
+  const { user } = c.get("principal");
+  if (!user) return c.json([]);
+  const current = sessionTokenHash(bearerToken(c.req.header("authorization")) ?? "");
+  const rows = await sql<{ hash: string; createdAt: Date; lastUsedAt: Date; expiresAt: Date; userAgent: string; ip: string }[]>`
+    select token_hash as hash, created_at as "createdAt", last_used_at as "lastUsedAt", expires_at as "expiresAt",
+      user_agent as "userAgent", ip
+    from sessions where user_id = ${user.id} and expires_at > now() order by last_used_at desc`;
+  return c.json(rows.map(({ hash, ...row }) => ({ id: hash.slice(0, SESSION_ID_LENGTH), current: hash === current, ...row })));
+});
+
+users.delete("/api/auth/sessions/:id", requireRole("admin", "app"), async (c) => {
+  const { user } = c.get("principal");
+  const id = c.req.param("id");
+  if (!user || !/^[0-9a-f]{16}$/.test(id)) return c.json({ error: "Nie ma takiej sesji" }, 404);
+  const removed = await sql`delete from sessions where user_id = ${user.id} and left(token_hash, ${SESSION_ID_LENGTH}) = ${id} returning 1`;
+  return removed.length ? c.body(null, 204) : c.json({ error: "Nie ma takiej sesji" }, 404);
+});
+
+// Logs out every other device, e.g. after a phone was lost.
+users.post("/api/auth/sessions/end-others", requireRole("admin", "app"), async (c) => {
+  const { user } = c.get("principal");
+  if (!user) return c.json({ error: "Wspólny token nie ma sesji" }, 400);
+  await revokeUserSessions(user.id, bearerToken(c.req.header("authorization")));
+  return c.body(null, 204);
 });
 
 users.post("/api/auth/logout", requireRole("admin", "app"), async (c) => {

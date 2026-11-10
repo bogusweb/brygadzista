@@ -608,6 +608,28 @@ const migrateTenants = async () => {
   // A link can open one thing only (#84 a weekly report, #82 a protocol); null target = the project's read-only view.
   await sql`alter table share_links add column if not exists target_type text`;
   await sql`alter table share_links add column if not exists target_id uuid`;
+
+  // Security epic (#162). Sessions remember where they were opened, so a person can recognise and end them (#167).
+  await sql`alter table sessions add column if not exists user_agent text not null default ''`;
+  await sql`alter table sessions add column if not exists ip text not null default ''`;
+  // Tokens for MCP clients (#166): read-only, named, revocable, one firm; only a hash is kept.
+  await sql`
+    create table if not exists mcp_tokens (
+      id uuid primary key default gen_random_uuid(),
+      token_hash text not null unique,
+      user_id uuid not null references users(id) on delete cascade,
+      tenant_id uuid references tenants(id) on delete cascade,
+      name text not null,
+      created_at timestamptz not null default now(),
+      last_used_at timestamptz,
+      expires_at timestamptz,
+      revoked_at timestamptz
+    )`;
+  await sql`create index if not exists mcp_tokens_user on mcp_tokens (user_id)`;
+  // Second factor (#176): the TOTP secret, when it was turned on, and hashes of the one-time recovery codes.
+  await sql`alter table users add column if not exists totp_secret text`;
+  await sql`alter table users add column if not exists totp_enabled_at timestamptz`;
+  await sql`alter table users add column if not exists totp_recovery text[] not null default '{}'`;
 };
 
 // Every table with a tenant_id gets a policy for TENANT_ROLE. The server's own role owns the tables and is not limited,
@@ -630,7 +652,7 @@ const enableRowLevelSecurity = async () => {
   await sql.unsafe(`grant usage, select on all sequences in schema public to ${TENANT_ROLE}`);
   const tables = await sql<{ table: string }[]>`
     select table_name as table from information_schema.columns
-    where table_schema = 'public' and column_name = 'tenant_id' and table_name not in ('sessions', 'tenant_members')`;
+    where table_schema = 'public' and column_name = 'tenant_id' and table_name not in ('sessions', 'tenant_members', 'mcp_tokens')`;
   for (const { table } of tables) {
     await sql.unsafe(`alter table ${table} enable row level security`);
     await sql.unsafe(`drop policy if exists tenant_isolation on ${table}`);
