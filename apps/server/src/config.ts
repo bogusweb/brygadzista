@@ -30,6 +30,9 @@ export const config = {
   mcpCallsPerMinute: Number(process.env.RATE_LIMIT_MCP_PER_MINUTE ?? 60),
   uploadsPerHour: Number(process.env.RATE_LIMIT_UPLOADS_PER_HOUR ?? 30),
   diaryNotesPerHour: Number(process.env.RATE_LIMIT_DIARY_PER_HOUR ?? 60),
+  // Where the client address comes from (#164): the header Cloudflare sets, then X-Forwarded-For counted from the end.
+  clientIpHeader: (process.env.CLIENT_IP_HEADER ?? "cf-connecting-ip").toLowerCase(),
+  trustedProxies: Number(process.env.TRUSTED_PROXIES ?? 1),
   loginAttemptsPer15Min: Number(process.env.RATE_LIMIT_LOGIN_PER_15_MIN ?? 10),
   openrouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
   // Chat about the project: a cheap model served from an EU region.

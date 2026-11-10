@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { randomBytes } from "node:crypto";
+import { config } from "./config.js";
 import {
   bearerToken,
   createSession,
@@ -35,8 +36,15 @@ export const passwordProblem = (password: unknown) =>
 export const tenantRole = (role: unknown): TenantRole | null =>
   role === "contractor" ? "worker" : TENANT_ROLES.includes(role as TenantRole) ? (role as TenantRole) : null;
 
-// Behind Openship's proxy the client address is the first entry of X-Forwarded-For.
-export const clientIp = (request: Request) => request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+// The address that limits login attempts (#164). Cloudflare sets CF-Connecting-IP and overwrites one the client sends;
+// the first entry of X-Forwarded-For is whatever the client wrote, so without Cloudflare the entry added by the last
+// trusted proxy counts (TRUSTED_PROXIES from the end, Openship's proxy by default).
+export const clientIp = (request: Request) => {
+  const cloudflare = config.clientIpHeader ? request.headers.get(config.clientIpHeader)?.trim() : "";
+  if (cloudflare) return cloudflare;
+  const hops = (request.headers.get("x-forwarded-for") ?? "").split(",").map((hop) => hop.trim()).filter(Boolean);
+  return hops.at(-Math.max(1, config.trustedProxies)) ?? hops[0] ?? "unknown";
+};
 
 const userColumns = sql`u.id, u.email, u.name, u.disabled_at is not null as disabled, u.created_at as "createdAt"`;
 
@@ -187,13 +195,15 @@ users.patch("/api/users/:id", requireRole("admin"), requireTenantOwner, async (c
   }
   const tenantId = scopeTenant(principal, c.req.query("tenantId"));
   const [target] = isUuid(id)
-    ? await sql<{ inTenant: boolean; elsewhere: boolean }[]>`
-        select exists (select 1 from tenant_members where user_id = u.id and tenant_id = ${tenantId}) as "inTenant",
+    ? await sql<{ inTenant: boolean; elsewhere: boolean; operator: boolean }[]>`
+        select u.role = 'operator' as operator, exists (select 1 from tenant_members where user_id = u.id and tenant_id = ${tenantId}) as "inTenant",
           exists (select 1 from tenant_members where user_id = u.id and tenant_id is distinct from ${tenantId}) as elsewhere
         from users u where u.id = ${id}`
     : [];
   if (!target || (!principal.operator && !target.inTenant)) return c.json({ error: "Nie ma takiego użytkownika" }, 404);
   const accountWide = typeof body.name === "string" || typeof body.password === "string" || typeof body.disabled === "boolean";
+  // A firm owner never changes the operator's account, even when the operator is a member of the firm (#164).
+  if (accountWide && !principal.operator && target.operator) return c.json({ error: "Konto operatora zmienia tylko operator" }, 403);
   if (accountWide && !principal.operator && target.elsewhere) {
     return c.json({ error: "Konto należy też do innej firmy, zmienia je tylko jego właściciel" }, 403);
   }
