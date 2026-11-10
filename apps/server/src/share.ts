@@ -35,11 +35,14 @@ export const resolveShareLink = async (token: string, type: ShareTarget["type"])
   return link ?? null;
 };
 
+// Links printed in PDFs and QR codes. PUBLIC_URL should be set in production; without it the address comes from the
+// request, and there X-Forwarded-Host (which a client can write) is used only outside production (#177).
 export const publicOrigin = (c: Context) => {
   if (config.publicUrl) return config.publicUrl;
   const url = new URL(c.req.url);
-  const proto = c.req.header("x-forwarded-proto")?.split(",")[0]?.trim() || url.protocol.replace(":", "");
-  const host = c.req.header("x-forwarded-host") ?? c.req.header("host") ?? url.host;
+  const production = process.env.NODE_ENV === "production";
+  const proto = production ? "https" : c.req.header("x-forwarded-proto")?.split(",")[0]?.trim() || url.protocol.replace(":", "");
+  const host = (production ? null : c.req.header("x-forwarded-host")) ?? c.req.header("host") ?? url.host;
   return `${proto}://${host}`;
 };
 

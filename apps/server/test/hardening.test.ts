@@ -68,3 +68,24 @@ describe("security headers and CORS (#171)", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe("http://localhost:8081");
   });
 });
+
+describe("small fixes (#177)", () => {
+  it("tells nobody outside how the server is set up", async () => {
+    expect(await (await app.request("/api/health")).json()).toEqual({ ok: true });
+    const { ADMIN } = await import("./helpers.js");
+    expect(await (await app.request("/api/operator/status", { headers: ADMIN })).json()).toMatchObject({ llm: false });
+  });
+
+  it("starts CSV cells that look like formulas with an apostrophe", async () => {
+    const { scheduleCsv } = await import("../src/schedules.js");
+    const csv = scheduleCsv([
+      { category: "stal", element: "=HYPERLINK(\"http://zly.example\")", level: "", mark: "+1", description: "@SUM(A1)", dimensions: "",
+        quantity: -3, unit: "kg", documentId: "d", pageNo: 1, note: "" } as never,
+    ]);
+
+    expect(csv).toContain("'=HYPERLINK");
+    expect(csv).toContain("'+1");
+    expect(csv).toContain("'@SUM(A1)");
+    expect(csv).toContain("-3");
+  });
+});

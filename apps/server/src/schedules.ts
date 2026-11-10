@@ -186,8 +186,12 @@ export const projectSchedule = async (projectId: string, filter: ScheduleFilter 
   };
 };
 
+// Text from a project can start like a formula; Excel would run it, so such a cell starts with an apostrophe (#177).
+const FORMULA_START = /^[=+\-@\t\r]/;
+
 const csvCell = (value: string | number | null) => {
-  const text = value === null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
+  const raw = value === null ? "" : typeof value === "number" ? String(value).replace(".", ",") : value;
+  const text = typeof value === "string" && FORMULA_START.test(raw) ? `'${raw}` : raw;
   return /[";\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 };
 

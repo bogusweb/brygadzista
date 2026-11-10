@@ -31,7 +31,7 @@ import { chatThreads } from "./chat-threads.js";
 import { revisions } from "./revisions.js";
 import { schedules } from "./schedules.js";
 import { checklists } from "./checklists.js";
-import { operator } from "./operator.js";
+import { operator, requireOperator } from "./operator.js";
 import { citationCheck } from "./citations.js";
 import { config } from "./config.js";
 import { embeddingStatus } from "./embedding-sets.js";
@@ -45,6 +45,7 @@ import { site } from "./site.js";
 import { FakeProjectAgent } from "./fake-agent.js";
 import { OfficeTimeout, looksLikeWord, wordExtension, wordProblem, wordToPdf } from "./office.js";
 import { pdfPageCount } from "./pdf.js";
+import { sandboxAvailable } from "./sandbox.js";
 import { projectOutline } from "./project-outline.js";
 import { designerAnswersPrompt, questions } from "./questions.js";
 import { mcp } from "./mcp.js";
@@ -137,11 +138,17 @@ app.use("*", async (c, next) => {
   return jsonLimit(c, next);
 });
 
-// `llm` tells an operator at a glance whether the OpenRouter key reached the server.
-app.get("/api/health", (c) => c.json({ ok: true, llm: Boolean(config.openrouterApiKey) }));
+// For the container healthcheck; it tells nobody outside how the server is set up (#177).
+app.get("/api/health", (c) => c.json({ ok: true }));
 
-// The embedding model search uses, and the progress of a change to a new one (#46).
-app.get("/api/admin/embeddings", requireRole("admin"), async (c) => c.json(await embeddingStatus()));
+// For the operator: whether the OpenRouter key reached the server, and whether file converters run sandboxed (#169).
+app.get("/api/operator/status", requireRole("admin"), requireOperator, (c) =>
+  c.json({ llm: Boolean(config.openrouterApiKey), converterSandbox: sandboxAvailable() }),
+);
+
+// The embedding model search uses, and the progress of a change to a new one (#46). It is the same for every firm,
+// so it is the operator's (#177).
+app.get("/api/admin/embeddings", requireRole("admin"), requireOperator, async (c) => c.json(await embeddingStatus()));
 app.route("/", users);
 app.route("/", operator);
 app.route("/", tenants);
