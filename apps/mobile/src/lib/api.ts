@@ -12,6 +12,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    // The login needs the code from the authenticator app (#176).
+    readonly totpRequired = false,
   ) {
     super(message);
   }

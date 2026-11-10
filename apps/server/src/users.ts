@@ -23,6 +23,7 @@ import {
 } from "./auth.js";
 import { defaultTenantId, sql } from "./db.js";
 import { limiters, tooManyRequests } from "./rate-limit.js";
+import { totpEnabled, useSecondFactor } from "./totp.js";
 
 const MIN_PASSWORD_LENGTH = 10;
 const TENANT_ROLES: TenantRole[] = ["owner", "manager", "worker"];
@@ -66,7 +67,7 @@ const me = async (principal: Principal) => ({
 export const users = new Hono<AuthEnv>();
 
 users.post("/api/auth/login", async (c) => {
-  const body = await c.req.json<{ email?: unknown; password?: unknown }>().catch(() => ({}) as Record<string, unknown>);
+  const body = await c.req.json<{ email?: unknown; password?: unknown; code?: unknown }>().catch(() => ({}) as Record<string, unknown>);
   if (typeof body.email !== "string" || typeof body.password !== "string") return c.json({ error: "Podaj e-mail i hasło" }, 400);
   const email = normalizeEmail(body.email);
   const retryAfter = limiters.loginIp.hit(clientIp(c.req.raw)) ?? limiters.loginEmail.hit(email);
@@ -77,6 +78,11 @@ users.post("/api/auth/login", async (c) => {
     from users where email = ${email}`;
   if (!(await verifyPassword(user?.passwordHash, body.password)) || !user || user.disabled) {
     return c.json({ error: "Nieprawidłowy e-mail lub hasło" }, 401);
+  }
+  // With the second factor on (#176), the password alone opens nothing; the client asks for the code and sends both again.
+  if (await totpEnabled(user.id)) {
+    if (typeof body.code !== "string" || !body.code.trim()) return c.json({ error: "Podaj kod z aplikacji uwierzytelniającej", totpRequired: true }, 401);
+    if (!(await useSecondFactor(user.id, body.code))) return c.json({ error: "Nieprawidłowy kod", totpRequired: true }, 401);
   }
   limiters.loginEmail.forget(email);
   const tenants = await tenantsOf(user.id);

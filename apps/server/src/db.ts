@@ -630,6 +630,7 @@ const migrateTenants = async () => {
   await sql`alter table users add column if not exists totp_secret text`;
   await sql`alter table users add column if not exists totp_enabled_at timestamptz`;
   await sql`alter table users add column if not exists totp_recovery text[] not null default '{}'`;
+  await sql`alter table users add column if not exists totp_last_counter bigint`;
 };
 
 // Every table with a tenant_id gets a policy for TENANT_ROLE. The server's own role owns the tables and is not limited,

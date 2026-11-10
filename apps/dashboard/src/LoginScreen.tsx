@@ -13,6 +13,8 @@ export const LoginScreen = ({ onSignIn }: Props) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
+  // Shown once the server says the account has the second factor on (#176).
+  const [code, setCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // After login with several firms the person picks one before entering the panel.
@@ -20,7 +22,9 @@ export const LoginScreen = ({ onSignIn }: Props) => {
 
   const fail = (cause: unknown, unauthorized: string) =>
     setError(
-      cause instanceof ApiError && cause.status === 401
+      cause instanceof ApiError && cause.totpRequired
+        ? cause.message
+        : cause instanceof ApiError && cause.status === 401
         ? unauthorized
         : cause instanceof Error
           ? cause.message
@@ -38,7 +42,7 @@ export const LoginScreen = ({ onSignIn }: Props) => {
     setBusy(true);
     setError(null);
     try {
-      const result = await publicApi.login(email.trim(), password);
+      const result = await publicApi.login(email.trim(), password, code?.trim() || undefined);
       const firms = panelFirms(result.tenants);
       if (result.operator && firms.length === 0) return onSignIn(result.token);
       if (firms.length === 0) {
@@ -48,6 +52,10 @@ export const LoginScreen = ({ onSignIn }: Props) => {
       if (firms.length === 1) return await enterFirm(result.token, firms[0]!, result.tenant);
       setChoice({ token: result.token, firms });
     } catch (cause) {
+      if (cause instanceof ApiError && cause.totpRequired && code === null) {
+        setCode("");
+        return;
+      }
       fail(cause, "Nieprawidłowy e-mail lub hasło.");
     } finally {
       setBusy(false);
@@ -140,12 +148,28 @@ export const LoginScreen = ({ onSignIn }: Props) => {
               }}
             />
           </label>
+          {code !== null && (
+            <label className="field">
+              <span>Kod z aplikacji uwierzytelniającej</span>
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={code}
+                onChange={(event) => {
+                  setCode(event.target.value);
+                  setError(null);
+                }}
+                autoFocus
+              />
+              <span className="muted small">6 cyfr z aplikacji albo kod zapasowy</span>
+            </label>
+          )}
           {error && (
             <p className="error" role="alert">
               {error}
             </p>
           )}
-          <button type="submit" className="button primary" disabled={busy || !email.trim() || !password}>
+          <button type="submit" className="button primary" disabled={busy || !email.trim() || !password || code?.trim() === ""}>
             {busy ? "Loguję…" : "Zaloguj się"}
           </button>
           <button

@@ -186,6 +186,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    // The login needs the code from the authenticator app (#176).
+    readonly totpRequired = false,
   ) {
     super(message);
   }
@@ -197,8 +199,8 @@ const request = async <T>(token: string | null, path: string, init: RequestInit 
     headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", ...init.headers },
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new ApiError(body?.error ?? `Błąd serwera (${response.status})`, response.status);
+    const body = (await response.json().catch(() => null)) as { error?: string; totpRequired?: boolean } | null;
+    throw new ApiError(body?.error ?? `Błąd serwera (${response.status})`, response.status, body?.totpRequired === true);
   }
   return (response.status === 204 ? undefined : await response.json()) as T;
 };
@@ -245,7 +247,8 @@ const post = (body: unknown, method = "POST"): RequestInit => ({ method, body: J
 
 // Requests that need no session: signing in and the invitation page.
 export const publicApi = {
-  login: (email: string, password: string) => request<LoginResult>(null, "/api/auth/login", post({ email, password })),
+  login: (email: string, password: string, code?: string) =>
+    request<LoginResult>(null, "/api/auth/login", post(code ? { email, password, code } : { email, password })),
   inviteInfo: (token: string) => request<InviteInfo>(null, `/api/invites/token/${encodeURIComponent(token)}`),
   acceptInvite: (token: string, body: { email?: string; name: string; password: string }) =>
     request<{ email: string; tenant: Tenant }>(null, `/api/invites/token/${encodeURIComponent(token)}/accept`, post(body)),

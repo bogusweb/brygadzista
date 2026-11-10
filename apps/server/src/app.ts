@@ -54,6 +54,7 @@ import { limiters, rateLimit } from "./rate-limit.js";
 import { addTenantStorage, documentDir, documentPdf, pageImage, projectDir, storageFullMessage, storageRoom, tenantOfProject } from "./storage.js";
 import { tenants } from "./tenants.js";
 import { users } from "./users.js";
+import { totp } from "./totp.js";
 import { fileAccess, requireRoleOrQueryToken } from "./file-access.js";
 
 // Chat is limited per user on agent runs only; the runtime's info and connect calls are free.
@@ -151,6 +152,7 @@ app.get("/api/operator/status", requireRole("admin"), requireOperator, (c) =>
 // so it is the operator's (#177).
 app.get("/api/admin/embeddings", requireRole("admin"), requireOperator, async (c) => c.json(await embeddingStatus()));
 app.route("/", users);
+app.route("/", totp);
 app.route("/", operator);
 app.route("/", tenants);
 app.route("/", pins);
