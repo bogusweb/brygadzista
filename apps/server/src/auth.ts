@@ -1,6 +1,7 @@
 import { hash, verify } from "@node-rs/argon2";
 import type { Context, MiddlewareHandler } from "hono";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { clientIp } from "./client-ip.js";
 import { config } from "./config.js";
 import { sql, withTenant } from "./db.js";
 
@@ -111,9 +112,16 @@ const legacyAppTenant = async (): Promise<Tenant | null> => {
   return tenant ? { ...tenant, role: "manager" } : null;
 };
 
-export const principalFromToken = async (token: string | undefined): Promise<Principal | null> => {
+// ADMIN_TOKEN (#168): empty turns it off (production should log in with the operator's account), and
+// ADMIN_TOKEN_IPS limits where it works from.
+const adminTokenAllowed = (request: Request | undefined) =>
+  !config.adminTokenIps.length || (request !== undefined && config.adminTokenIps.includes(clientIp(request)));
+
+export const principalFromToken = async (token: string | undefined, request?: Request): Promise<Principal | null> => {
   if (!token) return null;
-  if (sameToken(token, config.adminToken)) return { role: "admin", user: null, operator: true, tenant: null };
+  if (config.adminToken && sameToken(token, config.adminToken)) {
+    return adminTokenAllowed(request) ? { role: "admin", user: null, operator: true, tenant: null } : null;
+  }
   if (sameToken(token, config.appToken)) return { role: "app", user: null, operator: false, tenant: await legacyAppTenant() };
   if (!token.startsWith("bs_")) return null;
   const session = await sessionOf(token);
@@ -138,7 +146,10 @@ export const canAccessProject = async (principal: Principal, projectId: string):
   if (!isUuid(projectId)) return null;
   const [project] = await sql<{ tenantId: string }[]>`select tenant_id as "tenantId" from projects where id = ${projectId}`;
   if (!project) return null;
-  if (principal.operator) return project.tenantId;
+  if (principal.operator) {
+    if (principal.tenant?.id !== project.tenantId) await auditOperatorRead(principal, project.tenantId);
+    return project.tenantId;
+  }
   const { tenant, user } = principal;
   if (!tenant || tenant.id !== project.tenantId) return null;
   if (tenant.role !== "worker") return project.tenantId;
@@ -146,6 +157,25 @@ export const canAccessProject = async (principal: Principal, projectId: string):
   const [member] = await sql`select 1 from project_members where project_id = ${projectId} and user_id = ${user.id}`;
   return member ? project.tenantId : null;
 };
+
+// An operator can read any firm's project without entering the firm. Each such read is written down (#168), once an
+// hour per operator and firm, so the audit shows who looked at which firm's data without flooding it.
+const OPERATOR_READ_AUDIT_MS = 60 * 60_000;
+const operatorReads = new Map<string, number>();
+const auditOperatorRead = async (principal: Principal, tenantId: string) => {
+  const who = principal.user?.id ?? "ADMIN_TOKEN";
+  const key = `${who}:${tenantId}`;
+  const now = Date.now();
+  if ((operatorReads.get(key) ?? 0) > now - OPERATOR_READ_AUDIT_MS) return;
+  if (operatorReads.size > 10_000) operatorReads.clear();
+  operatorReads.set(key, now);
+  await sql`
+    insert into operator_audit (tenant_id, tenant_name, action, operator_id, operator_name)
+    select id, name, 'read', ${principal.user?.id ?? null}, ${principal.user?.email ?? "ADMIN_TOKEN"} from tenants where id = ${tenantId}`;
+};
+
+// Only for tests.
+export const forgetOperatorReads = () => operatorReads.clear();
 
 // Projects the principal can see, as a condition on `projects p`.
 export const visibleProjects = (principal: Principal) => {
@@ -164,7 +194,7 @@ export const projectOfDocument = async (documentId: string) => {
 };
 
 const authorize = (allowed: Role[], token: string | undefined): MiddlewareHandler<AuthEnv> => async (c, next) => {
-  const principal = await principalFromToken(token);
+  const principal = await principalFromToken(token, c.req.raw);
   if (!principal || !allowed.includes(principal.role)) return c.json({ error: "Brak dostępu" }, 401);
   c.set("principal", principal);
   await next();
@@ -198,7 +228,7 @@ export const requireDocumentAccess = (param = "id"): MiddlewareHandler<AuthEnv> 
 // The CopilotKit runtime builds the agent from the raw request, so the agent factory checks access on its own
 // instead of trusting that a middleware ran before it.
 export const agentProject = async (request: Request, allowed: Role[]) => {
-  const principal = await principalFromToken(bearerToken(request.headers.get("authorization")));
+  const principal = await principalFromToken(bearerToken(request.headers.get("authorization")), request);
   if (!principal || !allowed.includes(principal.role)) throw new Error("Brak dostępu");
   const projectId = request.headers.get("x-project-id");
   if (!projectId) throw new Error("Brak nagłówka x-project-id");

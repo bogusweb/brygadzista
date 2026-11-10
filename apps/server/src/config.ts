@@ -6,6 +6,23 @@ const requireEnv = (name: string, fallback?: string): string => {
   return value;
 };
 
+const production = process.env.NODE_ENV === "production";
+
+const adminTokenFromEnv = () => {
+  const token = process.env.ADMIN_TOKEN ?? (production ? "" : "dev-admin");
+  if (production && token === "dev-admin") throw new Error("ADMIN_TOKEN=dev-admin w produkcji: ustaw długi losowy token albo zostaw pusty");
+  return token;
+};
+
+// The compose file's development password; the server says so at start in production (#168).
+export const usesDefaultDatabasePassword = (url: string) => {
+  try {
+    return decodeURIComponent(new URL(url).password) === "brygadzista";
+  } catch {
+    return false;
+  }
+};
+
 export const config = {
   port: Number(process.env.PORT ?? 3000),
   databaseUrl: requireEnv("DATABASE_URL", "postgres://brygadzista:brygadzista@localhost:5432/brygadzista"),
@@ -16,7 +33,10 @@ export const config = {
   // ADMIN_TOKEN is the operator: every firm, e.g. to create the first accounts. APP_TOKEN, the shared app code from
   // before accounts, no longer works in production now that the app logs in with accounts (#91); tests and local
   // development keep it as a quick key to the oldest firm.
-  adminToken: requireEnv("ADMIN_TOKEN", "dev-admin"),
+  // In production it has no default (#168): unset or empty, the token does not work at all, and the operator logs in
+  // with an account. A set token must be long and random; ADMIN_TOKEN_IPS (comma separated) limits where it works.
+  adminToken: adminTokenFromEnv(),
+  adminTokenIps: (process.env.ADMIN_TOKEN_IPS ?? "").split(",").map((ip) => ip.trim()).filter(Boolean),
   appToken: process.env.NODE_ENV === "production" ? "" : (process.env.APP_TOKEN ?? "dev-app"),
   // Address of the server as people outside see it, for read-only links and QR codes (#84, #82). Without it the
   // address is taken from the request (behind a proxy, from X-Forwarded-Proto and Host).

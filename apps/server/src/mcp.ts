@@ -200,7 +200,7 @@ const unauthorized = () =>
   });
 
 mcp.post("/mcp", async (c) => {
-  const principal = await principalFromToken(bearerToken(c.req.header("authorization")) ?? c.req.query("token"));
+  const principal = await principalFromToken(bearerToken(c.req.header("authorization")) ?? c.req.query("token"), c.req.raw);
   if (!principal) return unauthorized();
   const body = await c.req.json().catch(() => undefined);
   if (body === undefined) return c.json(rpcError(null, -32700, "Parse error"), 400);

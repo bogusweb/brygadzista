@@ -89,3 +89,31 @@ describe("small fixes (#177)", () => {
     expect(csv).toContain("-3");
   });
 });
+
+describe("operator token and reads (#168)", () => {
+  it("lets ADMIN_TOKEN work only from ADMIN_TOKEN_IPS when they are set", async () => {
+    const { config } = await import("../src/config.js");
+    const { ADMIN } = await import("./helpers.js");
+    config.adminTokenIps = ["203.0.113.5"];
+    try {
+      expect((await app.request("/api/projects", { headers: { ...ADMIN, "cf-connecting-ip": "198.51.100.1" } })).status).toBe(401);
+      expect((await app.request("/api/projects", { headers: { ...ADMIN, "cf-connecting-ip": "203.0.113.5" } })).status).toBe(200);
+    } finally {
+      config.adminTokenIps = [];
+    }
+  });
+
+  it("writes down when an operator reads a firm's project without entering the firm", async () => {
+    const { ADMIN, createProject, createTenant } = await import("./helpers.js");
+    const { forgetOperatorReads } = await import("../src/auth.js");
+    forgetOperatorReads();
+    const firm = await createTenant("Firma czytana");
+    const project = await createProject("Dom", firm);
+
+    await app.request(`/api/projects/${project}/documents`, { headers: ADMIN });
+    await app.request(`/api/projects/${project}/documents`, { headers: ADMIN });
+
+    const rows = await sql`select tenant_name, action, operator_name from operator_audit where tenant_id = ${firm}`;
+    expect(rows).toEqual([{ tenant_name: "Firma czytana", action: "read", operator_name: "ADMIN_TOKEN" }]);
+  });
+});
