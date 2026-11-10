@@ -49,6 +49,7 @@ import { sandboxAvailable } from "./sandbox.js";
 import { projectOutline } from "./project-outline.js";
 import { designerAnswersPrompt, questions } from "./questions.js";
 import { mcp } from "./mcp.js";
+import { mcpTokens } from "./mcp-tokens.js";
 import { pins, removeDocumentPhotos } from "./pins.js";
 import { limiters, rateLimit } from "./rate-limit.js";
 import { documentDir, documentPdf, pageImage, projectDir } from "./storage.js";
@@ -164,6 +165,7 @@ app.route("/", cards);
 app.route("/", schedules);
 app.route("/", revisions);
 app.route("/", mcp);
+app.route("/", mcpTokens);
 
 app.use("/api/copilotkit/*", requireRole("app", "admin"), rateLimit(limiters.chat, isAgentRun), chatThreads);
 app.route("/", createCopilotEndpoint({ runtime: appRuntime, basePath: "/api/copilotkit" }));

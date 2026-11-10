@@ -79,7 +79,9 @@ openship.yaml   docker compose dla Openship na serwerze ruth154 (kontekst budowa
 | GET/POST | `/api/projects/:id/questions` (pytania do projektanta, #73; POST `{question, documentId?, pageNo?, region?, reason?}`) | app/admin |
 | PATCH/DELETE | `/api/projects/:id/questions/:questionId` (`{answer}` zamyka pytanie, pusta odpowiedź otwiera je ponownie) | app/admin |
 | GET | `/api/documents/:id/pages/:n/crop?x=&y=&w=&h=` (wycinek rysunku, ułamki arkusza; także `?token=`) | app/admin |
-| POST | `/mcp` (serwer MCP tylko do odczytu, #47; token w nagłówku albo `?token=`) | app/admin |
+| POST | `/mcp` (serwer MCP tylko do odczytu, #47; token konektora `bm_…` w nagłówku albo `?token=`, sesja tylko w nagłówku, #166) | app/admin |
+| GET/POST/DELETE | `/api/mcp-tokens` (tokeny konektorów MCP, #166) | app/admin |
+| GET/DELETE | `/api/auth/sessions`, `POST /api/auth/sessions/end-others` (własne sesje, #167) | app/admin |
 | * | `/api/copilotkit/*` (nagłówek `x-project-id`) | app/admin |
 | * | `/api/admin/copilotkit/*` (z A2UI) | admin |
 
@@ -105,7 +107,7 @@ Obca budowa, dokument, strona, zdjęcie czy wpis odpowiada 404, także przez age
 
 **Dziennik dnia** (#69): nagranie (m4a z telefonu, mp4 lub ogg z przeglądarki, do `MAX_DIARY_AUDIO_MB`) jest zapisywane w katalogu `diary/` budowy i porządkowane w tle: transkrypcja i wpis (prace, ludzie, dostawy, pogoda, problemy, odniesienia do stron projektu) robi model czatu (`AGENT_MODEL`, region EU, bez retencji). Strony do odniesień szuka wyszukiwanie słowne i kodów, bez embeddingów. Nieudany wpis zostaje z nagraniem, `retry` porządkuje go ponownie; wpis przerwany restartem serwer bierze po starcie. `clientId` z kolejki offline sprawia, że powtórzone wysłanie nie tworzy drugiego wpisu. Z `FAKE_AGENT=1` transkrypcja i wpis są skryptowane.
 
-**Serwer MCP** (#47): projekt można podłączyć do Claude Desktop albo claude.ai jako własny konektor (Ustawienia → Konektory → Dodaj własny konektor) pod adresem `https://<serwer>/mcp?token=<token>`. Token to sesja konta (`bs_…` z `POST /api/auth/login`), więc konektor widzi tylko budowy tego konta, a wylogowanie albo zmiana hasła go odcina. Narzędzia tylko czytają: `list_projects`, `search_project`, `get_project_outline`, `get_pages`, `get_page_image`. Transport to Streamable HTTP bez sesji (każdy POST to jedno żądanie JSON-RPC z odpowiedzią JSON). Limit `RATE_LIMIT_MCP_PER_MINUTE` wywołań narzędzi na konto (domyślnie 60). Token w adresie trafia do historii i logów proxy, dlatego na później zostaje OAuth.
+**Serwer MCP** (#47): projekt można podłączyć do Claude Desktop albo claude.ai jako własny konektor (Ustawienia → Konektory → Dodaj własny konektor) pod adresem `https://<serwer>/mcp?token=<token>`. Token to osobny token konektora (`bm_…`, #166), który tworzy się w panelu (Konto → Tokeny MCP) albo przez `POST /api/mcp-tokens`: ma nazwę, działa w jednej firmie, tylko czyta, wygasa (domyślnie po 180 dniach) i można go odwołać bez wylogowania. Sesja logowania (`bs_…`) działa tylko w nagłówku `Authorization`, nigdy w adresie. Narzędzia tylko czytają: `list_projects`, `search_project`, `get_project_outline`, `get_pages`, `get_page_image`. Transport to Streamable HTTP bez sesji (każdy POST to jedno żądanie JSON-RPC z odpowiedzią JSON). Limit `RATE_LIMIT_MCP_PER_MINUTE` wywołań narzędzi na konto (domyślnie 60).
 
 ## Lokalnie
 

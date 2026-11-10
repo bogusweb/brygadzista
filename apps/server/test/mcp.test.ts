@@ -55,12 +55,44 @@ afterAll(async () => {
 });
 
 describe("MCP endpoint", () => {
-  it("needs a token, in the header or in ?token=", async () => {
+  it("needs a token; in ?token= only a connector token, never the login session (#166)", async () => {
     const anonymous = await rpc({}, "tools/list");
     expect(anonymous.status).toBe(401);
 
-    const viaQuery = await rpc({}, "tools/list", undefined, `/mcp?token=${owner.authorization!.slice("Bearer ".length)}`);
+    const sessionInUrl = await rpc({}, "tools/list", undefined, `/mcp?token=${owner.authorization!.slice("Bearer ".length)}`);
+    expect(sessionInUrl.status).toBe(401);
+
+    const created = await app.request("/api/mcp-tokens", {
+      method: "POST",
+      headers: { ...owner, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Claude na laptopie" }),
+    });
+    expect(created.status).toBe(201);
+    const { id, token } = (await created.json()) as { id: string; token: string };
+    expect(token).toMatch(/^bm_/);
+
+    const viaQuery = await rpc({}, "tools/list", undefined, `/mcp?token=${token}`);
     expect(viaQuery.status).toBe(200);
+    expect((await rpc({ authorization: `Bearer ${token}` }, "tools/list")).status).toBe(200);
+    const listed = (await (await app.request("/api/mcp-tokens", { headers: owner })).json()) as { name: string }[];
+    expect(listed.map((row) => row.name)).toEqual(["Claude na laptopie"]);
+
+    expect((await app.request(`/api/mcp-tokens/${id}`, { method: "DELETE", headers: owner })).status).toBe(204);
+    expect((await rpc({}, "tools/list", undefined, `/mcp?token=${token}`)).status).toBe(401);
+  });
+
+  it("gives a connector token only the projects of its firm, and nothing once the person is blocked there", async () => {
+    const created = await app.request("/api/mcp-tokens", {
+      method: "POST",
+      headers: { ...owner, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Konektor" }),
+    });
+    const { token } = (await created.json()) as { token: string };
+    const listed = await rpc({ authorization: `Bearer ${token}` }, "tools/call", { name: "list_projects", arguments: {} });
+    expect(JSON.stringify(listed.body)).not.toContain("Cudza budowa");
+
+    await sql`update tenant_members set blocked_at = now()`;
+    expect((await rpc({ authorization: `Bearer ${token}` }, "tools/list")).status).toBe(401);
   });
 
   it("answers the handshake and lists read-only tools with JSON schemas", async () => {
